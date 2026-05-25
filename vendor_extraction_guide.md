@@ -413,7 +413,7 @@ allow hal_vibrator_default timed_output_device:chr_file rw_file_perms;
 
 ## 📁 File Layout Reference
 
-The `system/vendor/` directory structure has been pre-created in this project. Place your extracted files here:
+The `system/vendor/` directory structure should look like this. Place your extracted files here:
 
 ```
 project_root/
