@@ -94,8 +94,15 @@ nano config.env
 
 ### Deploy
 
+> ⚠️ **IMPORTANT (KernelSU / KSU Next Users):**  
+> If you are using KernelSU or KSU Next, you **MUST** install a mount system like **Magic Mount** (or similar) to make overlays work. Without it, the APK will not be placed in `/system/product/overlay/` correctly and will not activate.
+>
+> ❌ **DO NOT use 'OverlayFS'** — this has a high chance of causing a **BOOTLOOP**. OverlayFS support is not yet implemented.
+
 ```bash
 # Via KernelSU (recommended — persistent across reboots)
+# 1. Open KernelSU App → Modules → Install from storage → select the .zip
+# OR via CLI:
 adb push treble-overlay-<device>-ksu.zip /sdcard/
 adb shell su -c 'ksud module install /sdcard/treble-overlay-<device>-ksu.zip'
 adb reboot
