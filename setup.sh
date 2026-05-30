@@ -45,10 +45,10 @@ acquire_framework_res() {
     echo ""
     info "Almost ready! We just need framework-res.apk (the resource dictionary)."
     echo "  Options to get it:"
-    echo -e "    ${BOLD}[1]${NC} Download Android 15 Resources (${GREEN}Recommended${NC})"
-    echo -e "    ${BOLD}[2]${NC} Download Android 16 (Preview)"
-    echo -e "    ${BOLD}[3]${NC} Download Android 14"
-    echo -e "    ${BOLD}[4]${NC} Download Android 13"
+    echo -e "    ${BOLD}[1]${NC} Download Android 13 Resources (${GREEN}Recommended${NC})"
+    echo -e "    ${BOLD}[2]${NC} Download Android 14"
+    echo -e "    ${BOLD}[3]${NC} Download Android 15"
+    echo -e "    ${BOLD}[4]${NC} Download Android 16 (Preview)"
     echo -e "    ${BOLD}[5]${NC} Pull from your device (${YELLOW}Often fails / missing resources${NC})"
     echo -e "    ${BOLD}[n]${NC} Skip for now"
     echo ""
@@ -69,10 +69,10 @@ acquire_framework_res() {
             ;;
         1|2|3|4)
             mkdir -p "${TOOLS_DIR}"
-            local sdk_ver="35"
-            [ "$res_choice" == "2" ] && sdk_ver="36"
-            [ "$res_choice" == "3" ] && sdk_ver="34"
-            [ "$res_choice" == "4" ] && sdk_ver="33"
+            local sdk_ver="33" # Default 13
+            [ "$res_choice" == "2" ] && sdk_ver="34"
+            [ "$res_choice" == "3" ] && sdk_ver="35"
+            [ "$res_choice" == "4" ] && sdk_ver="36"
             
             local tmp_zip="${TOOLS_DIR}/platform_tmp.zip"
             
