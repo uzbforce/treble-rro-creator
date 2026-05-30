@@ -113,7 +113,7 @@ You need a reference file so aapt2 can find system IDs. Pulled files from your p
 #   treble-overlay-<device>-ksu.zip        — Flashable KSU/Magisk module
 ```
 
-> **First run?** If `config.env` doesn't exist, `build.sh` will create one with generic values. config.env.example contains example values.
+> **First run?** If you haven't edited `config.env` yet, `build.sh` will create rro with generic values. config.env.example contains example values.
 
 ### Deploy
 
