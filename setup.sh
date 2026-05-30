@@ -48,13 +48,14 @@ acquire_framework_res() {
     echo -e "    ${BOLD}[1]${NC} Download Android 15 Resources (${GREEN}Recommended${NC})"
     echo -e "    ${BOLD}[2]${NC} Download Android 16 (Preview)"
     echo -e "    ${BOLD}[3]${NC} Download Android 14"
-    echo -e "    ${BOLD}[4]${NC} Pull from your device (${YELLOW}Often fails / missing resources${NC})"
+    echo -e "    ${BOLD}[4]${NC} Download Android 13"
+    echo -e "    ${BOLD}[5]${NC} Pull from your device (${YELLOW}Often fails / missing resources${NC})"
     echo -e "    ${BOLD}[n]${NC} Skip for now"
     echo ""
-    read -r -p "  Choose [1/2/3/4]: " res_choice
+    read -r -p "  Choose [1/2/3/4/5]: " res_choice
 
     case "$res_choice" in
-        4)
+        5)
             mkdir -p "${TOOLS_DIR}"
             info "Attempting to pull..."
             if cp /system/framework/framework-res.apk "${TOOLS_DIR}/framework-res.apk" 2>/dev/null; then
@@ -66,18 +67,20 @@ acquire_framework_res() {
                 info "Please use one of the Download options instead."
             fi
             ;;
-        1|2|3)
+        1|2|3|4)
             mkdir -p "${TOOLS_DIR}"
             local sdk_ver="35"
             [ "$res_choice" == "2" ] && sdk_ver="36"
             [ "$res_choice" == "3" ] && sdk_ver="34"
+            [ "$res_choice" == "4" ] && sdk_ver="33"
             
             local tmp_zip="${TOOLS_DIR}/platform_tmp.zip"
             
             info "Downloading Android ${sdk_ver} platform resources from Google..."
-            # Try different revisions (r01, r02, r03) until one works
+            # Try different revisions (r03, r02, r01) until one works
             local success=false
-            for rev in r02 r01 r03; do
+            for rev in r03 r02 r01; do
+                info "  Trying revision ${rev}..."
                 if curl --fail -L "https://dl.google.com/android/repository/platform-${sdk_ver}_${rev}.zip" -o "$tmp_zip"; then
                     success=true
                     break
@@ -88,12 +91,19 @@ acquire_framework_res() {
                 info "Extracting android.jar from platform zip..."
                 unzip -j -o "$tmp_zip" "*/android.jar" -d "${TOOLS_DIR}/" || { err "Extraction failed"; rm -f "$tmp_zip"; return 1; }
                 
+                if [ ! -f "${TOOLS_DIR}/android.jar" ]; then
+                    err "unzip succeeded but android.jar was not found in the zip!"
+                    rm -f "$tmp_zip"
+                    return 1
+                fi
+
                 info "Renaming and cleaning up..."
                 mv "${TOOLS_DIR}/android.jar" "${TOOLS_DIR}/framework-res.apk"
                 rm -f "$tmp_zip"
-                ok "Android ${sdk_ver} resources installed to tools/framework-res.apk"
+                ok "Android ${sdk_ver} resources installed to tools/framework-res.apk ($(du -sh "${TOOLS_DIR}/framework-res.apk" | cut -f1))"
             else
-                err "Download failed! Please check your internet or try a different version."
+                err "Download failed for all revisions! Google might have moved the files."
+                info "Try pulling from your device or manual download."
                 return 1
             fi
             ;;

@@ -72,7 +72,7 @@ Building RROs on your phone is highly recommended.
    ```
 4. **Setup & Build:**
    ```bash
-   ./setup.sh  # Selection [3], then Choose Option [1]
+   ./setup.sh  # Selection [3], then Choose Option [1] (Android 15) or [4] (Android 13)
    ./build.sh
    ```
 
