@@ -1,5 +1,5 @@
 # Treble Overlay Project
-# IF YOU INSTALL VIA KSU/N AS A MODULE, DON'T FORGET TO INSTALL MOUNT SYSTEM LIKE MAGIC MOUNT OR OverlayFS
+
 IF YOU ARE HAVING PROBLEMS WITH UNDERSTANDING, INSTALL freebuff CLI, install npm first:
 For Debian/Ubuntu: "sudo apt install npm" 
 For Arch: "sudo pacman -S npm"
