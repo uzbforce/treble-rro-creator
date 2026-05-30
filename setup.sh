@@ -37,17 +37,18 @@ echo -e "${BOLD}  ╚═══════════════════�
 echo ""
 
 acquire_framework_res() {
-    if [ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]; then
+    local force="$1"
+    if [ "$force" != "force" ] && ([ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]); then
         return 0
     fi
 
     echo ""
     info "Almost ready! We just need framework-res.apk (the resource dictionary)."
     echo "  Options to get it:"
-    echo -e "    ${BOLD}[1]${NC} Download from Google (Android 15 SDK — ${GREEN}Recommended${NC})"
-    echo -e "    ${BOLD}[2]${NC} Download from Google (Android 16 Preview)"
-    echo -e "    ${BOLD}[3]${NC} Download from Google (Android 14 SDK)"
-    echo -e "    ${BOLD}[4]${NC} Pull from your device (${YELLOW}May fail on some GSIs/OEMs${NC})"
+    echo -e "    ${BOLD}[1]${NC} Download Android 15 Resources (${GREEN}Recommended${NC})"
+    echo -e "    ${BOLD}[2]${NC} Download Android 16 (Preview)"
+    echo -e "    ${BOLD}[3]${NC} Download Android 14"
+    echo -e "    ${BOLD}[4]${NC} Pull from your device (${YELLOW}Often fails / missing resources${NC})"
     echo -e "    ${BOLD}[n]${NC} Skip for now"
     echo ""
     read -r -p "  Choose [1/2/3/4]: " res_choice
@@ -55,41 +56,46 @@ acquire_framework_res() {
     case "$res_choice" in
         4)
             mkdir -p "${TOOLS_DIR}"
-            info "Attempting to pull... note: if this fails to build later, use the Download option."
+            info "Attempting to pull..."
             if cp /system/framework/framework-res.apk "${TOOLS_DIR}/framework-res.apk" 2>/dev/null; then
                 ok "framework-res.apk pulled successfully"
             elif command -v su &>/dev/null && su -c "cp /system/framework/framework-res.apk \"${TOOLS_DIR}/framework-res.apk\"" 2>/dev/null; then
                 ok "framework-res.apk pulled successfully (via su)"
-            elif command -v adb &>/dev/null; then
-                info "Attempting to pull via ADB..."
-                if adb pull /system/framework/framework-res.apk "${TOOLS_DIR}/framework-res.apk" 2>/dev/null; then
-                    ok "framework-res.apk pulled via ADB"
-                else
-                    err "Failed to pull framework-res.apk"
-                fi
             else
-                err "Failed to pull framework-res.apk (permission denied and no ADB/su found)"
+                err "Failed to pull framework-res.apk (Permission denied)"
+                info "Please use one of the Download options instead."
             fi
             ;;
         1|2|3)
             mkdir -p "${TOOLS_DIR}"
-            local sdk_ver="35" # Default 15
+            local sdk_ver="35"
             [ "$res_choice" == "2" ] && sdk_ver="36"
             [ "$res_choice" == "3" ] && sdk_ver="34"
             
-            info "Downloading Android ${sdk_ver} platform SDK..."
-            curl -sL "https://dl.google.com/android/repository/platform-${sdk_ver}_r01.zip" -o /tmp/platform.zip || \
-            curl -sL "https://dl.google.com/android/repository/platform-${sdk_ver}_r02.zip" -o /tmp/platform.zip
+            local tmp_zip="${TOOLS_DIR}/platform_tmp.zip"
             
-            info "Extracting android.jar from platform zip..."
-            unzip -j /tmp/platform.zip "*/android.jar" -d "${TOOLS_DIR}/"
-            
-            info "Renaming android.jar to framework-res.apk (required by aapt2)..."
-            mv "${TOOLS_DIR}/android.jar" "${TOOLS_DIR}/framework-res.apk"
-            
-            info "Cleaning up temporary platform zip..."
-            rm -f /tmp/platform.zip
-            ok "Android ${sdk_ver} resources installed to tools/"
+            info "Downloading Android ${sdk_ver} platform resources from Google..."
+            # Try different revisions (r01, r02, r03) until one works
+            local success=false
+            for rev in r02 r01 r03; do
+                if curl --fail -L "https://dl.google.com/android/repository/platform-${sdk_ver}_${rev}.zip" -o "$tmp_zip"; then
+                    success=true
+                    break
+                fi
+            done
+
+            if [ "$success" = "true" ]; then
+                info "Extracting android.jar from platform zip..."
+                unzip -j -o "$tmp_zip" "*/android.jar" -d "${TOOLS_DIR}/" || { err "Extraction failed"; rm -f "$tmp_zip"; return 1; }
+                
+                info "Renaming and cleaning up..."
+                mv "${TOOLS_DIR}/android.jar" "${TOOLS_DIR}/framework-res.apk"
+                rm -f "$tmp_zip"
+                ok "Android ${sdk_ver} resources installed to tools/framework-res.apk"
+            else
+                err "Download failed! Please check your internet or try a different version."
+                return 1
+            fi
             ;;
     esac
 }
@@ -184,29 +190,22 @@ case "$env_choice" in
         sudo apt update
         sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res
 
-        # Re-check what's now available
-        echo ""
-        echo -e "${BOLD}  Verifying installation...${NC}"
-        echo ""
+        # Re-check tools
         check_tool aapt2
         check_tool zipalign
         check_tool apksigner
 
-        if [ -f "/usr/share/android-framework-res/framework-res.apk" ]; then
-            ok "framework-res.apk installed"
-        fi
-
+        # Force resource menu so user can pick Android 14/15/16
+        acquire_framework_res force
+        
         if command -v aapt2 &>/dev/null && command -v zipalign &>/dev/null && \
-           command -v apksigner &>/dev/null && [ -f "/usr/share/android-framework-res/framework-res.apk" ]; then
+           command -v apksigner &>/dev/null && ([ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]); then
             echo ""
-            ok "All tools installed via apt! Ready to build."
+            ok "All tools and resources ready! Ready to build."
             echo ""
             echo "  Run: ./build.sh"
             echo ""
             exit 0
-        else
-            echo ""
-            info "Some tools still missing after apt — falling back to manual download."
         fi
         ;;
     2)
@@ -223,9 +222,11 @@ case "$env_choice" in
         check_tool zipalign
         check_tool apksigner
 
+        acquire_framework_res force
+
         if command -v aapt2 &>/dev/null && command -v zipalign &>/dev/null && \
            command -v apksigner &>/dev/null; then
-            acquire_framework_res
+            # (Double check resources inside acquire_framework_res logic)
             if [ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]; then
                 echo ""
                 ok "All tools and resources ready! Ready to build."
@@ -250,7 +251,7 @@ case "$env_choice" in
         check_tool zipalign
         check_tool apksigner
 
-        acquire_framework_res
+        acquire_framework_res force
 
         if command -v aapt2 &>/dev/null && command -v zipalign &>/dev/null && \
            command -v apksigner &>/dev/null && ([ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]); then
