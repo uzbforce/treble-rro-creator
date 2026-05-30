@@ -51,10 +51,10 @@ All device-specific settings are in **[`config.env`](config.env)** — edit that
 
 Or install via your package manager:
 
-## 📱 Termux (Android) Master Guide
+## Termux (Android) Master Guide
 Building RROs on your phone is highly recommended. 
 
-> ⚠️ **IMPORTANT:** Do NOT use `/sdcard`. You **MUST** clone to the internal home directory.
+**Important:** Do NOT use /sdcard. You MUST clone to the internal home directory.
 
 1. **Install Termux:** [F-Droid version](https://f-droid.org/en/packages/com.termux/) is required for the latest build tools.
 2. **Setup:**
@@ -72,28 +72,28 @@ Building RROs on your phone is highly recommended.
    ```
 4. **Setup & Build:**
    ```bash
-   ./setup.sh  # Choose Option 1 (Android 15) for best results
+   ./setup.sh  # Selection [3], then Choose Option [1]
    ./build.sh
    ```
 
 ---
 
-## 💻 PC Installation
+## PC Installation
 
 ### Tools
 Install via your package manager:
 
 ```bash
-# ── Debian / Ubuntu / Linux Mint ──
+# Debian / Ubuntu / Linux Mint
 sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res
 
-# ── Arch Linux / Manjaro ──
+# Arch Linux / Manjaro
 # Install basics: sudo pacman -S android-tools jdk-openjdk
 # Then run ./setup.sh to get aapt2/apksigner via local download or AUR
 ```
 
 ### Resource Dictionary (framework-res.apk)
-You need a reference file so `aapt2` can find system IDs. Pulled files from your phone often fail because they are "optimized" by the manufacturer.
+You need a reference file so aapt2 can find system IDs. Pulled files from your phone often fail because they are optimized by the manufacturer.
 
 **Recommended:** Run `./setup.sh` and choose the **Download from Google** option. It works on both PC and Termux.
 

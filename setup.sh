@@ -81,9 +81,13 @@ acquire_framework_res() {
             curl -sL "https://dl.google.com/android/repository/platform-${sdk_ver}_r01.zip" -o /tmp/platform.zip || \
             curl -sL "https://dl.google.com/android/repository/platform-${sdk_ver}_r02.zip" -o /tmp/platform.zip
             
-            info "Extracting android.jar..."
+            info "Extracting android.jar from platform zip..."
             unzip -j /tmp/platform.zip "*/android.jar" -d "${TOOLS_DIR}/"
+            
+            info "Renaming android.jar to framework-res.apk (required by aapt2)..."
             mv "${TOOLS_DIR}/android.jar" "${TOOLS_DIR}/framework-res.apk"
+            
+            info "Cleaning up temporary platform zip..."
             rm -f /tmp/platform.zip
             ok "Android ${sdk_ver} resources installed to tools/"
             ;;
@@ -160,28 +164,20 @@ if [ -z "$MISSING" ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 2: Package manager method (Debian/Ubuntu)
+# Step 2: Choose your environment
 # ─────────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}  Missing:${NC}$MISSING"
+echo -e "  ${BOLD}Choose your environment to install dependencies:${NC}"
+echo -e "    ${BOLD}[1]${NC} Debian / Ubuntu / Linux Mint (uses apt)"
+echo -e "    ${BOLD}[2]${NC} Arch Linux / Manjaro (uses pacman)"
+echo -e "    ${BOLD}[3]${NC} Android (uses Termux pkg)"
+echo -e "    ${BOLD}[4]${NC} Skip (Manual / Other)"
 echo ""
+read -r -p "  Selection [1/2/3/4]: " env_choice
 
-# Detect OS
-OS_ID=""
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS_ID=$ID
-fi
-
-if command -v apt &>/dev/null; then
-    echo -e "${BOLD}  Debian/Ubuntu detected.${NC}"
-    echo "  The easiest way is to install via apt (requires sudo)."
-    echo ""
-    echo -e "  ${YELLOW}Install via apt? [y/N]${NC}"
-    read -r INSTALL_APT
-
-    if [[ "$INSTALL_APT" =~ ^[Yy]$ ]]; then
-        echo ""
+case "$env_choice" in
+    1)
+        info "Debian/Ubuntu selected."
         info "Running: sudo apt update && sudo apt install -y \\"
         echo "         aapt android-sdk-build-tools apksigner android-framework-res"
         echo ""
@@ -212,16 +208,9 @@ if command -v apt &>/dev/null; then
             echo ""
             info "Some tools still missing after apt — falling back to manual download."
         fi
-    fi
-elif command -v pacman &>/dev/null || [[ "${OS_ID,,}" == "arch" || "${ID_LIKE,,}" == *"arch"* ]]; then
-    echo -e "${BOLD}  Arch Linux detected.${NC}"
-    echo "  Some tools are in AUR, but we can install the basics via pacman."
-    echo ""
-    echo -e "  ${YELLOW}Install basics (android-tools, jdk-openjdk) via pacman? [y/N]${NC}"
-    read -r INSTALL_PACMAN
-
-    if [[ "$INSTALL_PACMAN" =~ ^[Yy]$ ]]; then
-        echo ""
+        ;;
+    2)
+        info "Arch Linux selected."
         info "Running: sudo pacman -S --needed android-tools jdk-openjdk"
         echo ""
         sudo pacman -S --needed android-tools jdk-openjdk
@@ -246,16 +235,9 @@ elif command -v pacman &>/dev/null || [[ "${OS_ID,,}" == "arch" || "${ID_LIKE,,}
                 exit 0
             fi
         fi
-    fi
-elif [ -d "/data/data/com.termux" ]; then
-    echo -e "${BOLD}  Termux (Android) detected.${NC}"
-    echo "  We can install all tools directly via pkg."
-    echo ""
-    echo -e "  ${YELLOW}Install via pkg? [y/N]${NC}"
-    read -r INSTALL_TERMUX
-
-    if [[ "$INSTALL_TERMUX" =~ ^[Yy]$ ]]; then
-        echo ""
+        ;;
+    3)
+        info "Termux selected."
         info "Running: pkg install aapt2 apksigner android-tools openjdk-17 unzip curl tsu"
         echo ""
         pkg install aapt2 apksigner android-tools openjdk-17 unzip curl tsu
@@ -279,8 +261,11 @@ elif [ -d "/data/data/com.termux" ]; then
             echo ""
             exit 0
         fi
-    fi
-fi
+        ;;
+    *)
+        info "Skipping package manager installation."
+        ;;
+esac
 
 # ─────────────────────────────────────────────────────────────────────────
 # Step 3: Manual download into tools/
