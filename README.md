@@ -1,5 +1,5 @@
 # Treble Overlay Project
-# IF YOU INSTALL VIA KSU/N AS A MODULE, DON'T FORGET TO INSTALL MOUNT SYSTEM LIKE MAGIC MOUNT OR OverlayFS
+
 IF YOU ARE HAVING PROBLEMS WITH UNDERSTANDING, INSTALL freebuff CLI, install npm first:
 For Debian/Ubuntu: "sudo apt install npm" 
 For Arch: "sudo pacman -S npm"
@@ -51,35 +51,58 @@ All device-specific settings are in **[`config.env`](config.env)** — edit that
 
 Or install via your package manager:
 
+## Termux (Android) Master Guide
+Building RROs on your phone is highly recommended. 
+
+**Important:** Do NOT use /sdcard. You MUST clone to the internal home directory.
+
+1. **Install Termux:** [F-Droid version](https://f-droid.org/en/packages/com.termux/) is required for the latest build tools.
+2. **Setup:**
+   ```bash
+   termux-setup-storage
+   pkg update && pkg upgrade
+   pkg install git aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu
+   ```
+3. **Download Project:**
+   ```bash
+   cd ~
+   git clone https://github.com/uzbforce/treble-rro-creator
+   cd treble-rro-creator
+   chmod +x *.sh
+   ```
+4. **Setup & Build:**
+   ```bash
+   ./setup.sh  # Selection [3], then Choose Option [1] (Android 13 - Recommended)
+   ./build.sh
+   ```
+
+---
+
+## PC Installation
+
+### Tools
+Install via your package manager:
+
 ```bash
-# ── Debian / Ubuntu / Linux Mint ──
+# Debian / Ubuntu / Linux Mint
 sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res
 
-# ── Arch Linux / Manjaro (via AUR) ──
-yay -S android-sdk-build-tools android-sdk-platform-tools
-# Or use sdkmanager:
-#   ./tools/cmdline-tools/bin/sdkmanager --sdk_root=tools/android-sdk "build-tools;35.0.0"
-
-# ── Fedora / RHEL ──
-# No official packages — use sdkmanager:
-#   ./tools/cmdline-tools/bin/sdkmanager --sdk_root=tools/android-sdk "build-tools;35.0.0"
-
-# ── macOS (Homebrew) ──
-brew install --cask android-platform-tools
-# Then use sdkmanager for build-tools:
-#   ./tools/cmdline-tools/bin/sdkmanager --sdk_root=tools/android-sdk "build-tools;35.0.0"
+# Arch Linux / Manjaro
+# Install basics: sudo pacman -S android-tools jdk-openjdk
+# Then run ./setup.sh to get aapt2/apksigner via local download or AUR
 ```
 
-You also need the **Android framework-res APK** for compilation (setup.sh handles this):
-- **Option 1:** `sudo apt install android-framework-res` (Debian/Ubuntu)
-- **Option 2:** Pull from your device: `adb pull /system/framework/framework-res.apk tools/`
-- **Option 3:** From Android SDK: `./tools/cmdline-tools/bin/sdkmanager --sdk_root=tools/android-sdk "platforms;android-35"`
+### Resource Dictionary (framework-res.apk)
+You need a reference file so aapt2 can find system IDs. Pulled files from your phone often fail because they are optimized by the manufacturer.
 
-### Build
+**Recommended:** Run `./setup.sh` and choose the **Download from Google** option. It works on both PC and Termux.
+
+---
+
+## 🛠️ Build & Deploy
 
 ```bash
 # 1. Edit config.env with YOUR device's values
-nano config.env
 
 # 2. Build
 ./build.sh
@@ -90,12 +113,18 @@ nano config.env
 #   treble-overlay-<device>-ksu.zip        — Flashable KSU/Magisk module
 ```
 
-> **First run?** If `config.env` doesn't exist, `build.sh` will create one with default values (Samsung A90 5G reference). Edit it to match your device and re-run.
+> **First run?** If you haven't edited `config.env` yet, `build.sh` will create rro with generic values. config.env.example contains example values.
 
 ### Deploy
 
+> ⚠️ **IMPORTANT (KernelSU / KSU Next Users):**  
+> If you are using KernelSU or KSU Next, you **MUST** install a mount system like **Magic Mount** (or similar) to make overlays work. Without it, the APK will not be placed in `/system/product/overlay/` correctly and will not activate.
+>
+> ❌ **DO NOT use 'OverlayFS'** — this has a high chance of causing a **BOOTLOOP**. OverlayFS is dangerous for SELinux policies and VINTF manifests as a module
 ```bash
 # Via KernelSU (recommended — persistent across reboots)
+# 1. Open KernelSU App → Modules → Install from storage → select the .zip
+# OR via CLI:
 adb push treble-overlay-<device>-ksu.zip /sdcard/
 adb shell su -c 'ksud module install /sdcard/treble-overlay-<device>-ksu.zip'
 adb reboot
@@ -104,9 +133,10 @@ adb reboot
 # Open Magisk app → Modules → Install from storage → select the .zip
 ```
 
-> ⚠️ **Do NOT push APKs directly to /system/product/overlay/ — they won't persist on dynamic partitions!** Always use the KSU/Magisk module.
+> ⚠️ **Do NOT push APKs directly to /system/product/overlay/ — they won't persist and won't have enough permissions!** Always use the KSU/Magisk module.
 
 ### Verify
+Just take a look at the corner roundness during animations, brightness etc
 
 ```bash
 # Check overlay is enabled
@@ -168,7 +198,7 @@ adb shell su -c 'getprop | grep -E "udfps|fingerprint|ims"'
 
 ### Overlay Mechanism
 
-An RRO (Runtime Resource Overlay) is an APK that overrides values in the target package (the Android framework) without modifying the framework itself. At boot, `idmap2` creates a mapping between overlay resources and framework resources.
+A RRO (Runtime Resource Overlay) is an APK that overrides values in the target package (the Android framework) without modifying the framework itself. At boot, `idmap2` creates a mapping between overlay resources and framework resources.
 
 ```
 GSI framework-res.apk  ← idmap2 ←  Our overlay APK
@@ -183,6 +213,7 @@ GSIs use **dynamic partitions** — `/system/product/overlay/` doesn't persist a
 1. KSU stores modules in `/data/adb/modules/<module_id>/`
 2. At boot, `bind mount` overlays the module's files onto `/system/product/overlay/`
 3. The overlay APK is automatically picked up by the package manager
+4. And it will give the overlay apks required permissions
 
 ### Properties vs Settings
 

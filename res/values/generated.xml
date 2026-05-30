@@ -6,6 +6,9 @@
 -->
 <resources>
 
+    <bool name="config_supportsUdfps">true</bool>
+    <bool name="config_supportsScreenOffUdfps">true</bool>
+
     <bool name="config_dozeAlwaysOnDisplayAvailable">true</bool>
 
     <bool name="config_dozeAfterScreenOffByDefault">true</bool>
@@ -39,13 +42,19 @@
     <integer name="config_screenBrightnessSettingDefault">128</integer>
     <integer name="config_screenBrightnessSettingMaximum">255</integer>
 
-    <item name="config_screenBrightnessDozeFloat" format="float" type="dimen">.23529411</item>
-    <item name="config_screenBrightnessDimFloat" format="float" type="dimen">.05882352</item>
+    <item name="config_screenBrightnessDozeFloat" format="float" type="dimen">0.23529411</item>
+    <item name="config_screenBrightnessDimFloat" format="float" type="dimen">0.05882352</item>
     <item name="config_screenBrightnessSettingMinimumFloat" format="float" type="dimen">0</item>
-    <item name="config_screenBrightnessSettingDefaultFloat" format="float" type="dimen">.50196078</item>
+    <item name="config_screenBrightnessSettingDefaultFloat" format="float" type="dimen">0.50196078</item>
     <item name="config_screenBrightnessSettingMaximumFloat" format="float" type="dimen">1.00000000</item>
 
     <integer name="config_defaultRefreshRate">60</integer>
     <integer name="config_defaultPeakRefreshRate">60</integer>
+
+    <integer-array name="config_udfps_sensor_props">
+        <item>540</item>
+        <item>2145</item>
+        <item>114</item>
+    </integer-array>
 
 </resources>
