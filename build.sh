@@ -16,7 +16,8 @@
 #   2. If yes, copy it and proceed with the build
 #   3. If no, generate a placeholder config and exit for you to edit
 #
-# Usage: ./build.sh
+# Usage: ./build.sh [--check]
+#   --check: Validate config.env values and exit without building.
 #
 # Requirements: aapt2, zipalign, apksigner, framework-res.apk
 #
@@ -40,6 +41,11 @@ cd "$SCRIPT_DIR"
 # This allows setup.sh to install tools locally without sudo.
 if [ -d "${SCRIPT_DIR}/tools" ]; then
     export PATH="${SCRIPT_DIR}/tools:${PATH}"
+    # zipalign from build-tools needs libc++.so
+    BT_LIB64=$(ls -d "${SCRIPT_DIR}/tools/android-sdk/build-tools/"*/lib64 2>/dev/null | head -1)
+    if [ -n "$BT_LIB64" ] && [ -f "$BT_LIB64/libc++.so" ]; then
+        export LD_LIBRARY_PATH="$BT_LIB64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
 fi
 
 # Colors
@@ -48,6 +54,15 @@ ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 info() { echo -e "  ${YELLOW}→${NC} $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*" >&2; }
 step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+
+# ── Check mode ──────────────────────────────────────────────────────────────
+# If --check is passed, validate config.env and exit without building.
+CHECK_MODE=false
+for arg in "$@"; do
+    if [ "$arg" = "--check" ]; then
+        CHECK_MODE=true
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Backup helper
@@ -794,6 +809,13 @@ if $has_placeholder; then
     echo -e "  ${YELLOW}│${NC}                                                       ${YELLOW}│${NC}"
     echo -e "  ${YELLOW}│${NC}  You need to edit config.env and set your device info. ${YELLOW}│${NC}"
     echo -e "  ${YELLOW}└──────────────────────────────────────────────────────────┘${NC}"
+    if [ "$CHECK_MODE" = "true" ]; then
+        echo ""
+        echo -e "  ${RED}✗${NC} Config has placeholder values — edit config.env first"
+        echo ""
+        exit 1
+    fi
+
     echo ""
     echo -e "  ${BOLD}[1]${NC} Generate with generic values (for quick testing only)"
     echo -e "  ${BOLD}[2]${NC} Cancel and edit config.env"
@@ -852,14 +874,16 @@ else
     echo -e "  ${BOLD}Builder:${NC}"
     echo -e "    Android:         ${ANDROID_VERSION} (API ${COMPILE_SDK_VERSION})"
     echo ""
-    echo -e "  ${YELLOW}Are these values correct for your device?${NC}"
-    read -r -p "  [Y/n] " confirm_values
+    if [ "$CHECK_MODE" != "true" ]; then
+        echo -e "  ${YELLOW}Are these values correct for your device?${NC}"
+        read -r -p "  [Y/n] " confirm_values
 
-    if [[ "$confirm_values" =~ ^[Nn] ]]; then
-        echo ""
-        echo -e "  ${YELLOW}→${NC} Edit config.env with the correct values, then re-run: ${BOLD}./build.sh${NC}"
-        echo ""
-        exit 0
+        if [[ "$confirm_values" =~ ^[Nn] ]]; then
+            echo ""
+            echo -e "  ${YELLOW}→${NC} Edit config.env with the correct values, then re-run: ${BOLD}./build.sh${NC}"
+            echo ""
+            exit 0
+        fi
     fi
     echo ""
 fi
@@ -873,6 +897,15 @@ echo -e "  Device:    ${BOLD}${DEVICE_MANUFACTURER} ${DEVICE_MODEL}${NC}"
 echo -e "  Codename:  ${DEVICE_CODENAME} (prop: ${DEVICE_PROP_NAME}=${DEVICE_PROP_VALUE})"
 echo -e "  Overlay:   ${OVERLAY_NAME}"
 echo -e "  Android:   ${ANDROID_VERSION} (API ${COMPILE_SDK_VERSION})"
+
+# Check mode — validate and exit
+if [ "$CHECK_MODE" = "true" ]; then
+    echo ""
+    echo -e "  ${GREEN}✓${NC} Config validation passed"
+    echo -e "  ${YELLOW}→${NC} Run without --check to build"
+    echo ""
+    exit 0
+fi
 
 # Store derived values
 OVERLAY_VERSION="1.0"

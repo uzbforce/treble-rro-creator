@@ -77,11 +77,13 @@ acquire_framework_res() {
             local tmp_zip="${TOOLS_DIR}/platform_tmp.zip"
             
             info "Downloading Android ${sdk_ver} platform resources from Google..."
-            # Try different revisions (r03, r02, r01) until one works
+            # Try different revisions until one works
             local success=false
-            for rev in r03 r02 r01; do
-                info "  Trying revision ${rev}..."
-                if curl --fail -L "https://dl.google.com/android/repository/platform-${sdk_ver}_${rev}.zip" -o "$tmp_zip"; then
+            for rev in r08 r07 r06 r05 r04 r03 r02 r01 ""; do
+                local url="https://dl.google.com/android/repository/platform-${sdk_ver}_${rev}.zip"
+                url="${url%_}" # strip trailing underscore if rev is empty
+                info "  Trying ${url}..."
+                if curl --fail -L "$url" -o "$tmp_zip" 2>/dev/null; then
                     success=true
                     break
                 fi
@@ -89,7 +91,7 @@ acquire_framework_res() {
 
             if [ "$success" = "true" ]; then
                 info "Extracting android.jar from platform zip..."
-                unzip -j -o "$tmp_zip" "*/android.jar" -d "${TOOLS_DIR}/" || { err "Extraction failed"; rm -f "$tmp_zip"; return 1; }
+                unzip -j -o "$tmp_zip" "*/android.jar" -d "${TOOLS_DIR}/" 2>/dev/null || { err "Extraction failed"; rm -f "$tmp_zip"; return 1; }
                 
                 if [ ! -f "${TOOLS_DIR}/android.jar" ]; then
                     err "unzip succeeded but android.jar was not found in the zip!"
@@ -144,9 +146,9 @@ check_tool() {
     return 1
 }
 
-check_tool aapt2
-check_tool zipalign
-check_tool apksigner
+check_tool aapt2 || true
+check_tool zipalign || true
+check_tool apksigner || true
 
 # Check framework-res.apk
 if [ -f "/usr/share/android-framework-res/framework-res.apk" ]; then
@@ -201,9 +203,9 @@ case "$env_choice" in
         sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res zip
 
         # Re-check tools
-        check_tool aapt2
-        check_tool zipalign
-        check_tool apksigner
+        check_tool aapt2 || true
+        check_tool zipalign || true
+        check_tool apksigner || true
 
         # Force resource menu so user can pick Android 14/15/16
         acquire_framework_res force
@@ -228,9 +230,9 @@ case "$env_choice" in
         echo ""
         echo -e "${BOLD}  Verifying installation...${NC}"
         echo ""
-        check_tool aapt2
-        check_tool zipalign
-        check_tool apksigner
+        check_tool aapt2 || true
+        check_tool zipalign || true
+        check_tool apksigner || true
 
         acquire_framework_res force
 
@@ -257,9 +259,9 @@ case "$env_choice" in
         echo ""
         echo -e "${BOLD}  Verifying installation...${NC}"
         echo ""
-        check_tool aapt2
-        check_tool zipalign
-        check_tool apksigner
+        check_tool aapt2 || true
+        check_tool zipalign || true
+        check_tool apksigner || true
 
         acquire_framework_res force
 
