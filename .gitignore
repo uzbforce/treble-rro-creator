@@ -21,6 +21,9 @@ system/product/overlay/
 .module_tmp/
 tmp/
 
+# Downloaded build tools (setup.sh)
+tools/
+
 # IDE
 .idea/
 *.iml
