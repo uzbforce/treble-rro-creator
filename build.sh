@@ -188,7 +188,6 @@ GENEOF
     <dimen name="status_bar_height">${STATUS_BAR_HEIGHT}.0px</dimen>
     <dimen name="status_bar_height_portrait">${STATUS_BAR_HEIGHT}.0px</dimen>
     <dimen name="status_bar_height_landscape">${STATUS_BAR_HEIGHT_LANDSCAPE}.0px</dimen>
-    <dimen name="status_bar_padding_start">${STATUS_BAR_PADDING_START}.0px</dimen>
 
 GENEOF
 
