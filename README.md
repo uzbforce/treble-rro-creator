@@ -73,9 +73,22 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
 4. **Setup & Build:**
    ```bash
    ./setup.sh  # Selection [3], then Choose Option [1] (Android 13 - Recommended)
+   ```
+   Configure config.env using mtmanager (/data/data/com.termux/files/home/treble-rro-creator/), or using:
+   ```bash
+   nano config.env
+   ```
+   Then Build:
+   ```bash
    ./build.sh
    ```
-
+5. **Install:**
+   You can either manually copy the ksu module manually via mtmanager with the path given above or:
+   ```bash
+   cp treble-overlay-*.zip /sdcard/
+   ```
+   Install Meta magic mount rs module first and reboot if installin via KSU/N.
+   Flash the copied zip file in your root manager app and reboot.
 ---
 
 ## PC Installation
