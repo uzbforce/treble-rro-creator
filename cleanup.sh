@@ -44,11 +44,7 @@ fmt_size() {
 }
 
 list_build_artifacts() {
-    find . -maxdepth 1 \( \
-        -name 'treble-overlay-*.apk' -o \
-        -name 'treble-overlay-*.zip' -o \
-        -name '*.idsig' \
-    \) -type f 2>/dev/null | sort
+    [ -d "out" ] && find out -type f \( -name '*.apk' -o -name '*.zip' \) 2>/dev/null | sort
 }
 
 # ---------------------------------------------------------------------------
@@ -92,17 +88,19 @@ echo -e "${NC}"
 # ---------------------------------------------------------------------------
 BUILD_ARTIFACTS=$(list_build_artifacts)
 HAS_BUILD_DIR=$([ -d "build" ] && echo "yes" || echo "no")
+HAS_OUT_DIR=$([ -d "out" ] && echo "yes" || echo "no")
 HAS_CONFIG=$([ -f "config.env" ] && echo "yes" || echo "no")
 HAS_VENDOR_FILES=$([ -d "system/vendor" ] && [ "$(find system/vendor -type f 2>/dev/null | wc -l)" -gt 0 ] && echo "yes" || echo "no")
 
 echo -e "  ${BOLD}Current state:${NC}"
-if [ -n "$BUILD_ARTIFACTS" ] || [ "$HAS_BUILD_DIR" = "yes" ]; then
+if [ -n "$BUILD_ARTIFACTS" ] || [ "$HAS_BUILD_DIR" = "yes" ] || [ "$HAS_OUT_DIR" = "yes" ]; then
     if [ -n "$BUILD_ARTIFACTS" ]; then
         while IFS= read -r f; do
-            echo -e "    ${YELLOW}▲${NC} $(basename "$f")  ($(fmt_size "$f"))"
+            echo -e "    ${YELLOW}▲${NC} $f  ($(fmt_size "$f"))"
         done <<< "$BUILD_ARTIFACTS"
     fi
     [ "$HAS_BUILD_DIR" = "yes" ] && echo -e "    ${YELLOW}▲${NC} build/  ($(fmt_size "build"))"
+    [ "$HAS_OUT_DIR" = "yes" ] && echo -e "    ${YELLOW}▲${NC} out/  ($(fmt_size "out"))"
     [ -f "AndroidManifest.xml" ] && echo -e "    ${YELLOW}▲${NC} AndroidManifest.xml  (auto-generated)"
     [ -f "module.prop" ] && echo -e "    ${YELLOW}▲${NC} module.prop  (auto-generated)"
 else
@@ -136,16 +134,8 @@ case "$choice" in
 
         step "Quick Clean — Removing build artifacts"
         
-        for f in treble-overlay-*.apk; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
-        for f in treble-overlay-*-ksu.zip; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
-        for f in *.idsig; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
         [ -d "build" ] && rm -rf build && ok "Removed: build/"
+        [ -d "out" ] && rm -rf out && ok "Removed: out/"
         [ -d ".module_tmp" ] && rm -rf .module_tmp && ok "Removed: .module_tmp/"
         for f in AndroidManifest.xml module.prop; do
             [ -f "$f" ] && rm -f "$f" && ok "Removed: $f (auto-generated)"
@@ -197,16 +187,8 @@ case "$choice" in
         
         step "Full Clean — Build artifacts"
         
-        for f in treble-overlay-*.apk; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
-        for f in treble-overlay-*-ksu.zip; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
-        for f in *.idsig; do
-            [ -f "$f" ] && rm -f "$f" && ok "Removed: $f"
-        done
         [ -d "build" ] && rm -rf build && ok "Removed: build/"
+        [ -d "out" ] && rm -rf out && ok "Removed: out/"
         [ -d ".module_tmp" ] && rm -rf .module_tmp && ok "Removed: .module_tmp/"
         for f in AndroidManifest.xml module.prop; do
             [ -f "$f" ] && rm -f "$f" && ok "Removed: $f (auto-generated)"

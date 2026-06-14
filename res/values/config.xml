@@ -1,108 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Samsung Galaxy A90 5G (SM-A908 / r3q) Treble Overlay
-    Framework resource overrides extracted from stock One UI 4.1 vendor RRO.
-    Only includes resources that exist in AOSP/Phh-Treble framework.
-
-    Device specs:
-      - Snapdragon 855 (SM8150)
-      - 6.7" FHD+ (1080x2400) Super AMOLED, ~420 dpi
-      - In-display optical fingerprint sensor (UDFPS)
-      - 4500 mAh battery, 25W fast charge
+    Framework resource overrides — universal AOSP defaults.
+    
+    =========================================================================
+    ⚠️ IMPORTANT: Device-specific values go in config.env, NOT here!
+    =========================================================================
+    
+    For your device-specific overlay config:
+      1. Run ./setup.sh to get the Android 13 framework-res.apk
+      2. Extract stock overlay APKs from your device:
+           /system/product/overlay/framework-res__auto_generated_rro_product.apk
+           /system/vendor/overlay/framework-res__auto_generated_rro_vendor.apk
+      3. Decompile with apktool and compare values (see README for guide link)
+      4. Put the product-specific values in a file at project root:
+           stock_overlay.xml
+         The build will automatically include it.
+    
+    For values controlled by config.env (UDFPS, AOD, brightness, etc.):
+      Edit config.env → build.sh generates res/values/generated.xml
+    
+    For simple bool/integer/string overrides:
+      Uncomment the corresponding OPTIONAL STOCK VALUES in config.env
 -->
 <resources>
 
     <!-- ============================================================
-         RADIO: Supported access families
-         Declares GSM, WCDMA, LTE, and NR (5G) support.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml
-         ============================================================ -->
-    <string name="config_radio_access_family" translatable="false">GSM|WCDMA|LTE|NR</string>
-
-    <!-- ============================================================
-         TELEPHONY: Restore network selection
-         Tells the modem to handle network selection restoration, not the
-         Android framework. This is needed for Samsung RIL.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml
-         ============================================================ -->
-    <bool name="skip_restoring_network_selection">true</bool>
-
-    <!-- ============================================================
-         TELEPHONY: Don't switch phone on voice reg state change
-         Prevents unnecessary phone object switching when voice
-         registration state changes.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml
-         ============================================================ -->
-    <bool name="config_switch_phone_on_voice_reg_state_change">false</bool>
-
-    <!-- ============================================================
-         BIOMETRIC SENSORS — A16 QPR2 GSI Compatible
-         Declares the UDFPS fingerprint sensor to the biometric
-         framework (sensorId=0, modality=FINGERPRINT, strength=STRONG).
-         Combined with persist.sys.phh.samsung_fingerprint=1
-         (set in service.sh), Phh-Treble remaps Type 3 (back)
-         to Type 2 (UDFPS) for the Goodix ET715 optical sensor.
-         Verified present in A16 API 36 framework-res.
-         ============================================================ -->
-    <string-array name="config_biometric_sensors">
-        <item>0:2:15</item>
-    </string-array>
-
-    <!-- ======================================================================
-         UDFPS SENSOR POSITION — now controlled by config.env via generated.xml
-         Set UDFPS_X, UDFPS_Y, UDFPS_RADIUS in config.env.
-         Must be <integer-array> (NOT <string-array>!) — getIntArray() fails
-         on string arrays and returns null, breaking the sensor touch area.
-         Reference values (Samsung A90 5G): [540, 2145, 114]
-         ====================================================================== -->
-
-    <!-- ============================================================
-         SCREEN BRIGHTNESS — Now controlled by config.env via generated.xml
-         Set BRIGHTNESS_DIM/BRIGHTNESS_DARK/BRIGHTNESS_DOZE/
-         BRIGHTNESS_MIN/BRIGHTNESS_DEFAULT/BRIGHTNESS_MAX in config.env.
-         Float equivalents are computed automatically (divided by 255).
-         ============================================================ -->
-
-    <!-- ============================================================
-         DISPLAY CUTOUT
-         Exact Infinity-U notch path from stock One UI 4.1 vendor RRO.
-         ============================================================ -->
-    <string name="config_mainBuiltInDisplayCutout" translatable="false">
-        M-35.93,0C-29.26,0,-23.46,3.85,-22.46,9.56l.12.73a22.69,22.69,0,0,0,44.68,0l.12-.73C23.5,3.85,29.26,0,35.93,0Z @dp
-    </string>
-
-    <!-- ============================================================
-         LIGHT SENSOR TYPE — controlled by config.env LIGHT_SENSOR_TYPE
-         Set LIGHT_SENSOR_TYPE in config.env (e.g., "com.samsung.sensor.physical_light").
-         ============================================================ -->
-
-    <!-- ============================================================
-         UDFPS DOZE SENSOR
-         Sensor type for UDFPS long-press detection during AOD/doze.
-         LineageOS/Phh-Treble standard sensor for UDFPS in sleep.
-         Source: A13 vendor overlay
-         ============================================================ -->
-    <string name="config_dozeUdfpsLongPressSensorType" translatable="false">
-        org.lineageos.sensor.udfps
-    </string>
-
-    <!-- ============================================================
-         DOZE / AOD
+         DOZE / AOD (Universal AOSP service component)
          ============================================================ -->
     <string name="config_dozeComponent" translatable="false">
         com.android.systemui/com.android.systemui.doze.DozeService
     </string>
 
     <!-- ============================================================
-         POWER / BATTERY (4500 mAh)
+         POWER / BATTERY (Universal default levels)
          ============================================================ -->
     <integer name="config_criticalBatteryWarningLevel">5</integer>
     <integer name="config_lowBatteryWarningLevel">15</integer>
     <integer name="config_lowBatteryCloseWarningBump">3</integer>
-
-    <!-- ============================================================
-         REFRESH RATE — controlled by config.env DEFAULT_REFRESH_RATE / PEAK_REFRESH_RATE
-         ============================================================ -->
 
     <!-- ============================================================
          MULTIUSER
@@ -110,41 +44,27 @@
     <integer name="config_multiuserMaximumUsers">4</integer>
 
     <!-- ============================================================
-         AUTO-BRIGHTNESS DEBOUNCE (A13 vendor overlay values)
+         AUTO-BRIGHTNESS DEBOUNCE (AOSP defaults)
          ============================================================ -->
     <integer name="config_autoBrightnessBrighteningLightDebounce">2000</integer>
     <integer name="config_autoBrightnessDarkeningLightDebounce">6000</integer>
     <integer name="config_lightSensorWarmupTime">200</integer>
 
     <!-- ============================================================
-         AUTO-BRIGHTNESS ARRAYS (28-level stock curve)
-         Defined in integers.xml: config_autoBrightnessLevels +
-         config_autoBrightnessLcdBacklightValues (28 items each).
-
-         NOTE: Hysteresis arrays (BrighteningLevels/Lux/DarkeningLevels/Lux)
-         are also in integers.xml extracted from stock vendor RRO.
-         They are standard AOSP resources (added in Android 12) and should
-         exist on A16 QPR2 GSI. If the target GSI lacks them, idmap2
-         silently skips them with a warning — NOT a crash or bootloop.
-         ============================================================ -->
-
-    <!-- ============================================================
-         IMS SERVICE PACKAGES
-         Qualcomm IMS service bindings for SM8150.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml
-         ============================================================ -->
-
-    <!-- ============================================================
-         5G / VoLTE — Phh-Treble properties + slsiims IMS overlay
-         A90 5G uses Snapdragon 855 with Samsung vendor (libsec-ril.so).
-         Despite the Snapdragon SoC, the vendor uses Samsung's proprietary
-         RIL/IMS stack. Enabled in service.sh via:
-           - persist.sys.phh.ims.sec (Samsung IMS)
-           - persist.sys.phh.force_display_5g
-           - slsiims_telephony overlay
-
-         NOT ims.caf — that's for pure Qualcomm vendor images.
-         Stock: init.svc.imsd=running, Samsung RIL v4.0
+         ⬇ PLACE YOUR EXTRACTED STOCK VALUES BELOW ⬇
+         
+         To extract your device-specific values:
+         1. Follow the guide at the top of this file
+         2. Extract values from your stock product overlay APK
+         3. Place them here, or better: create stock_overlay.xml
+         
+         Common values to extract:
+         - config_radio_access_family (e.g., "GSM|WCDMA|LTE|NR")
+         - config_biometric_sensors (fingerprint sensor config)
+         - config_mainBuiltInDisplayCutout (notch/cutout path)
+         - skip_restoring_network_selection (Samsung RIL)
+         - config_switch_phone_on_voice_reg_state_change
+         - config_dozeUdfpsLongPressSensorType
          ============================================================ -->
 
 </resources>

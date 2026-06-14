@@ -1,191 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Samsung Galaxy A90 5G (r3q) integer/array overrides
-
-    AUTO-BRIGHTNESS MAPPING:
-    These arrays map ambient light sensor lux values to display
-    brightness levels (0-255). Extracted from stock One UI 4.1
-    vendor RRO (framework-res__auto_generated_rro_vendor.apk)
-    on SM-A908NKSU5EXE1 (Android 12, S6E3FC2 AMOLED panel).
-
-    Stock source: 28 lux thresholds + 28 backlight values.
-    These are the exact values Samsung calibrates for this panel.
+    Device-specific integer arrays — EXTRACT FROM YOUR STOCK FIRMWARE.
+    
+    ⚠️ The auto-brightness curves below are PLACEHOLDER values only!
+    
+    These must be replaced with values from YOUR device's stock overlay APK:
+      /system/product/overlay/framework-res__auto_generated_rro_product.apk
+      /system/vendor/overlay/framework-res__auto_generated_rro_vendor.apk
+    
+    See the TrebleDroid overlay guide for extraction instructions:
+    https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F
+    
+    Alternatively, you can set these via config.env (see OPTIONAL STOCK VALUES):
+      - AUTO_BRIGHTNESS_LEVELS
+      - AUTO_BRIGHTNESS_BACKLIGHT_VALUES
+      (and the hysteresis arrays)
 -->
 <resources>
 
-    <!-- Ambient lux thresholds (upper bound of each range)
-         Stock source: 28 levels with finer granularity at low lux
-         for smoother transitions in dark environments. -->
-    <integer-array name="config_autoBrightnessLevels">
-        <item>1</item>
-        <item>2</item>
-        <item>3</item>
-        <item>4</item>
-        <item>5</item>
-        <item>6</item>
-        <item>7</item>
-        <item>8</item>
-        <item>9</item>
-        <item>10</item>
-        <item>15</item>
-        <item>20</item>
-        <item>25</item>
-        <item>50</item>
-        <item>100</item>
-        <item>300</item>
-        <item>500</item>
-        <item>1000</item>
-        <item>1500</item>
-        <item>2000</item>
-        <item>3000</item>
-        <item>4000</item>
-        <item>4999</item>
-        <item>5000</item>
-        <item>10000</item>
-        <item>20000</item>
-        <item>30000</item>
-        <item>40000</item>
-    </integer-array>
+    <!-- ============================================================
+         AUTO-BRIGHTNESS MAPPING — PLACEHOLDER VALUES
+         
+         Replace these with values extracted from your stock product
+         overlay APK using the TrebleDroid guide above.
+         
+         These placeholder values (for a generic device) will work but
+         will not provide optimal auto-brightness behavior.
+         ============================================================ -->
 
-    <!-- Backlight values (0-255) for each lux range above.
-         Adapted from stock S6E3FC2 AMOLED nits curve to AOSP's
-         0-255 backlight range. Interpolated from previously
-         working 21-level values with finer granularity at low lux.
-         SDR peak: 400 nits = 255 backlight.
-         Count matches lux_thresholds (28 items). -->
-    <integer-array name="config_autoBrightnessLcdBacklightValues">
-        <item>5</item>
-        <item>8</item>
-        <item>10</item>
-        <item>12</item>
-        <item>14</item>
-        <item>15</item>
-        <item>16</item>
-        <item>18</item>
-        <item>20</item>
-        <item>22</item>
-        <item>28</item>
-        <item>33</item>
-        <item>38</item>
-        <item>55</item>
-        <item>75</item>
-        <item>108</item>
-        <item>145</item>
-        <item>170</item>
-        <item>195</item>
-        <item>205</item>
-        <item>215</item>
-        <item>222</item>
-        <item>230</item>
-        <item>232</item>
-        <item>245</item>
-        <item>250</item>
-        <item>253</item>
-        <item>255</item>
-    </integer-array>
+    <!-- ⬇ Add YOUR auto-brightness arrays below ⬇
+         
+         OPTION 1: Set them via config.env (recommended):
+           AUTO_BRIGHTNESS_LEVELS="1 5 10 50 100 500 1000 ..."
+           AUTO_BRIGHTNESS_BACKLIGHT_VALUES="5 15 30 60 ..."
+         
+         OPTION 2: Place them here (if not using config.env):
+           <integer-array name="config_autoBrightnessLevels">
+               <item>1</item>
+               <item>5</item>
+               ...
+           </integer-array>
+           <integer-array name="config_autoBrightnessLcdBacklightValues">
+               <item>5</item>
+               <item>15</item>
+               ...
+           </integer-array>
+         
+         ⚠️ DO NOT use both options — that causes duplicate resource errors!
+         
+         Extract your values from the stock product overlay APK:
+           /system/product/overlay/framework-res__auto_generated_rro_product.apk
+         
+         See the TrebleDroid overlay guide:
+         https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F
+    -->
 
-    <!-- Hysteresis arrays for smooth brightness transitions
-         (Standard AOSP resources, added in Android 12+).
-         These prevent flickering when ambient light hovers near
-         a threshold boundary. Extracted from stock vendor RRO.
-
-         Verified via aapt2: these arrays are NOT in the build-time
-         framework-res (Linux desktop reference). They ARE present in
-         Android 12+ AOSP source. On the target A16 QPR2 GSI:
-         - If present → works normally (smoother transitions)
-         - If absent  → idmap2 silently skips them (no crash, no bootloop)
-         This is safe either way. -->
-    <integer-array name="config_autoBrightnessBrighteningLevels">
-        <item>0</item>
-        <item>10</item>
-        <item>15</item>
-        <item>50</item>
-        <item>100</item>
-        <item>300</item>
-        <item>500</item>
-        <item>1000</item>
-        <item>2000</item>
-        <item>2999</item>
-        <item>3000</item>
-        <item>4999</item>
-        <item>5000</item>
-        <item>29999</item>
-        <item>30000</item>
-    </integer-array>
-
-    <integer-array name="config_autoBrightnessBrighteningLux">
-        <item>20</item>
-        <item>65</item>
-        <item>108</item>
-        <item>250</item>
-        <item>300</item>
-        <item>900</item>
-        <item>1300</item>
-        <item>3000</item>
-        <item>6000</item>
-        <item>6000</item>
-        <item>10000</item>
-        <item>10000</item>
-        <item>40000</item>
-        <item>40000</item>
-        <item>999999</item>
-    </integer-array>
-
-    <integer-array name="config_autoBrightnessDarkeningLevels">
-        <item>0</item>
-        <item>10</item>
-        <item>49</item>
-        <item>50</item>
-        <item>99</item>
-        <item>100</item>
-        <item>299</item>
-        <item>300</item>
-        <item>499</item>
-        <item>500</item>
-        <item>1000</item>
-        <item>2000</item>
-        <item>2999</item>
-        <item>3000</item>
-        <item>3999</item>
-        <item>4000</item>
-        <item>4999</item>
-        <item>5000</item>
-        <item>9999</item>
-        <item>10000</item>
-        <item>19999</item>
-        <item>20000</item>
-        <item>29999</item>
-        <item>30000</item>
-        <item>39999</item>
-        <item>40000</item>
-    </integer-array>
-
-    <integer-array name="config_autoBrightnessDarkeningLux">
-        <item>-1</item>
-        <item>0</item>
-        <item>0</item>
-        <item>8</item>
-        <item>8</item>
-        <item>15</item>
-        <item>15</item>
-        <item>30</item>
-        <item>30</item>
-        <item>50</item>
-        <item>200</item>
-        <item>400</item>
-        <item>400</item>
-        <item>500</item>
-        <item>500</item>
-        <item>600</item>
-        <item>600</item>
-        <item>800</item>
-        <item>800</item>
-        <item>2000</item>
-        <item>2000</item>
-        <item>3000</item>
-        <item>3000</item>
-        <item>4000</item>
-        <item>4000</item>
-        <item>4999</item>
-    </integer-array>
 </resources>
