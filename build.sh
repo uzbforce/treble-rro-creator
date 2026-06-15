@@ -31,9 +31,13 @@
 # =============================================================================
 
 set -e
-set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# ── Clean up editor backups ────────────────────────────────────────────────
+# Some editors (like MT Manager in Termux) create .bak files. These cause
+# errors during resource compilation (aapt2) and module packaging.
+find . -name "*.bak" -type f -delete 2>/dev/null || true
 
 # ── Local tools directory support ──────────────────────────────────────────
 # If tools/ exists, prepend to PATH so aapt2, zipalign, apksigner are found.
@@ -171,8 +175,9 @@ GENEOF
 GENEOF
     fi
 
-    # ── Corner radius (dimen) ────────────────────────────────────────────
-    cat >> "$gen" << GENEOF
+    # ── Corner radius (dimen) — optional, skip if not set ────────────────
+    if [ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
     <dimen name="rounded_corner_radius">${ROUNDED_CORNER_RADIUS}.0px</dimen>
     <dimen name="rounded_corner_radius_top">${ROUNDED_CORNER_RADIUS}.0px</dimen>
     <dimen name="rounded_corner_radius_bottom">${ROUNDED_CORNER_RADIUS}.0px</dimen>
@@ -182,27 +187,33 @@ GENEOF
     <dimen name="rounded_corner_content_padding">0px</dimen>
 
 GENEOF
+    fi
 
-    # ── Status bar height (dimen) ────────────────────────────────────────
-    cat >> "$gen" << GENEOF
+    # ── Status bar height (dimen) — optional, skip if not set ────────────
+    if [ -n "$STATUS_BAR_HEIGHT" ] && [[ "$STATUS_BAR_HEIGHT" != *"<"* ]]; then
+        # If landscape height is not set, use portrait height
+        local sb_land="${STATUS_BAR_HEIGHT_LANDSCAPE:-$STATUS_BAR_HEIGHT}"
+        cat >> "$gen" << GENEOF
     <dimen name="status_bar_height">${STATUS_BAR_HEIGHT}.0px</dimen>
     <dimen name="status_bar_height_portrait">${STATUS_BAR_HEIGHT}.0px</dimen>
-    <dimen name="status_bar_height_landscape">${STATUS_BAR_HEIGHT_LANDSCAPE}.0px</dimen>
+    <dimen name="status_bar_height_landscape">${sb_land}.0px</dimen>
 
 GENEOF
+    fi
 
-    # ── Light sensor type (string) ───────────────────────────────────────
-    # Escape special XML characters for string values
-    local sensor_type="${LIGHT_SENSOR_TYPE}"
-    [[ "$sensor_type" == *"<"* ]] && sensor_type="android.sensor.light"
-    safe_sensor_type=$(echo "${sensor_type}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g')
-    cat >> "$gen" << GENEOF
+    # ── Light sensor type (string) — optional, skip if not set ──────────
+    if [ -n "$LIGHT_SENSOR_TYPE" ] && [[ "$LIGHT_SENSOR_TYPE" != *"<"* ]]; then
+        # Escape special XML characters for string values
+        local safe_sensor_type=$(echo "${LIGHT_SENSOR_TYPE}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g')
+        cat >> "$gen" << GENEOF
     <string name="config_displayLightSensorType" translatable="false">${safe_sensor_type}</string>
 
 GENEOF
+    fi
 
-    # ── Brightness (integers + float items) ──────────────────────────────
-    cat >> "$gen" << GENEOF
+    # ── Brightness (integers + float items) — optional, skip if not set ──
+    if [ -n "$BRIGHTNESS_DIM" ] && [[ "$BRIGHTNESS_DIM" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
     <integer name="config_screenBrightnessDim">${BRIGHTNESS_DIM}</integer>
     <integer name="config_screenBrightnessDark">${BRIGHTNESS_DARK}</integer>
     <integer name="config_screenBrightnessDoze">${BRIGHTNESS_DOZE}</integer>
@@ -212,29 +223,28 @@ GENEOF
 
 GENEOF
 
-    # Compute float equivalents (approximate)
-    local doze_float=$(echo "scale=8; $BRIGHTNESS_DOZE / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.23529412")
-    local dim_float=$(echo "scale=8; $BRIGHTNESS_DIM / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.05098039")
-    local min_float=$(echo "scale=8; $BRIGHTNESS_MIN / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.0")
-    local default_float=$(echo "scale=8; $BRIGHTNESS_DEFAULT / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.50196078")
-    local max_float=$(echo "scale=8; $BRIGHTNESS_MAX / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "1.0")
+        # Compute float equivalents (approximate)
+        local doze_float=$(echo "scale=8; $BRIGHTNESS_DOZE / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.23529412")
+        local dim_float=$(echo "scale=8; $BRIGHTNESS_DIM / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.05098039")
+        local min_float=$(echo "scale=8; $BRIGHTNESS_MIN / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.0")
+        local default_float=$(echo "scale=8; $BRIGHTNESS_DEFAULT / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.50196078")
+        local max_float=$(echo "scale=8; $BRIGHTNESS_MAX / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "1.0")
 
-    # Ensure even the fallback/echo values have leading zeros
-    [[ "$doze_float" == .* ]] && doze_float="0${doze_float}"
-    [[ "$dim_float" == .* ]] && dim_float="0${dim_float}"
-    [[ "$min_float" == .* ]] && min_float="0${min_float}"
-    [[ "$default_float" == .* ]] && default_float="0${default_float}"
-    [[ "$max_float" == .* ]] && max_float="0${max_float}"
+        # Ensure even the fallback/echo values have leading zeros
+        [[ "$doze_float" == .* ]] && doze_float="0${doze_float}"
+        [[ "$dim_float" == .* ]] && dim_float="0${dim_float}"
+        [[ "$min_float" == .* ]] && min_float="0${min_float}"
+        [[ "$default_float" == .* ]] && default_float="0${default_float}"
+        [[ "$max_float" == .* ]] && max_float="0${max_float}"
 
-    # Ensure floats have a decimal point (e.g. "0" -> "0.0")
-    [[ "$doze_float" != *.* ]] && doze_float="${doze_float}.0"
-    [[ "$dim_float" != *.* ]] && dim_float="${dim_float}.0"
-    [[ "$min_float" != *.* ]] && min_float="${min_float}.0"
-    [[ "$default_float" != *.* ]] && default_float="${default_float}.0"
-    [[ "$max_float" != *.* ]] && max_float="${max_float}.0"
+        # Ensure floats have a decimal point (e.g. "0" -> "0.0")
+        [[ "$doze_float" != *.* ]] && doze_float="${doze_float}.0"
+        [[ "$dim_float" != *.* ]] && dim_float="${dim_float}.0"
+        [[ "$min_float" != *.* ]] && min_float="${min_float}.0"
+        [[ "$default_float" != *.* ]] && default_float="${default_float}.0"
+        [[ "$max_float" != *.* ]] && max_float="${max_float}.0"
 
-
-    cat >> "$gen" << GENEOF
+        cat >> "$gen" << GENEOF
     <item name="config_screenBrightnessDozeFloat" format="float" type="dimen">${doze_float}</item>
     <item name="config_screenBrightnessDimFloat" format="float" type="dimen">${dim_float}</item>
     <item name="config_screenBrightnessSettingMinimumFloat" format="float" type="dimen">${min_float}</item>
@@ -242,13 +252,153 @@ GENEOF
     <item name="config_screenBrightnessSettingMaximumFloat" format="float" type="dimen">${max_float}</item>
 
 GENEOF
+    fi
 
-    # ── Refresh rate (integers) ──────────────────────────────────────────
-    cat >> "$gen" << GENEOF
+    # ── Display Cutout (string) ──────────────────────────────────────────
+    if [ -n "$DISPLAY_CUTOUT" ]; then
+        # Escape special XML characters
+        safe_cutout=$(echo "${DISPLAY_CUTOUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g')
+        cat >> "$gen" << GENEOF
+    <string name="config_mainBuiltInDisplayCutout" translatable="false">${safe_cutout}</string>
+
+GENEOF
+    fi
+
+    # ── Optional Stock Bools (config.env OPTIONAL STOCK VALUES) ────────────
+    # These are extracted from the user's stock product overlay APK.
+    # They are commented out in config.env by default.
+    for bool_var in \
+        "CONFIG_FILL_MAIN_BUILTIN_DISPLAY_CUTOUT" \
+        "CONFIG_POWER_DECOUPLE_INTERACTIVE_MODE_FROM_DISPLAY" \
+        "CONFIG_POWER_DECOUPLE_AUTO_SUSPEND_MODE_FROM_DISPLAY" \
+        "CONFIG_DISPLAY_BLANKS_AFTER_DOZE" \
+        "CONFIG_DOZE_SUPPORTS_AOD_WALLPAPER" \
+        "CONFIG_SUPPORT_AUDIO_SOURCE_UNPROCESSED" \
+        "CONFIG_CAMERA_SOUND_FORCED" \
+        "CONFIG_USE_DEV_INPUT_EVENT_FOR_AUDIO_JACK" \
+        "CONFIG_WIFI_DISPLAY_SUPPORTS_PROTECTED_BUFFERS" \
+        "CONFIG_CARRIER_VOLTE_AVAILABLE" \
+        "CONFIG_CARRIER_VT_AVAILABLE" \
+        "CONFIG_CARRIER_WFC_IMS_AVAILABLE" \
+        "CONFIG_DYNAMIC_BIND_IMS" \
+        "CONFIG_FORCE_PHONE_GLOBALS_CREATION" \
+        "CONFIG_CARRIER_VOLTE_TTY_SUPPORTED" \
+        "CONFIG_CAMERA_DOUBLE_TAP_POWER_GESTURE_ENABLED" \
+        "SKIP_RESTORING_NETWORK_SELECTION" \
+        "CONFIG_SWITCH_PHONE_ON_VOICE_REG_STATE_CHANGE"; do
+        # Get the value from the variable whose name is in $bool_var
+        val="${!bool_var}"
+        if [ -n "$val" ] && [ "$val" != "<value>" ]; then
+            # Convert the env-style name to the Android resource name
+            # e.g., CONFIG_FILL_MAIN_BUILTIN_DISPLAY_CUTOUT → config_fillMainBuiltInDisplayCutout
+            # We use a lookup map for the resource name
+            case "$bool_var" in
+                CONFIG_FILL_MAIN_BUILTIN_DISPLAY_CUTOUT)          res_name="config_fillMainBuiltInDisplayCutout" ;;
+                CONFIG_POWER_DECOUPLE_INTERACTIVE_MODE_FROM_DISPLAY) res_name="config_powerDecoupleInteractiveModeFromDisplay" ;;
+                CONFIG_POWER_DECOUPLE_AUTO_SUSPEND_MODE_FROM_DISPLAY) res_name="config_powerDecoupleAutoSuspendModeFromDisplay" ;;
+                CONFIG_DISPLAY_BLANKS_AFTER_DOZE)                 res_name="config_displayBlanksAfterDoze" ;;
+                CONFIG_DOZE_SUPPORTS_AOD_WALLPAPER)               res_name="config_dozeSupportsAodWallpaper" ;;
+                CONFIG_SUPPORT_AUDIO_SOURCE_UNPROCESSED)           res_name="config_supportAudioSourceUnprocessed" ;;
+                CONFIG_CAMERA_SOUND_FORCED)                       res_name="config_camera_sound_forced" ;;
+                CONFIG_USE_DEV_INPUT_EVENT_FOR_AUDIO_JACK)        res_name="config_useDevInputEventForAudioJack" ;;
+                CONFIG_WIFI_DISPLAY_SUPPORTS_PROTECTED_BUFFERS)    res_name="config_wifiDisplaySupportsProtectedBuffers" ;;
+                CONFIG_CARRIER_VOLTE_AVAILABLE)                   res_name="config_carrier_volte_available" ;;
+                CONFIG_CARRIER_VT_AVAILABLE)                      res_name="config_carrier_vt_available" ;;
+                CONFIG_CARRIER_WFC_IMS_AVAILABLE)                 res_name="config_carrier_wfc_ims_available" ;;
+                CONFIG_DYNAMIC_BIND_IMS)                          res_name="config_dynamic_bind_ims" ;;
+                CONFIG_FORCE_PHONE_GLOBALS_CREATION)              res_name="config_force_phone_globals_creation" ;;
+                CONFIG_CARRIER_VOLTE_TTY_SUPPORTED)               res_name="config_carrier_volte_tty_supported" ;;
+                CONFIG_CAMERA_DOUBLE_TAP_POWER_GESTURE_ENABLED)   res_name="config_cameraDoubleTapPowerGestureEnabled" ;;
+                SKIP_RESTORING_NETWORK_SELECTION)                 res_name="skip_restoring_network_selection" ;;
+                CONFIG_SWITCH_PHONE_ON_VOICE_REG_STATE_CHANGE)    res_name="config_switch_phone_on_voice_reg_state_change" ;;
+                *)                                                res_name="" ;;
+            esac
+            if [ -n "$res_name" ]; then
+                cat >> "$gen" << GENEOF
+    <bool name="${res_name}">${val}</bool>
+
+GENEOF
+            fi
+        fi
+    done
+
+    # ── Optional Stock Strings ─────────────────────────────────────────────
+    # CONFIG_RADIO_ACCESS_FAMILY
+    if [ -n "${CONFIG_RADIO_ACCESS_FAMILY}" ] && [[ "${CONFIG_RADIO_ACCESS_FAMILY}" != *"<"* ]]; then
+        safe_radio=$(echo "${CONFIG_RADIO_ACCESS_FAMILY}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g')
+        cat >> "$gen" << GENEOF
+    <string name="config_radio_access_family" translatable="false">${safe_radio}</string>
+
+GENEOF
+    fi
+
+    # CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE
+    if [ -n "${CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE}" ] && [[ "${CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE}" != *"<"* ]]; then
+        safe_sensor=$(echo "${CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE}" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g; s/'"'"'/\&apos;/g')
+        cat >> "$gen" << GENEOF
+    <string name="config_dozeUdfpsLongPressSensorType" translatable="false">${safe_sensor}</string>
+
+GENEOF
+    fi
+
+    # ── Biometric Sensors (string-array) ───────────────────────────────────
+    # CONFIG_BIOMETRIC_SENSORS is a semicolon-separated list of sensor specs
+    # e.g., "0:2:15" for a single sensor, "0:2:15;1:8:4095" for multiple
+    if [ -n "${CONFIG_BIOMETRIC_SENSORS}" ] && [[ "${CONFIG_BIOMETRIC_SENSORS}" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
+    <string-array name="config_biometric_sensors">
+GENEOF
+        IFS=';' read -ra sensors <<< "${CONFIG_BIOMETRIC_SENSORS}"
+        for s in "${sensors[@]}"; do
+            s_trimmed=$(echo "$s" | xargs)
+            [ -n "$s_trimmed" ] && echo "        <item>${s_trimmed}</item>" >> "$gen"
+        done
+        cat >> "$gen" << GENEOF
+    </string-array>
+
+GENEOF
+    fi
+
+    # ── Auto-brightness Arrays (space-separated values) ─────────────────────
+    # AUTO_BRIGHTNESS_LEVELS and AUTO_BRIGHTNESS_BACKLIGHT_VALUES
+    if [ -n "${AUTO_BRIGHTNESS_LEVELS}" ] && [[ "${AUTO_BRIGHTNESS_LEVELS}" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
+    <integer-array name="config_autoBrightnessLevels">
+GENEOF
+        IFS=' ' read -ra levels <<< "${AUTO_BRIGHTNESS_LEVELS}"
+        for v in "${levels[@]}"; do
+            v_trimmed=$(echo "$v" | xargs)
+            [ -n "$v_trimmed" ] && echo "        <item>${v_trimmed}</item>" >> "$gen"
+        done
+        cat >> "$gen" << GENEOF
+    </integer-array>
+
+GENEOF
+    fi
+
+    if [ -n "${AUTO_BRIGHTNESS_BACKLIGHT_VALUES}" ] && [[ "${AUTO_BRIGHTNESS_BACKLIGHT_VALUES}" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
+    <integer-array name="config_autoBrightnessLcdBacklightValues">
+GENEOF
+        IFS=' ' read -ra values <<< "${AUTO_BRIGHTNESS_BACKLIGHT_VALUES}"
+        for v in "${values[@]}"; do
+            v_trimmed=$(echo "$v" | xargs)
+            [ -n "$v_trimmed" ] && echo "        <item>${v_trimmed}</item>" >> "$gen"
+        done
+        cat >> "$gen" << GENEOF
+    </integer-array>
+
+GENEOF
+    fi
+
+    # ── Refresh rate (integers) — optional, skip if not set ──────────────
+    if [ -n "$DEFAULT_REFRESH_RATE" ] && [[ "$DEFAULT_REFRESH_RATE" != *"<"* ]]; then
+        cat >> "$gen" << GENEOF
     <integer name="config_defaultRefreshRate">${DEFAULT_REFRESH_RATE}</integer>
     <integer name="config_defaultPeakRefreshRate">${PEAK_REFRESH_RATE}</integer>
 
 GENEOF
+    fi
 
     # ── UDFPS sensor position (integer-array) ────────────────────────────
     if [ "$HAS_UDFPS" = "true" ]; then
@@ -362,7 +512,6 @@ SERVEOF
 
     # ── SECTION 4: UDFPS properties ─────────────────────────────────────────
     if [ "$HAS_UDFPS" = "true" ]; then
-        local udfps_size=$UDFPS_RADIUS
         cat >> "$target/service.sh" << 'SERVEOF'
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 4: UDFPS Fingerprint properties
@@ -535,11 +684,11 @@ done
 SERVEOF
     fi
 
-    # ── SECTION 6: Connectivity (5G / VoLTE) ────────────────────────────────
+    # ── SECTION 9: Connectivity (5G / VoLTE) ────────────────────────────────
     if [ "$HAS_5G" = "true" ] || [ "$HAS_VOLTE" = "true" ]; then
         cat >> "$target/service.sh" << 'SERVEOF'
 # ═══════════════════════════════════════════════════════════════════════════
-# SECTION 6: Connectivity (5G / VoLTE)
+# SECTION 9: Connectivity (5G / VoLTE)
 # ═══════════════════════════════════════════════════════════════════════════
 SERVEOF
 
@@ -561,12 +710,12 @@ SERVEOF
         fi
     fi
 
-    # ── SECTION 7: Brightness / panel-specific fixes ────────────────────────
+    # ── SECTION 10: Brightness / panel-specific fixes ───────────────────────
     # This section is generic — Samsung users should add full_brightness
     # via a custom service.sh at project root or service.sh.example.
     cat >> "$target/service.sh" << 'SERVEOF'
 # ═══════════════════════════════════════════════════════════════════════════
-# SECTION 7: Device-specific properties
+# SECTION 10: Device-specific properties
 # ═══════════════════════════════════════════════════════════════════════════
 # Add vendor-specific setprop calls below.
 # For Samsung panels, uncomment:
@@ -732,10 +881,6 @@ OVERLAY_PACKAGE="me.phh.treble.overlay.<device_codename>"
 OVERLAY_PACKAGE_SYSTEMUI="me.phh.treble.overlay.<device_codename>.systemui"
 DEVICE_PROP_NAME="ro.product.device"
 DEVICE_PROP_VALUE="<device_codename>"
-COMPILE_SDK_VERSION=36
-ANDROID_VERSION="16"
-MIN_SDK_VERSION=35
-TARGET_SDK_VERSION=35
 OVERLAY_PRIORITY=628
 OVERLAY_PRIORITY_SYSTEMUI=9999
 DEVICE_MANUFACTURER="<device_manufacturer>"
@@ -752,8 +897,6 @@ HAS_AUTO_BRIGHTNESS=true
 LIGHT_SENSOR_TYPE="<sensor_name>"
 DEFAULT_REFRESH_RATE=60
 PEAK_REFRESH_RATE=60
-BATTERY_CAPACITY=4000
-BATTERY_TYPICAL_CAPACITY=4000
 BRIGHTNESS_DIM=15
 BRIGHTNESS_DARK=3
 BRIGHTNESS_DOZE=60
@@ -772,6 +915,45 @@ HAS_VENDOR_VIBRATOR_HAL=false
 PLATFORM_JAR="/usr/share/android-framework-res/framework-res.apk"
 PLATFORM_KEY="keys/platform.pk8"
 PLATFORM_CERT="keys/platform.x509.pem"
+
+# ── Advanced Build Settings (DO NOT EDIT) ─────────────────────────────────
+# The values below are for aapt2 dictionary compatibility (linking against 
+# the Android 13 resource dictionary). 
+#
+# ⚠️ DO NOT CHANGE THESE to match your GSI version. 
+# They are for build-time linking only and do NOT affect GSI compatibility.
+# Changing them will likely cause "Resource not found" errors.
+COMPILE_SDK_VERSION=35
+ANDROID_VERSION="15"
+MIN_SDK_VERSION=33
+TARGET_SDK_VERSION=34
+
+# ── OPTIONAL STOCK VALUES (Extract from your stock firmware) ────────────────
+# See config.env.example for full docs or the TrebleDroid overlay guide:
+# https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F
+#CONFIG_RADIO_ACCESS_FAMILY="GSM|WCDMA|LTE|NR"
+#SKIP_RESTORING_NETWORK_SELECTION=true
+#CONFIG_SWITCH_PHONE_ON_VOICE_REG_STATE_CHANGE=false
+#CONFIG_BIOMETRIC_SENSORS="0:2:15"
+#CONFIG_FILL_MAIN_BUILTIN_DISPLAY_CUTOUT=true
+#CONFIG_POWER_DECOUPLE_INTERACTIVE_MODE_FROM_DISPLAY=true
+#CONFIG_POWER_DECOUPLE_AUTO_SUSPEND_MODE_FROM_DISPLAY=true
+#CONFIG_DISPLAY_BLANKS_AFTER_DOZE=false
+#CONFIG_DOZE_SUPPORTS_AOD_WALLPAPER=false
+#CONFIG_SUPPORT_AUDIO_SOURCE_UNPROCESSED=false
+#CONFIG_CAMERA_SOUND_FORCED=false
+#CONFIG_USE_DEV_INPUT_EVENT_FOR_AUDIO_JACK=true
+#CONFIG_WIFI_DISPLAY_SUPPORTS_PROTECTED_BUFFERS=true
+#CONFIG_CARRIER_VOLTE_AVAILABLE=true
+#CONFIG_CARRIER_VT_AVAILABLE=true
+#CONFIG_CARRIER_WFC_IMS_AVAILABLE=true
+#CONFIG_DYNAMIC_BIND_IMS=true
+#CONFIG_FORCE_PHONE_GLOBALS_CREATION=true
+#CONFIG_CARRIER_VOLTE_TTY_SUPPORTED=true
+#CONFIG_CAMERA_DOUBLE_TAP_POWER_GESTURE_ENABLED=false
+#CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE="org.lineageos.sensor.udfps"
+#AUTO_BRIGHTNESS_LEVELS="1 5 10 50 100 500 1000 3000 5000 10000 20000 40000"
+#AUTO_BRIGHTNESS_BACKLIGHT_VALUES="5 15 30 60 100 140 175 210 230 245 250 255"
 DEFAULT_CONFIG
 
         echo -e "  ${YELLOW}→${NC} Created ${BOLD}$CONFIG_FILE${NC} with placeholder values."
@@ -787,8 +969,15 @@ source "$CONFIG_FILE"
 [ -z "$DEVICE_MANUFACTURER" ] || [[ "$DEVICE_MANUFACTURER" == *"<"* ]] && DEVICE_MANUFACTURER="generic"
 [ -z "$DEVICE_CODENAME" ]     || [[ "$DEVICE_CODENAME" == *"<"* ]]     && DEVICE_CODENAME="generic"
 
+# Clean manufacturer for Java package names (lowercase alphanumeric only)
+SAFE_MANUFACTURER=$(echo "${DEVICE_MANUFACTURER}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
+
+# Clean codename for package name: replace non-alphanumeric with dots
+# e.g. "Infinix-X6852" → "infinix.x6852" (dots are valid Java package separators)
+PACKAGE_SEGMENT=$(echo "${DEVICE_CODENAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/./g' | sed 's/\.\.*/./g' | sed 's/^\.//;s/\.$//')
+
 [ -z "$OVERLAY_NAME" ]        || [[ "$OVERLAY_NAME" == *"<"* ]]        && OVERLAY_NAME="treble-overlay-${DEVICE_MANUFACTURER}-${DEVICE_CODENAME}"
-[ -z "$OVERLAY_PACKAGE" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${DEVICE_CODENAME}"
+[ -z "$OVERLAY_PACKAGE" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
 [ -z "$OVERLAY_PACKAGE_SYSTEMUI" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
 [ -z "$DEVICE_PROP_VALUE" ]   || [[ "$DEVICE_PROP_VALUE" == *"<"* ]]   && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
 [ -z "$DEVICE_PROP_NAME" ]    || [[ "$DEVICE_PROP_NAME" == *"<"* ]]    && DEVICE_PROP_NAME="ro.product.device"
@@ -802,6 +991,9 @@ source "$CONFIG_FILE"
 
 [[ "${LIGHT_SENSOR_TYPE}" == *"<"* ]] && LIGHT_SENSOR_TYPE="android.sensor.light"
 [[ "${DEVICE_MODEL}" == *"<"* ]] && DEVICE_MODEL="Generic Device"
+# Status bar landscape height: only set fallback if explicitly a placeholder
+# (otherwise leave empty so the status bar section skips it)
+[[ "${STATUS_BAR_HEIGHT_LANDSCAPE}" == *"<"* ]] && STATUS_BAR_HEIGHT_LANDSCAPE=24
 
 # Validate required values
 [ -z "$DEVICE_CODENAME" ] && { err "DEVICE_CODENAME not set in config.env"; exit 1; }
@@ -810,11 +1002,6 @@ source "$CONFIG_FILE"
 # ---------------------------------------------------------------------------
 # Device identity check — only check the key codename values
 # ---------------------------------------------------------------------------
-# Identity variables that define WHICH device this overlay targets.
-IDENTITY_VARS=("OVERLAY_NAME" "OVERLAY_PACKAGE" "OVERLAY_PACKAGE_SYSTEMUI" \
-               "DEVICE_PROP_VALUE" "DEVICE_MANUFACTURER" "DEVICE_MODEL" "DEVICE_CODENAME")
-
-has_placeholder=false
 # ---------------------------------------------------------------------------
 # Device identity check
 # ---------------------------------------------------------------------------
@@ -831,8 +1018,8 @@ echo -e "    Overlay:       ${OVERLAY_NAME}"
 echo -e "    Package:       ${OVERLAY_PACKAGE}"
 echo -e ""
 echo -e "  ${BOLD}Display:${NC}"
-echo -e "    Rounded corners: ${ROUNDED_CORNER_RADIUS}px"
-echo -e "    Status bar:      ${STATUS_BAR_HEIGHT}px"
+[ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] && echo -e "    Rounded corners: ${ROUNDED_CORNER_RADIUS}px"
+[ -n "$STATUS_BAR_HEIGHT" ] && [[ "$STATUS_BAR_HEIGHT" != *"<"* ]] && echo -e "    Status bar:      ${STATUS_BAR_HEIGHT}px"
 echo -e ""
 echo -e "  ${BOLD}Features:${NC}"
 echo -e "    UDFPS:           ${HAS_UDFPS}"
@@ -998,7 +1185,8 @@ ok "systemui_overlay/AndroidManifest.xml generated"
 # ---------------------------------------------------------------------------
 step "Generating module.prop"
 
-DESCRIPTION="${DEVICE_MODEL} overlay: rounded corners (${ROUNDED_CORNER_RADIUS}px)"
+DESCRIPTION="${DEVICE_MODEL} overlay"
+[ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] && DESCRIPTION="${DESCRIPTION}: rounded corners (${ROUNDED_CORNER_RADIUS}px)"
 [ "$HAS_AOD" = "true" ] && DESCRIPTION="${DESCRIPTION}, AOD"
 [ "$HAS_UDFPS" = "true" ] && DESCRIPTION="${DESCRIPTION}, UDFPS"
 [ "$HAS_5G" = "true" ] && DESCRIPTION="${DESCRIPTION}, 5G"
@@ -1037,9 +1225,9 @@ ok "Android.mk generated"
 # Clean
 # ---------------------------------------------------------------------------
 step "Cleaning previous build"
-rm -f "${OVERLAY_NAME}.apk" "${OVERLAY_NAME}-systemui.apk" "${OVERLAY_NAME}-ksu.zip"
-rm -rf build
-mkdir -p build/compiled build/apk
+rm -f "${OVERLAY_NAME}.apk" "${OVERLAY_NAME}-systemui.apk" "${OVERLAY_NAME}-ksu.zip" "${OVERLAY_NAME}-hardware-overlay.zip"
+rm -rf build out
+mkdir -p build/compiled build/apk out/apks
 ok "Build directory cleaned"
 
 # ---------------------------------------------------------------------------
@@ -1125,30 +1313,30 @@ if [ ! -f "$PLATFORM_KEY" ] || [ ! -f "$PLATFORM_CERT" ]; then
 fi
 
 apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
-    --v1-signing-enabled true --v2-signing-enabled true \
-    --out "${OVERLAY_NAME}.apk" build/apk/aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner failed"; exit 1; }
-ok "Framework-res APK signed: ${OVERLAY_NAME}.apk"
+    --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
+    --out "out/apks/${OVERLAY_NAME}.apk" build/apk/aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner failed"; exit 1; }
+ok "Framework-res APK signed: out/apks/${OVERLAY_NAME}.apk"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
-        --v1-signing-enabled true --v2-signing-enabled true \
-        --out "${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner (systemui) failed"; exit 1; }
-    ok "SystemUI APK signed: ${OVERLAY_NAME}-systemui.apk"
+        --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
+        --out "out/apks/${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner (systemui) failed"; exit 1; }
+    ok "SystemUI APK signed: out/apks/${OVERLAY_NAME}-systemui.apk"
 fi
 
 # ---------------------------------------------------------------------------
 # Verify
 # ---------------------------------------------------------------------------
 step "Verifying APKs"
-apksigner verify "${OVERLAY_NAME}.apk" 2>&1 | sed 's/^/  /' && ok "Framework-res APK verified" || err "Verification failed"
+apksigner verify "out/apks/${OVERLAY_NAME}.apk" 2>&1 | sed 's/^/  /' && ok "Framework-res APK verified" || err "Verification failed"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    apksigner verify "${OVERLAY_NAME}-systemui.apk" 2>&1 | sed 's/^/  /' && ok "SystemUI APK verified" || err "Verification failed"
+    apksigner verify "out/apks/${OVERLAY_NAME}-systemui.apk" 2>&1 | sed 's/^/  /' && ok "SystemUI APK verified" || err "Verification failed"
 fi
 
-SIZE_FW=$(du -sh "${OVERLAY_NAME}.apk" 2>/dev/null | cut -f1)
+SIZE_FW=$(du -sh "out/apks/${OVERLAY_NAME}.apk" 2>/dev/null | cut -f1)
 info "Framework APK size: ${SIZE_FW}"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    SIZE_SU=$(du -sh "${OVERLAY_NAME}-systemui.apk" 2>/dev/null | cut -f1)
+    SIZE_SU=$(du -sh "out/apks/${OVERLAY_NAME}-systemui.apk" 2>/dev/null | cut -f1)
     info "SystemUI APK size: ${SIZE_SU}"
 fi
 
@@ -1162,9 +1350,9 @@ rm -rf "$MODULE_TMP"
 mkdir -p "${MODULE_TMP}/system/product/overlay"
 
 # Copy overlay APKs
-cp "${OVERLAY_NAME}.apk" "${MODULE_TMP}/system/product/overlay/"
+cp "out/apks/${OVERLAY_NAME}.apk" "${MODULE_TMP}/system/product/overlay/"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    cp "${OVERLAY_NAME}-systemui.apk" "${MODULE_TMP}/system/product/overlay/"
+    cp "out/apks/${OVERLAY_NAME}-systemui.apk" "${MODULE_TMP}/system/product/overlay/"
 fi
 
 # Copy module metadata
@@ -1275,10 +1463,227 @@ fi
 # Package module
 # ---------------------------------------------------------------------------
 cd "$MODULE_TMP"
-zip -r "../${OVERLAY_NAME}-ksu.zip" . 2>&1 > /dev/null
+zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-ksu.zip" . 2>&1 > /dev/null
 cd "$SCRIPT_DIR"
 rm -rf "$MODULE_TMP"
-ok "KSU module packaged"
+ok "KSU module packaged: out/${OVERLAY_NAME}-ksu.zip"
+
+# ---------------------------------------------------------------------------
+# Build Hardware Overlay Repo Structure (AOSP source-based)
+# ---------------------------------------------------------------------------
+step "Building Hardware Overlay Repo structure"
+
+HW_OVERLAY_DIR="build/hardware_overlay"
+rm -rf "$HW_OVERLAY_DIR"
+mkdir -p "$HW_OVERLAY_DIR"
+
+# Allow overriding props for the hardware overlay repo specifically
+HW_MATCH_PROP="${HW_OVERLAY_MATCH_PROP:-$DEVICE_PROP_NAME}"
+HW_MATCH_VALUE="${HW_OVERLAY_MATCH_VALUE:-$DEVICE_PROP_VALUE}"
+
+# Helper to merge XML resources into a single file
+# Usage: merge_resources <source_res_dir> <target_file>
+merge_resources() {
+    local src_dir="$1"
+    local target="$2"
+    mkdir -p "$(dirname "$target")"
+    
+    cat > "$target" << 'XML_EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+XML_EOF
+
+    # Collect all items from all xml files in values/
+    # We strip the <resources> tags and combine the rest.
+    # Note: This is a simple merge. If a resource is defined twice, 
+    # AOSP build might still complain, but our generated.xml + others 
+    # structure is usually clean enough if handled carefully.
+    # To be safest, we'll exclude the original files if we know they are 
+    # being overridden by generated.xml.
+    
+    for f in "$src_dir"/values/*.xml; do
+        [ -f "$f" ] || continue
+        # Filter out lines that are just <resources> or </resources> or xml declaration
+        grep -vE '<\?xml|<resources>|</resources>' "$f" >> "$target"
+    done
+
+    # Deduplicate: if a resource name appears multiple times, keep only the LAST occurrence.
+    # This ensures that generated.xml (which is sourced after static files) wins.
+    # Use awk with a portable approach (no gawk-specific match() with 3 args).
+    if command -v awk &>/dev/null; then
+        local tmp="${TMPDIR:-/tmp}/rro_merge.$$"
+        # Reverse the file, keep first occurrence of each resource name, then reverse back.
+        awk '
+            { lines[NR] = $0 }
+            END {
+                for (i = NR; i >= 1; i--) {
+                    line = lines[i]
+                    if (match(line, /name="[^"]+"/)) {
+                        name = substr(line, RSTART, RLENGTH)
+                        if (!seen[name]++) {
+                            print line
+                        }
+                    } else {
+                        print line
+                    }
+                }
+            }
+        ' "$target" | awk '
+            { lines[NR] = $0 }
+            END {
+                for (i = NR; i >= 1; i--) print lines[i]
+            }
+        ' > "$tmp" 2>/dev/null
+        # Only replace target if the tmp file has content
+        if [ -s "$tmp" ]; then
+            mv "$tmp" "$target"
+        else
+            rm -f "$tmp"
+        fi
+    fi
+    
+    echo "</resources>" >> "$target"
+}
+
+# 1. Framework Overlay
+FW_HW_DIR="${HW_OVERLAY_DIR}/${DEVICE_MANUFACTURER}/${DEVICE_CODENAME}"
+mkdir -p "$FW_HW_DIR"
+merge_resources "res" "$FW_HW_DIR/res/values/config.xml"
+
+# Copy non-values resources (like res/xml/power_profile.xml)
+if [ -d "res/xml" ]; then
+    mkdir -p "$FW_HW_DIR/res/xml"
+    cp -r res/xml/* "$FW_HW_DIR/res/xml/" 2>/dev/null || true
+fi
+
+cat > "$FW_HW_DIR/Android.mk" << ANDROIDMK
+LOCAL_PATH := \$(call my-dir)
+include \$(CLEAR_VARS)
+LOCAL_MODULE_TAGS := optional
+LOCAL_PACKAGE_NAME := ${OVERLAY_NAME}
+LOCAL_MODULE_PATH := \$(TARGET_OUT_PRODUCT)/overlay
+LOCAL_IS_RUNTIME_RESOURCE_OVERLAY := true
+LOCAL_PRIVATE_PLATFORM_APIS := true
+include \$(BUILD_PACKAGE)
+ANDROIDMK
+
+cat > "$FW_HW_DIR/AndroidManifest.xml" << MANIFEST
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="${OVERLAY_PACKAGE}"
+    android:versionCode="${OVERLAY_VERSION_CODE}"
+    android:versionName="${OVERLAY_VERSION}">
+    <overlay android:targetPackage="android"
+        android:requiredSystemPropertyName="${HW_MATCH_PROP}"
+        android:requiredSystemPropertyValue="${HW_MATCH_VALUE}"
+        android:priority="${OVERLAY_PRIORITY}"
+        android:isStatic="true" />
+</manifest>
+MANIFEST
+
+ok "Hardware Overlay (Framework) generated: ${FW_HW_DIR}"
+
+# 2. SystemUI Overlay (if exists)
+if [ "$LINKED_SYSTEMUI" = "true" ]; then
+    SYSUI_HW_DIR="${HW_OVERLAY_DIR}/${DEVICE_MANUFACTURER}/${DEVICE_CODENAME}-SystemUI"
+    mkdir -p "$SYSUI_HW_DIR"
+    merge_resources "systemui_overlay/res" "$SYSUI_HW_DIR/res/values/config.xml"
+    
+    cat > "$SYSUI_HW_DIR/Android.mk" << ANDROIDMK
+LOCAL_PATH := \$(call my-dir)
+include \$(CLEAR_VARS)
+LOCAL_MODULE_TAGS := optional
+LOCAL_PACKAGE_NAME := ${OVERLAY_NAME}-systemui
+LOCAL_MODULE_PATH := \$(TARGET_OUT_PRODUCT)/overlay
+LOCAL_IS_RUNTIME_RESOURCE_OVERLAY := true
+LOCAL_PRIVATE_PLATFORM_APIS := true
+include \$(BUILD_PACKAGE)
+ANDROIDMK
+
+    cat > "$SYSUI_HW_DIR/AndroidManifest.xml" << MANIFEST
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="${OVERLAY_PACKAGE_SYSTEMUI}"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <overlay android:targetPackage="com.android.systemui"
+        android:requiredSystemPropertyName="${HW_MATCH_PROP}"
+        android:requiredSystemPropertyValue="${HW_MATCH_VALUE}"
+        android:priority="${OVERLAY_PRIORITY_SYSTEMUI}"
+        android:isStatic="true" />
+</manifest>
+MANIFEST
+
+    ok "Hardware Overlay (SystemUI) generated: ${SYSUI_HW_DIR}"
+fi
+
+# Package it
+cd "$HW_OVERLAY_DIR"
+zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay.zip" . 2>&1 > /dev/null
+cd "$SCRIPT_DIR"
+ok "Hardware Overlay Repo package created: out/${OVERLAY_NAME}-hardware-overlay.zip"
+
+# 3. Build Hardware Overlay TEST Flashable Zip
+# This builds an APK from the *merged* hardware overlay source and packages it
+# into a simple flashable module so you can test if the AOSP repo version works.
+step "Building Hardware Overlay TEST Flashable Zip"
+
+TEST_BUILD_DIR="build/hw_test"
+rm -rf "$TEST_BUILD_DIR"
+mkdir -p "$TEST_BUILD_DIR/compiled" "$TEST_BUILD_DIR/apk" "$TEST_BUILD_DIR/module/system/product/overlay"
+
+# 3a. Compile merged Framework resources
+info "Building TEST Framework APK..."
+aapt2 compile --dir "$FW_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled/" 2>&1 | sed 's/^/  /'
+aapt2 link --manifest "$FW_HW_DIR/AndroidManifest.xml" \
+    -I "${PLATFORM_JAR}" \
+    --auto-add-overlay \
+    --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
+    --compile-sdk-version-name "${ANDROID_VERSION}" \
+    -o "$TEST_BUILD_DIR/apk/unsigned.apk" \
+    "$TEST_BUILD_DIR/compiled"/*.flat 2>&1 | sed 's/^/  /'
+
+zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk"
+apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+    --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
+    --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}.apk" "$TEST_BUILD_DIR/apk/aligned.apk"
+
+# 3b. Compile merged SystemUI resources (if exists)
+if [ "$LINKED_SYSTEMUI" = "true" ]; then
+    info "Building TEST SystemUI APK..."
+    mkdir -p "$TEST_BUILD_DIR/compiled_systemui" "$TEST_BUILD_DIR/apk_systemui"
+    aapt2 compile --dir "$SYSUI_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled_systemui/" 2>&1 | sed 's/^/  /'
+    aapt2 link --manifest "$SYSUI_HW_DIR/AndroidManifest.xml" \
+        -I "${PLATFORM_JAR}" \
+        --auto-add-overlay \
+        --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
+        --compile-sdk-version-name "${ANDROID_VERSION}" \
+        -o "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" \
+        "$TEST_BUILD_DIR/compiled_systemui"/*.flat 2>&1 | sed 's/^/  /'
+    
+    zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk"
+    apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+        --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
+        --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}-systemui.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk"
+fi
+
+# Package into test module
+cp module.prop "$TEST_BUILD_DIR/module/"
+sed -i "s/^name=.*/name=Treble Overlay TEST - ${DEVICE_MANUFACTURER} ${DEVICE_CODENAME}/" "$TEST_BUILD_DIR/module/module.prop"
+sed -i "s/^description=.*/description=Test build of merged source overlays for Hardware Overlay Repo submission./" "$TEST_BUILD_DIR/module/module.prop"
+
+cat > "$TEST_BUILD_DIR/module/customize.sh" << 'CUSTOM_EOF'
+#!/sbin/sh
+MODPATH=${0%/*}
+ui_print "  Installing Hardware Overlay TEST module..."
+set_perm_recursive $MODPATH/system/product/overlay 0 0 0644 u:object_r:system_file:s0
+ui_print "  ✓ TEST module installed."
+CUSTOM_EOF
+
+cd "$TEST_BUILD_DIR/module"
+zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay-test.zip" . 2>&1 > /dev/null
+cd "$SCRIPT_DIR"
+ok "Hardware Overlay TEST module created: out/${OVERLAY_NAME}-hardware-overlay-test.zip"
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -1288,22 +1693,25 @@ echo -e "${GREEN}${BOLD}  ╔═════════════════
 echo -e "${GREEN}${BOLD}  ║              BUILD COMPLETE ✓                        ║${NC}"
 echo -e "${GREEN}${BOLD}  ╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo "  ${BOLD}Output files:${NC}"
-echo "    ${OVERLAY_NAME}.apk         $(du -sh "${OVERLAY_NAME}.apk" | cut -f1)"
+echo "  ${BOLD}Output files (out/):${NC}"
+echo "    out/apks/${OVERLAY_NAME}.apk         $(du -sh "out/apks/${OVERLAY_NAME}.apk" | cut -f1)"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    echo "    ${OVERLAY_NAME}-systemui.apk  $(du -sh "${OVERLAY_NAME}-systemui.apk" | cut -f1)"
+    echo "    out/apks/${OVERLAY_NAME}-systemui.apk  $(du -sh "out/apks/${OVERLAY_NAME}-systemui.apk" | cut -f1)"
 fi
-echo "    ${OVERLAY_NAME}-ksu.zip     $(du -sh "${OVERLAY_NAME}-ksu.zip" | cut -f1)"
+echo ""
+echo "    out/${OVERLAY_NAME}-ksu.zip              (Main KSU module)"
+echo "    out/${OVERLAY_NAME}-hardware-overlay.zip (For Repo submission)"
+echo "    out/${OVERLAY_NAME}-hardware-overlay-test.zip (Test repo version locally)"
 echo ""
 echo -e "  ${RED}${BOLD}⚠ IMPORTANT (KernelSU / KSU Next Users):${NC}"
 echo "    - You MUST install a mount system like 'Magic Mount' for overlays to activate."
 echo "    - DO NOT use 'OverlayFS' — this will likely cause a BOOTLOOP."
 echo ""
 echo "  ${BOLD}Deploy:${NC}"
-echo "    Standard: Install ${OVERLAY_NAME}-ksu.zip via your Manager App (KernelSU/Magisk)."
+echo "    Standard: Install out/${OVERLAY_NAME}-ksu.zip via your Manager App."
 echo ""
 echo "    Manual (ADB):"
-echo "      adb push ${OVERLAY_NAME}-ksu.zip /sdcard/"
+echo "      adb push out/${OVERLAY_NAME}-ksu.zip /sdcard/"
 echo "      adb shell su -c 'ksud module install /sdcard/${OVERLAY_NAME}-ksu.zip'"
 echo ""
 echo "  ${BOLD}Verify:${NC}"

@@ -1,28 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Samsung Galaxy A90 5G (r3q) boolean overrides
-    Cross-referenced against A13 vendor overlay APK and A16 API 36 framework-res.
-    Resources not found in the target framework are silently
-    skipped by idmap2d (shown as warnings only, no crash).
-
-    KEY ADDITIONS from A13 vendor overlay:
-    - config_supportsUdfps + config_supportsScreenOffUdfps: The framework needs
-      these to know the device has an under-display optical sensor, to show the
-      FOD icon, and to trigger the mask_brightness panel lighting.
-    - config_dozeAfterScreenOffByDefault + config_dozePulsePickup: AOD behavior
-    - config_enableBurnInProtection: AMOLED burn-in prevention
-    - config_pinnerHomeApp: Pins launcher in memory
-    - config_supportSmartPixels: Samsung display feature
+    Universal boolean overrides — safe for any device.
+    
+    Device-specific values (Samsung UDFPS, AOD, burn-in, VoLTE, etc.)
+    are now controlled via config.env → auto-generated in generated.xml.
+    
+    For other device-specific bools (power decoupling, display blanks after
+    doze, audio jack, camera sound, VoLTE carrier flags, etc.):
+      - Add them to config.env (see OPTIONAL STOCK VALUES section)
+      - Or extract from your stock overlay APKs following the TrebleDroid guide:
+        https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F
 -->
 <resources>
-
-    <!-- ============================================================
-         UDFPS FINGERPRINT — Values now controlled by config.env via
-         generated.xml. Set HAS_UDFPS=true in config.env to enable.
-         ============================================================ -->
-
-    <!-- Display: Notch / cutout fill -->
-    <bool name="config_fillMainBuiltInDisplayCutout">true</bool>
 
     <!-- Display: Show navigation bar for gesture nav -->
     <bool name="config_showNavigationBar">true</bool>
@@ -30,83 +19,22 @@
     <!-- Display: Screen wake on unplug -->
     <bool name="config_unplugTurnsOnScreen">true</bool>
 
-    <!-- Display: Power decoupling
-         Set to true per device tree overlay (matches stock Samsung behavior).
-         Decouples interactive state from display on/off state, allowing
-         the power manager to reduce clocks and disable touch controller
-         while the display is on.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml -->
-    <bool name="config_powerDecoupleInteractiveModeFromDisplay">true</bool>
-    <bool name="config_powerDecoupleAutoSuspendModeFromDisplay">true</bool>
-
-    <!-- Display: Don't blank display in doze
-         CRITICAL for Samsung AOD on GSI: Prevents the display from entering
-         DOZE_SUSPEND state, which freezes the framebuffer. The Samsung
-         hwcomposer (hwcomposer.msmnile.so) can't handle DOZE_SUSPEND →
-         DOZE/ON transitions on a GSI, causing:
-           E SurfaceFlinger: trackPendingFrame: Invalid present fence
-         With this false, the display stays in DOZE state where content
-         updates work and the hwcomposer doesn't need to transition.
-         Source: Misc/AOD overlay, confirmed by GSI testing -->
-    <bool name="config_displayBlanksAfterDoze">false</bool>
-
-    <!-- Display: AOD wallpaper
-         Samsung Super AMOLED panels don't support AOD background wallpapers
-         through the standard Android doze pipeline. This disables the feature.
-         Source: Misc/AOD overlay -->
-    <bool name="config_dozeSupportsAodWallpaper">false</bool>
-
-    <!-- Sensors: Wake gestures — controlled by config.env HAS_DOUBLE_TAP_WAKE -->
-
-    <!-- Note: config_supportSmartPixels is a CAF/LineageOS feature, not AOSP.
-         Skipped here to avoid unnecessary idmap2 warnings. -->
-
-    <!-- Performance: Pin home app in memory -->
-    <bool name="config_pinnerHomeApp">true</bool>
-
-    <!-- Audio -->
-    <bool name="config_supportAudioSourceUnprocessed">false</bool>
-    <bool name="config_camera_sound_forced">false</bool>
-    <bool name="config_useDevInputEventForAudioJack">true</bool>
-
     <!-- Connectivity: Hot-swappable SIM -->
     <bool name="config_hotswapCapable">true</bool>
 
-    <!-- Connectivity: Wifi Display protected buffers -->
-    <bool name="config_wifiDisplaySupportsProtectedBuffers">true</bool>
-
-    <!-- Telephony: VoLTE / VoWiFi
-         Note: device_* values now controlled by config.env HAS_VOLTE.
-         carrier_* values are carrier-specific, not device-specific. -->
-    <bool name="config_carrier_volte_available">true</bool>
-    <bool name="config_carrier_vt_available">true</bool>
-    <bool name="config_carrier_wfc_ims_available">true</bool>
-
-    <!-- Telephony: Dynamic IMS binding -->
-    <bool name="config_dynamic_bind_ims">true</bool>
-
-    <!-- Telephony: Force radio creation -->
-    <bool name="config_force_phone_globals_creation">true</bool>
-
     <!-- Security: Lock screen rotation -->
     <bool name="config_enableLockScreenRotation">true</bool>
+
+    <!-- Multi-user support -->
     <bool name="config_enableMultiUserUI">true</bool>
 
-    <!-- Cell broadcast -->
+    <!-- Cell broadcast app links -->
     <bool name="config_cellBroadcastAppLinks">true</bool>
 
     <!-- Wifi Display -->
     <bool name="config_enableWifiDisplay">true</bool>
 
-    <!-- Telephony: VoLTE TTY supported
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml -->
-    <bool name="config_carrier_volte_tty_supported">true</bool>
-
-    <!-- Telephony: 5G NR — controlled by config.env HAS_5G -->
-
-    <!-- Input: Disable double-tap power button for camera
-         Samsung devices handle camera launch differently.
-         Source: device_samsung_r3q/overlay/frameworks/base/core/res/res/values/config.xml -->
-    <bool name="config_cameraDoubleTapPowerGestureEnabled">false</bool>
+    <!-- Performance: Pin home app in memory (safe for all devices) -->
+    <bool name="config_pinnerHomeApp">true</bool>
 
 </resources>

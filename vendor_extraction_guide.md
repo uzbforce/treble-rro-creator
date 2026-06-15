@@ -1,4 +1,17 @@
-# Vendor HAL Extraction Guide
+# Vendor HAL Extraction Guide (HIDL vs AIDL)
+
+## 🏗 Why the "Resource Dictionary" (framework-res.apk) Matters
+
+To build an overlay, `aapt2` needs to know the exact "Resource IDs" used by the Android system. This is done by linking against a reference `framework-res.apk`.
+
+### ⚠️ The Android 13 Rule
+For this tool, **Android 13's `framework-res.apk` is the gold standard**.
+- **Why?** It contains the most stable set of resource IDs that are backwards and forwards compatible with most GSIs (A12 through A16).
+- **Avoid pulling from your phone:** Manufacturers "optimize" (strip) their `framework-res.apk` to save space. If you use a pulled file, `aapt2` will often throw "Resource not found" errors because the ID dictionary is incomplete.
+
+**Always use the "Download Android 13" option in `./setup.sh`.**
+
+---
 
 ## 🔧 Build Tools Quick Setup
 
@@ -12,43 +25,23 @@ Before extracting vendor HALs or building the overlay, make sure you have the re
 
 This downloads `aapt2`, `zipalign`, and `apksigner` into a local `tools/` directory and guides you on getting `framework-res.apk`. No root needed.
 
-### Method 2: Package manager (Debian/Ubuntu)
-
-```bash
-sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res
-```
-
-### Method 3: Manual download into tools/
-
-```bash
-# Create tools directory
-mkdir -p tools
-
-# Download aapt2 from Google Maven
-AAPT2_VER=$(curl -sL https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/maven-metadata.xml | grep -oP '<release>\K[^<]+')
-curl -sL "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/${AAPT2_VER}/aapt2-${AAPT2_VER}-linux.jar" -o /tmp/aapt2.jar
-cd tools && unzip -o /tmp/aapt2.jar aapt2 && chmod +x aapt2 && cd ..
-
-# For zipalign + apksigner: need Java + Android SDK command-line tools
-# Download from: https://developer.android.com/studio#command-tools
-
-# Pull framework-res.apk from your device via ADB
-adb pull /system/framework/framework-res.apk tools/
-```
-
 ---
 
-Some devices need proprietary vendor HAL (Hardware Abstraction Layer) binaries to make features like **fingerprint sensors**, **vibrators**, or **display hardware** work on a GSI. These binaries live in the vendor partition and are replaced when you flash a GSI — so we ship them inside the KSU module.
+## 🚀 The HIDL vs AIDL Paradigm Shift (Android 14-16+)
 
-> ⚠️ **⚠️ CRITICAL WARNING: BOOTLOOP RISK ⚠️**
->
-> Shipping the **wrong** HAL binaries, **incompatible** VINTF manifest fragments, or **incorrect** SELinux policies can cause:
-> - **Bootloop** — phone gets stuck at the boot animation
-> - **Soft brick** — phone boots but touch/display doesn't work
-> - **Silent failure** — phone boots but features silently don't work (no errors shown)
->
-> **Always test on a device you can recover** (e.g., with a working recovery mode).
-> Extract binaries from **your own device's vendor partition**, not from another device.
+Traditionally, Treble GSIs used **HIDL (HAL Interface Definition Language)** to communicate with vendor hardware. However, starting with Android 14 and becoming strictly enforced in Android 16, Google has shifted to **AIDL (Android Interface Definition Language)** for HALs.
+
+### The Problem
+Most stock vendor partitions (especially on older devices) only ship **HIDL HALs**. When you flash a modern GSI (like Android 16), it expects **AIDL HALs** for critical features like:
+- **Fingerprint (UDFPS)** — HIDL fingerprint HALs often fail to register with the A16 biometric framework.
+- **Vibrator** — A16 GSIs may not "see" older HIDL vibrator services.
+- **Power/Health** — New GSIs require AIDL for advanced power management.
+
+### The Solution (Current Strategy)
+1. **Already there?** Check your stock vendor. It might already have the HIDL HALs with correct sepolicy. If they work, don't touch them!
+2. **UDFPS still not working?** If your HIDL fingerprint HAL is running but the GSI doesn't show the fingerprint option, it's likely an interface mismatch.
+3. **Source AIDL HALs:** The best way to fix this is to find **AIDL HALs** from a Custom ROM (like LineageOS or Pixel Experience) built for your device on a newer Android version.
+4. **Future Goal:** We are working on a **HIDL-to-AIDL converter** tool to bridge this gap automatically. Until then, sourcing native AIDL binaries is the most reliable path.
 
 ---
 
@@ -56,12 +49,11 @@ Some devices need proprietary vendor HAL (Hardware Abstraction Layer) binaries t
 
 Before extracting, determine what your device needs:
 
-| Feature | Files to extract | Required? |
-|---------|-----------------|-----------|
-| **Fingerprint (UDFPS)** | HAL binary, .rc file, VINTF manifest, shared libs, sepolicy rules | Optional |
-| **Vibrator** | HAL binary, .rc file, VINTF manifest, sepolicy rules | Optional |
-| **Display/AOD** | .rc file for display sysfs permissions | Optional |
-| **Other HALs** | Similar pattern | Usually not needed on GSI |
+| Feature | Files to extract | Protocol | Recommendation |
+|---------|-----------------|----------|----------------|
+| **Fingerprint (UDFPS)** | Binary, .rc, VINTF, libs, sepolicy | AIDL (Preferred) | Try stock HIDL first; if fails, get AIDL from Custom ROM. |
+| **Vibrator** | Binary, .rc, VINTF, sepolicy | AIDL (Preferred) | Usually works with stock HIDL, but AIDL is better for A16. |
+| **Display/AOD** | .rc file for sysfs permissions | N/A | Always extract from stock vendor. |
 
 Most devices only **need the overlay APK** (corner radius, cutout, brightness, etc.). Vendor HALs are only needed for features that don't work on the GSI's default implementation.
 
@@ -72,15 +64,19 @@ Most devices only **need the overlay APK** (corner radius, cutout, brightness, e
 Connect your device over ADB and check what's running:
 
 ```bash
-# Check running HAL services (e.g., fingerprint, vibrator)
+# Check if HALs are HIDL or AIDL
+adb shell hwservicemanager --list        # Lists HIDL services
+adb shell servicemanager --list-services # Lists AIDL services (look for 'android.hardware.*')
+
+# Check running HAL services
 adb shell dumpsys -l | grep -iE 'finger|vibrat|udfps|biometric'
 
-# List HAL binary files in vendor
-adb shell ls /vendor/bin/hw/ 2>/dev/null
-
-# Look for specific HALs (replace "finger" with "vibrat", "display", etc.)
+# Look for specific HALs in vendor
 adb shell ls /vendor/bin/hw/*finger* /vendor/bin/hw/*biometric* 2>/dev/null
 adb shell ls /vendor/bin/hw/*vibrat* 2>/dev/null
+```
+
+> 💡 **Note on GSIs:** If you're running a GSI, `/vendor/bin/hw/` may only contain basic AOSP HALs. You need to extract from a **stock firmware vendor.img** or a **Custom ROM zip**.
 
 # List init scripts for these HALs
 adb shell ls /vendor/etc/init/*finger* /vendor/etc/init/*vibrat* /vendor/etc/init/*udfps* 2>/dev/null
@@ -446,80 +442,48 @@ This project has a well-structured file system for the vendor handling, PLEASE R
 
 ---
 
-## ⚙️ Power Profile (power_profile.xml)
+## ⚙️ Power Profile (power_profile.xml) — MANDATORY
 
-The `res/xml/power_profile.xml` file tells Android's battery stats service how much power each hardware component uses. This determines the "Battery usage" estimates in Settings.
+The `res/xml/power_profile.xml` file is **CRITICAL** for your device's health and performance on a GSI. It tells Android exactly how much power each hardware component uses and defines the CPU cluster architecture.
+
+### ⚠️ Why this is NOT optional
+While your phone might boot without it, using a generic or missing `power_profile.xml` causes:
+- **Poor Battery Life:** The system cannot accurately calculate power-efficient task placement.
+- **CPU Mismatch:** Modern "Big.Little" or "1+3+4" CPU cluster layouts need correct frequency/power maps to scale correctly.
+- **Fake Stats:** Your battery usage graph will be completely wrong.
+- **Overheating:** Incorrect power maps can lead to aggressive boosting on the wrong clusters.
 
 ### What power_profile.xml contains
 
-- **CPU clusters** — core speeds and power draw per frequency step
+- **CPU clusters** — core speeds and power draw per frequency step (Essential for schedutil/schedtune)
 - **Screen** — power drain when on, at full brightness, and in ambient/doze mode
 - **Radio** — cellular modem power in active/idle/scanning states
 - **Wi-Fi/Bluetooth** — power drain for each radio
 - **Battery capacity** — nominal and typical mAh
 
-### Why you need a device-specific one
+### 🛠️ How to get YOUR device's power_profile
 
-The default AOSP `power_profile.xml` has **generic/dummy values** that give inaccurate battery estimates. A profile from your actual device (or a device with the same SoC + battery) will be much more accurate. **If you don't provide one, the GSI's default is used — it won't crash anything, just show inaccurate stats.**
+**YOU MUST EXTRACT THIS FROM YOUR STOCK FIRMWARE.** Do not guess.
 
-### How to get your device's power_profile
+#### Method A: Extract from framework-res.apk (Recommended)
 
-#### Method A: Extract from a running device (easiest)
-
-```bash
-# Pull the framework-res APK from your device
-adb pull /system/framework/framework-res.apk
-
-# Unzip and extract the power profile
-unzip framework-res.apk res/xml/power_profile.xml
-cp res/xml/power_profile.xml /path/to/your/project/res/xml/power_profile.xml
-```
-
-This gives you the EXACT power profile that your stock firmware uses.
+1. Pull the framework-res APK from your stock device (via ADB or from a firmware dump):
+   ```bash
+   adb pull /system/framework/framework-res.apk
+   ```
+2. Unzip and extract the power profile:
+   ```bash
+   unzip framework-res.apk res/xml/power_profile.xml
+   ```
+3. Copy it to your project:
+   ```bash
+   cp res/xml/power_profile.xml res/xml/power_profile.xml
+   ```
 
 #### Method B: Get from device tree source (for custom ROMs)
 
-```bash
-# In your device tree (e.g., device/google/raven/):
-cat device/google/raven/overlay/frameworks/base/core/res/res/xml/power_profile.xml
-```
-
-This is the overlay your device tree ships. Often more up-to-date than the running device.
-
-#### Method C: Borrow from a device with the same SoC
-
-If you can't extract from your device, search for a device tree with the **same SoC** (e.g., Snapdragon 888, Exynos 2200, Dimensity 8100). Key indicators of a matching profile:
-
-| SoC | CPU cluster layout | Look for devices with |
-|-----|-------------------|----------------------|
-| Snapdragon 855 | 1+3+4 (1×A76@2.84GHz + 3×A76@2.42GHz + 4×A55@1.78GHz) | SM8150 devices |
-| Snapdragon 8 Gen 2 | 1+2+2+3 | SM8550 devices |
-| Dimensity 9000 | 1+3+4 (1×X2@3.05GHz + 3×A710@2.85GHz + 4×A510@1.8GHz) | MT6983 devices |
-| Exynos 2200 | 1+3+4 (1×X2 + 3×A710 + 4×A510) | S911B / S916B devices |
-
-Search GitHub for device trees matching your SoC:
-```
-# Example: find Snapdragon 865+ devices with power profiles
-https://github.com/search?q=power_profile.xml+SM8250&type=code
-```
-
-### What to customize in power_profile.xml
-
-| Item | How to find your value |
-|------|----------------------|
-| `battery.capacity` | `adb shell dumpsys batteryproperties \| grep "nominal"` or check battery spec |
-| `screen.on` / `screen.full` | Approximate: 50-100mA for AMOLED-on, 200-600mA for full brightness LCD |
-| CPU cluster counts & speeds | Check CPU info: `adb shell cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq` |
-| Radio power | Keep defaults unless you have exact measurements |
-
-### If you can't find a matching profile
-
-Just leave the current one (Snapdragon 855) as a baseline or delete the file entirely:
-```bash
-rm res/xml/power_profile.xml
-```
-
-Without it, Android falls back to conservative default estimates. Battery stats won't be perfect but the device will work fine.
+If your device has a high-quality custom ROM (like LineageOS), find the `power_profile.xml` in their device tree on GitHub. It's usually located at:
+`device/<manufacturer>/<codename>/overlay/frameworks/base/core/res/res/xml/power_profile.xml`
 
 ---
 

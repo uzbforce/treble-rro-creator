@@ -1,15 +1,12 @@
 # Treble Overlay Project
 
-IF YOU ARE HAVING PROBLEMS WITH UNDERSTANDING, INSTALL freebuff CLI, install npm first:
-For Debian/Ubuntu: "sudo apt install npm" 
-For Arch: "sudo pacman -S npm"
+# 🧠 MANDATORY REQUIREMENT: AT LEAST ONE FUNCTIONAL BRAINCELL 🧠
+> **STOP.** If you are about to DM the developer or complain in the chat without reading this guide, **DON'T.**  
+> 99% of your "issues" are caused by not following the instructions below. **READ THE ENTIRE GUIDE BEFORE ASKING QUESTIONS.**
 
-THEN INSTALL freebuff cli:
-Debian/Ubuntu/Arch: "npm install -g freebuff"
+---
 
-AND THEN START CLI using "freebuff" SO YOU CAN USE FREE AI CLI TO WORK ON THIS
-
-================ Process ================
+> 💡 **New to RRO overlays?** This tool generates a Magisk/KSU module that adapts a GSI to your device's hardware. Just edit `config.env` and run `./build.sh`.
 
 Create **Runtime Resource Overlays (RRO)** for Android GSI (Generic System Image) to adapt it to your device.
 
@@ -57,11 +54,19 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
 **Important:** Do NOT use /sdcard. You MUST clone to the internal home directory.
 
 1. **Install Termux:** [F-Droid version](https://f-droid.org/en/packages/com.termux/) is required for the latest build tools.
-2. **Setup:**
+2. **Setup Environment:**
+   Run these commands one by one. **Do NOT skip steps.**
    ```bash
    termux-setup-storage
-   apt update && apt upgrade
-   pkg install git aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu
+   
+   # Update repositories (MANDATORY)
+   apt update
+   
+   # Upgrade existing packages
+   apt upgrade -y
+   
+   # Install build dependencies (Use apt, NOT pkg)
+   apt install git aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu -y
    ```
 3. **Download Project:**
    ```bash
@@ -74,10 +79,12 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
    ```bash
    ./setup.sh  # Selection [3], then Choose Option [1] (Android 13 - Recommended)
    ```
-   Configure config.env using mtmanager (/data/data/com.termux/files/home/treble-rro-creator/), or using:
+   Configure `config.env` using mtmanager (`/data/data/com.termux/files/home/treble-rro-creator/`), or using:
    ```bash
    nano config.env
    ```
+   > 💡 **Nano Tip:** After editing, press `Ctrl+O` followed by `Enter` to save, then `Ctrl+X` to exit.
+
    Then Build:
    ```bash
    ./build.sh
@@ -85,7 +92,7 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
 5. **Install:**
    You can either manually copy the ksu module manually via mtmanager with the path given above or:
    ```bash
-   cp treble-overlay-*.zip /sdcard/
+   cp out/*.zip /sdcard/
    ```
    Install Meta magic mount rs module first and reboot if installin via KSU/N.
    Flash the copied zip file in your root manager app and reboot.
@@ -106,9 +113,11 @@ sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res
 ```
 
 ### Resource Dictionary (framework-res.apk)
-You need a reference file so aapt2 can find system IDs. Pulled files from your phone often fail because they are optimized by the manufacturer.
+You need a reference file so `aapt2` can find system IDs. **Android 13** is the most stable version for this purpose. 
 
-**Recommended:** Run `./setup.sh` and choose the **Download from Google** option. It works on both PC and Termux.
+> ⚠️ **Warning:** Pulled files from your phone often fail because they are "optimized" (resources stripped) by the manufacturer. **Always use the download option.**
+
+**Recommended:** Run `./setup.sh` and choose the **Download Android 13** option. It works on both PC and Termux.
 
 ---
 
@@ -116,17 +125,33 @@ You need a reference file so aapt2 can find system IDs. Pulled files from your p
 
 ```bash
 # 1. Edit config.env with YOUR device's values
+nano config.env
+```
+> 💡 **Nano Tip:** Press `Ctrl+O` then `Enter` to save, and `Ctrl+X` to exit.
 
+```bash
 # 2. Build
 ./build.sh
 
-# Output files (in project root):
-#   treble-overlay-<device>.apk           — Framework overlay APK
-#   treble-overlay-<device>-systemui.apk  — SystemUI overlay APK (optional)
-#   treble-overlay-<device>-ksu.zip        — Flashable KSU/Magisk module
+# Output files (in out/):
+#   out/apks/<device>.apk                     — Framework overlay APK (signed)
+#   out/apks/<device>-systemui.apk            — SystemUI overlay APK (signed, optional)
+#   out/<device>-ksu.zip                      — Flashable KSU/Magisk module
+#   out/<device>-hardware-overlay.zip         — Source-based overlay for GSI repos
 ```
 
-> **First run?** If you haven't edited `config.env` yet, `build.sh` will create rro with generic values. config.env.example contains example values.
+### 🌐 Treble Hardware Overlay Repository Support
+
+This tool can also generate a package compatible with the [Treble Hardware Overlay Repo](https://github.com/Doze-off/vendor_hardware_overlay). This is useful for contributing your device's overlay to be included in GSIs by default.
+
+- **Output:** `{OVERLAY_NAME}-hardware-overlay.zip`
+- **Structure:** `Manufacturer/Codename/` containing `Android.mk`, `AndroidManifest.xml`, and the `res/` folder.
+- **Usage:** Extract the zip and copy the manufacturer folder into your clone of the hardware overlay repository to submit a Pull Request.
+
+---
+
+> **First run?**
+ If you haven't edited `config.env` yet, `build.sh` will create rro with generic values. config.env.example contains example values.
 
 ### Deploy
 
@@ -138,7 +163,7 @@ You need a reference file so aapt2 can find system IDs. Pulled files from your p
 # Via KernelSU (recommended — persistent across reboots)
 # 1. Open KernelSU App → Modules → Install from storage → select the .zip
 # OR via CLI:
-adb push treble-overlay-<device>-ksu.zip /sdcard/
+adb push out/treble-overlay-<device>-ksu.zip /sdcard/
 adb shell su -c 'ksud module install /sdcard/treble-overlay-<device>-ksu.zip'
 adb reboot
 
@@ -168,41 +193,44 @@ adb shell su -c 'getprop | grep -E "udfps|fingerprint|ims"'
 
 ```
 ├── config.env                        # ← YOUR DEVICE SETTINGS (edit this first!)
+├── config.env.example                # Reference example (Samsung A90 5G)
 ├── build.sh                          # Build script (reads config.env)
-├── customize.sh                      # KSU install script (SELinux permissions)
-├── service.sh                        # Post-boot init (properties, HAL startup)
-├── module.prop                       # KSU module metadata (auto-generated)
-├── sepolicy.rule                     # SELinux policy extensions (template — add your rules here)
-├── sepolicy.rule.example             # Reference: Samsung A90 5G SELinux rules
+├── setup.sh                          # Tool installer (aapt2, zipalign, framework-res)
+├── cleanup.sh                        # Build artifact cleaner
+├── customize.sh                      # KSU install script (auto-generated if not present)
+├── service.sh                        # Post-boot init (auto-generated if not present)
+├── sepolicy.rule                     # SELinux policy (template for vendor HALs)
 ├── vendor_extraction_guide.md        # Guide for extracting vendor HAL files
-├── .gitignore
 ├── README.md                         # This file
 │
 ├── res/                              # Framework-res overlay resources
 │   ├── values/
-│   │   ├── config.xml                # Main config: brightness, cutout, UDFPS, radio, IMS
-│   │   ├── bools.xml                 # Feature flags: UDFPS, AOD, doze, VoLTE
-│   │   ├── dimens.xml                # Corner radius, status bar height
-│   │   └── integers.xml              # Auto-brightness levels and curves
+│   │   ├── config.xml                # Universal AOSP defaults only
+│   │   ├── bools.xml                 # Universal bools (nav bar, hotswap, etc.)
+│   │   ├── generated.xml             # ⚡ Auto-generated from config.env (DO NOT EDIT)
+│   │   └── integers.xml              # Auto-brightness arrays (replace with stock)
 │   └── xml/
-│       └── power_profile.xml         # Battery power profile
+│       └── power_profile.xml         # Replace with your stock power profile
 │
-├── systemui_overlay/                 # SystemUI overlay (doze/AOD fix)
-│   ├── AndroidManifest.xml           # Auto-generated from config.env
-│   └── res/values/config.xml         # Doze/DOZE_SUSPEND control
+├── systemui_overlay/                 # SystemUI overlay (doze/AOD behavior)
+│   ├── AndroidManifest.xml           # Auto-generated
+│   └── res/values/
+│       ├── config.xml                # Universal doze defaults
+│       └── generated.xml             # ⚡ Auto-generated from config.env
 │
-├── system/vendor/                    # Vendor HAL binaries (optional, see vendor_extraction_guide.md)
-│   ├── bin/hw/                       # Fingerprint, vibrator, etc.
+├── system/vendor/                    # Vendor HAL binaries (optional)
+│   ├── bin/hw/                       # Fingerprint, vibrator HALs
 │   ├── lib64/                        # Shared libraries
-│   └── etc/
-│       ├── init/                     # .rc files for HAL services
-│       └── vintf/manifest/           # VINTF manifest fragments
+│   └── etc/init/ + vintf/manifest/   # Init .rc + VINTF fragments
 │
-├── AndroidManifest.xml               # Framework overlay manifest (auto-generated)
-├── Android.mk                        # AOSP build integration
-└── keys/
-    ├── platform.pk8                  # AOSP platform signing key
-    └── platform.x509.pem             # AOSP platform certificate
+├── out/                              # Build output directory
+│   ├── apks/                         # Signed APKs
+│   └── *.zip                         # Flashable modules
+├── keys/
+│   ├── platform.pk8                  # AOSP platform signing key
+│   └── platform.x509.pem             # AOSP platform certificate
+├── AndroidManifest.xml                # Auto-generated
+├── Android.mk                         # AOSP build integration
 ```
 
 ---
@@ -266,20 +294,40 @@ This is the main configuration file. Set:
 | `HAS_AOD` | Always-On Display support | `true` |
 | `HAS_5G` / `HAS_VOLTE` | Connectivity features | `true` |
 
-### 2. Edit resource XML files (as needed)
+### 2. Apply device-specific values from config.env (recommended)
 
-These contain the more complex overrides. The config.env drives simple values; these XML files hold arrays, paths, and detailed config:
+Most device values are set directly in `config.env`. See the file for all available options.
 
-| File | What to customize | Reference (A90 5G) |
-|------|------------------|--------------------|
-| `res/values/dimens.xml` | Corner radius, status bar height | 100px radius, 76px bar |
-| `res/values/config.xml` | Display cutout path (SVG), light sensor type, brightness levels, IMS packages | Infinity-U notch SVG, `com.samsung.sensor.physical_light` |
-| `res/values/bools.xml` | Feature toggles beyond config.env | UDFPS, AOD, doze, VoLTE, burn-in protection |
-| `res/values/integers.xml` | Auto-brightness lux→backlight curve | 28-level curve from stock OneUI |
-| `res/xml/power_profile.xml` | Battery drain estimates per component | 4400mAh with SD855 CPU clusters |
-| `systemui_overlay/res/values/config.xml` | Doze/AOD sleep behavior | `doze_suspend_display_state_supported=false` |
+**Comment out** any value with `#` to skip it — build.sh will not generate that resource.
 
-### 3. Update device match (critical)
+### 3. Extract stock overlay APKs for advanced values (optional)
+
+For values beyond config.env (power profile, auto-brightness curves, biometric sensors, radio config), extract from your **stock overlay APKs** following the [TrebleDroid guide](https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F):
+
+```bash
+# 1. Pull the stock overlay APKs from your device
+adb pull /system/product/overlay/framework-res__auto_generated_rro_product.apk
+adb pull /system/vendor/overlay/framework-res__auto_generated_rro_vendor.apk
+
+# 2. Decompile with apktool
+apktool d framework-res__auto_generated_rro_product.apk -o product/
+apktool d framework-res__auto_generated_rro_vendor.apk -o vendor/
+
+# 3. Compare product vs vendor — only keep what's DIFFERENT or missing in vendor
+#    (these are product-specific values that get LOST when flashing a GSI)
+```
+
+| Where to put it | What values | How |
+|----------------|------------|-----|
+| `config.env` (OPTIONAL STOCK VALUES) | Simple bools, strings, integers (radio, power decouple, etc.) | Uncomment the matching variable |
+| `config.env` (OPTIONAL STOCK VALUES) | Auto-brightness arrays | Set `AUTO_BRIGHTNESS_LEVELS` and `AUTO_BRIGHTNESS_BACKLIGHT_VALUES` (space-separated) |
+| `res/xml/power_profile.xml` | CPU/battery power profile from `product/res/xml/` | Replace the file entirely |
+| `res/values/config.xml` (bottom section) | Any other values not in config.env | Place in the marked section |
+
+> 💡 **Only include values that differ between product and vendor overlays.**
+> If a value exists in BOTH, the vendor value survives the GSI flash — the overlay doesn't need it.
+
+### 4. Update device match (critical)
 
 The overlay activates based on a system property. By default it matches `ro.product.device`. In `config.env`, set:
 
@@ -295,7 +343,7 @@ adb shell getprop ro.product.device
 
 > **⚠️ Why not ro.vendor.build.fingerprint?** AOSP's `PatternMatcher.PATTERN_SIMPLE_GLOB` does NOT match `/` in file paths. Using glob patterns on the fingerprint (which contains slashes) can fail silently. Using `ro.product.device` with a literal value is **simpler and more reliable**.
 
-### 4. Remove or replace vendor files (optional)
+### 5. Remove or replace vendor files (optional)
 
 The `system/vendor/` directory contains Samsung A90 5G-specific HAL binaries. If you're building for a different device:
 - **Replace** with your own files (see [vendor_extraction_guide.md](vendor_extraction_guide.md))
@@ -356,11 +404,13 @@ $ ./build.sh
 
 | File | Description |
 |------|-------------|
-| `{OVERLAY_NAME}.apk` | Framework-res overlay — the main overlay APK |
-| `{OVERLAY_NAME}-systemui.apk` | SystemUI overlay — only if `systemui_overlay/res/` has content |
-| `{OVERLAY_NAME}-ksu.zip` | Flashable module for KSU/Magisk |
-| `AndroidManifest.xml` | **Regenerated** from config.env each build |
-| `module.prop` | **Regenerated** from config.env each build |
+| `out/apks/{OVERLAY_NAME}.apk` | Framework-res overlay — the main overlay APK |
+| `out/apks/{OVERLAY_NAME}-systemui.apk` | SystemUI overlay (optional) |
+| `out/{OVERLAY_NAME}-ksu.zip` | Flashable module for KSU/Magisk |
+| `out/{OVERLAY_NAME}-hardware-overlay.zip` | Source-based overlay for GSI repo submission |
+| `out/{OVERLAY_NAME}-hardware-overlay-test.zip` | Test module for the repo version |
+| `AndroidManifest.xml` (project root) | Auto-generated — edit config.env instead |
+| `module.prop` (project root) | Auto-generated — edit config.env instead |
 
 > ⚠️ **AndroidManifest.xml and module.prop are auto-generated!** Edit `config.env` instead of these files directly. Your changes will be overwritten on the next build.
 
@@ -368,21 +418,26 @@ $ ./build.sh
 
 ## 🧪 Vendor HALs (Advanced)
 
-Some features require proprietary vendor HAL binaries to work on a GSI:
-- **Fingerprint sensor** — the GSI's default AOSP HAL may not talk to your device's sensor
-- **Vibrator** — Samsung's proprietary vibrator HAL vs AOSP's default
-- **Display** — custom display HALs for AOD, HBM, etc.
+Some features require proprietary vendor HAL binaries to work on a GSI.
+
+### 🚀 The HIDL vs AIDL Shift (Android 14-16+)
+
+Starting with Android 14 (and becoming strictly enforced in Android 16), Google has moved from **HIDL** to **AIDL** for HALs.
+- **HIDL (Older):** Most stock vendor partitions ship these.
+- **AIDL (Modern):** Required by newer GSIs for features like **UDFPS** and **Vibrator**.
+
+If your fingerprint sensor doesn't work on Android 16 despite having the stock HALs, you likely need **AIDL HALs** sourced from a Custom ROM (like LineageOS) for your device.
 
 ### How it works
 
 The vendor partition on stock firmware contains:
-- HAL binary (e.g., `fingerprint@2.3-service.samsung`)
+- HAL binary (e.g., `fingerprint@2.3-service.samsung` [HIDL] or `android.hardware.biometrics.fingerprint-service.samsung` [AIDL])
 - Init .rc file (defines the service)
-- VINTF manifest fragment (declares the HIDL interface)
+- VINTF manifest fragment (declares the interface)
 - Shared libraries (needed by the binary)
 - SELinux policy (allows access to device nodes and sysfs)
 
-When you flash a GSI, **system is replaced but vendor is kept**. However, the GSI doesn't know about your vendor's custom HALs. By shipping them in the KSU module, they get bind-mounted over the vendor partition at boot.
+When you flash a GSI, **system is replaced but vendor is kept**. If the GSI lacks the logic to talk to your specific hardware, shipping these HALs in the KSU module "bridges" the gap.
 
 ### Extracting from your device
 

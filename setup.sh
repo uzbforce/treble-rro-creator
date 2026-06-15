@@ -28,6 +28,7 @@ TOOLS_DIR="${SCRIPT_DIR}/tools"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 info() { echo -e "  ${YELLOW}→${NC} $*"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*"; }
 
 echo ""
@@ -44,12 +45,21 @@ acquire_framework_res() {
 
     echo ""
     info "Almost ready! We just need framework-res.apk (the resource dictionary)."
-    echo "  Options to get it:"
-    echo -e "    ${BOLD}[1]${NC} Download Android 13 Resources (${GREEN}Recommended${NC})"
+    echo "  This file acts as a 'translator' for aapt2. Using the wrong version"
+    echo "  will cause 'resource not found' errors during build."
+    echo ""
+    echo -e "  ${BOLD}Options to get it:${NC}"
+    echo -e "    ${BOLD}[1]${NC} Download Android 13 Resources (${GREEN}STRONGLY RECOMMENDED${NC})"
+    echo -e "        • Most stable for aapt2. Works for A13, A14, A15, and A16 overlays."
+    echo ""
     echo -e "    ${BOLD}[2]${NC} Download Android 14"
     echo -e "    ${BOLD}[3]${NC} Download Android 15"
     echo -e "    ${BOLD}[4]${NC} Download Android 16 (Preview)"
-    echo -e "    ${BOLD}[5]${NC} Pull from your device (${YELLOW}Often fails / missing resources${NC})"
+    echo ""
+    echo -e "    ${BOLD}[5]${NC} Pull from your device (${RED}NOT RECOMMENDED${NC})"
+    echo -e "        • Pulled files are often 'optimized' (odex/vdex) by manufacturers"
+    echo -e "        • Missing critical resource IDs — ${RED}aapt2 WILL fail${NC}."
+    echo ""
     echo -e "    ${BOLD}[n]${NC} Skip for now"
     echo ""
     read -r -p "  Choose [1/2/3/4/5]: " res_choice
@@ -253,7 +263,87 @@ case "$env_choice" in
         info "Termux selected."
         info "Running: pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu"
         echo ""
-        pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu
+
+        # Try install — using `if` so `set -e` doesn't kill the script on failure
+        TERMUX_PKG_OK=false
+        if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+            TERMUX_PKG_OK=true
+            ok "Packages installed successfully"
+        else
+            warn "Package installation failed — this is often a repository mirror issue."
+            echo ""
+            echo -e "  ${YELLOW}Would you like to change the Termux repository mirror?${NC}"
+            echo ""
+            echo -e "    ${BOLD}[1]${NC} Run termux-change-repo (${GREEN}recommended${NC} — interactive mirror selector)"
+            echo -e "        Launches a TUI where you pick a mirror close to your region."
+            echo ""
+            echo -e "    ${BOLD}[2]${NC} Set a known working mirror (Albatross — fast CDN)"
+            echo -e "        Automatically configures a reliable mirror without interaction."
+            echo ""
+            echo -e "    ${BOLD}[3]${NC} Skip — I'll fix it manually"
+            echo -e "        Shows manual commands to run later."
+            echo ""
+            read -r -p "  Choose [1/2/3]: " repo_choice
+
+            case "$repo_choice" in
+                1)
+                    echo ""
+                    info "Launching termux-change-repo..."
+                    info "Use arrow keys to navigate, SPACE to select, ENTER to confirm."
+                    info "Choose a mirror close to your region (e.g., Albatross, Grimler, etc.)"
+                    echo ""
+                    termux-change-repo
+                    echo ""
+                    info "Updating package lists..."
+                    apt update
+                    echo ""
+                    info "Retrying package installation..."
+                    if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+                        TERMUX_PKG_OK=true
+                        ok "Packages installed successfully after repo change"
+                    else
+                        warn "Installation still failed. Try selecting a different mirror and re-run ./setup.sh"
+                    fi
+                    ;;
+                2)
+                    echo ""
+                    info "Setting Albatross CDN mirror..."
+                    # Termux stores sources in $PREFIX/etc/apt/sources.list
+                    SOURCES_FILE="${PREFIX}/etc/apt/sources.list"
+                    if [ -f "$SOURCES_FILE" ]; then
+                        # Comment out existing repo and add Albatross mirror
+                        sed -i 's|^deb |#deb |' "$SOURCES_FILE" 2>/dev/null || true
+                        echo "deb https://packages.termux.org/apt/termux-main termux-main" >> "$SOURCES_FILE"
+                        ok "Mirror set to Albatross CDN"
+                    else
+                        # Fallback: write a fresh sources.list
+                        mkdir -p "$(dirname "$SOURCES_FILE")" 2>/dev/null || true
+                        echo "deb https://packages.termux.org/apt/termux-main termux-main" > "$SOURCES_FILE" 2>/dev/null || true
+                        ok "Created sources.list with Albatross CDN mirror"
+                    fi
+                    echo ""
+                    info "Updating package lists..."
+                    apt update
+                    echo ""
+                    info "Retrying package installation..."
+                    if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+                        TERMUX_PKG_OK=true
+                        ok "Packages installed successfully after mirror change"
+                    else
+                        warn "Installation still failed. Try option [1] (termux-change-repo) instead."
+                    fi
+                    ;;
+                *)
+                    echo ""
+                    info "Skipping repo change. To fix manually:"
+                    echo "     1. Run: termux-change-repo"
+                    echo "     2. Select a mirror close to your region"
+                    echo "     3. Run: apt update"
+                    echo "     4. Run: pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu"
+                    echo "     5. Re-run: ./setup.sh"
+                    ;;
+            esac
+        fi
 
         # Re-check what's now available
         echo ""
@@ -265,7 +355,7 @@ case "$env_choice" in
 
         acquire_framework_res force
 
-        if command -v aapt2 &>/dev/null && command -v zipalign &>/dev/null && \
+        if [ "$TERMUX_PKG_OK" = "true" ] && command -v aapt2 &>/dev/null && command -v zipalign &>/dev/null && \
            command -v apksigner &>/dev/null && ([ -f "/usr/share/android-framework-res/framework-res.apk" ] || [ -f "${TOOLS_DIR}/framework-res.apk" ]); then
             echo ""
             ok "All tools ready in Termux! Ready to build."
