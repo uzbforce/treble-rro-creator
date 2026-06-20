@@ -19,7 +19,7 @@ If it returns comma-separated numbers (`bottom_mm,?,height_mm,?,?,area_size_mm`)
 python3 get_udfps_location.py
 ```
 
-It reads the position, gets display properties, and outputs the XML dimen values you need.
+It reads the position, gets display properties, and outputs the XML dimen values you need **IT IS NOT GUARANTEED TO BE THE RIGHT VALUES**.
 
 ---
 
