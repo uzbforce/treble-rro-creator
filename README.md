@@ -85,6 +85,9 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
    ```
    > 💡 **Nano Tip:** After editing, press `Ctrl+O` followed by `Enter` to save, then `Ctrl+X` to exit.
 
+   **Important:**
+   Replace the power_profile.xml in res/xml with your device specific one
+
    Then Build:
    ```bash
    ./build.sh
