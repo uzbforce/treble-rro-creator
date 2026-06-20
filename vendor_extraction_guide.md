@@ -27,21 +27,25 @@ This downloads `aapt2`, `zipalign`, and `apksigner` into a local `tools/` direct
 
 ---
 
-## 🚀 The HIDL vs AIDL Paradigm Shift (Android 14-16+)
+## 🚀 The HIDL → AIDL Shift: Why Stock HALs Don't Work on A16 GSIs
 
-Traditionally, Treble GSIs used **HIDL (HAL Interface Definition Language)** to communicate with vendor hardware. However, starting with Android 14 and becoming strictly enforced in Android 16, Google has shifted to **AIDL (Android Interface Definition Language)** for HALs.
+Traditionally, Treble GSIs used **HIDL (HAL Interface Definition Language)** to communicate with vendor hardware. Starting with Android 14 and **strictly enforced in Android 16**, Google has fully moved to **AIDL (Android Interface Definition Language)** for HALs.
 
-### The Problem
-Most stock vendor partitions (especially on older devices) only ship **HIDL HALs**. When you flash a modern GSI (like Android 16), it expects **AIDL HALs** for critical features like:
-- **Fingerprint (UDFPS)** — HIDL fingerprint HALs often fail to register with the A16 biometric framework.
-- **Vibrator** — A16 GSIs may not "see" older HIDL vibrator services.
-- **Power/Health** — New GSIs require AIDL for advanced power management.
+### The Hard Truth
+Most stock vendor partitions (especially on older devices) only ship **HIDL HALs**. When you flash Android 16 GSI, it expects **AIDL HALs** — and there is **no compatibility layer**. Even with perfect SELinux rules and VINTF manifests, HIDL HALs simply will not be picked up by the A16 framework.
 
-### The Solution (Current Strategy)
-1. **Already there?** Check your stock vendor. It might already have the HIDL HALs with correct sepolicy. If they work, don't touch them!
-2. **UDFPS still not working?** If your HIDL fingerprint HAL is running but the GSI doesn't show the fingerprint option, it's likely an interface mismatch.
-3. **Source AIDL HALs:** The best way to fix this is to find **AIDL HALs** from a Custom ROM (like LineageOS or Pixel Experience) built for your device on a newer Android version.
-4. **Future Goal:** We are working on a **HIDL-to-AIDL converter** tool to bridge this gap automatically. Until then, sourcing native AIDL binaries is the most reliable path.
+This applies to:
+- **Fingerprint (UDFPS)** — A16 biometric framework registers AIDL HALs only. HIDL fingerprint services may run but the Settings menu won't show fingerprint enrollment.
+- **Vibrator** — A16 GSIs do not discover HIDL vibrator services.
+- **Power/Health** — A16 requires AIDL interfaces for power management features.
+
+### The Real Solutions (No Workarounds)
+1. **Source AIDL HALs from a Custom ROM** (LineageOS, Pixel Experience, crDroid, etc.) built for your device on Android 14+. These ROMs compile native AIDL HALs that the GSI can use. Extract them from the ROM zip or from a running ROM installation.
+2. **Use a full vendor from a Custom ROM** — Flash the custom ROM, then pull its entire `/vendor` partition. This gives you AIDL HALs with correct SELinux, init scripts, and VINTF manifests that already work together.
+3. **Build AIDL HALs from source** if your device has an upstream device tree with AIDL HAL definitions (advanced, requires kernel source).
+4. **If no custom ROM exists for your device**, you may need to stick with an older GSI (A14 or earlier) that still supports HIDL.
+
+> ❌ **What NOT to do:** Extracting HIDL HALs from stock firmware and adding SELinux/VINTF will **not** make them work on A16 GSI. The interface mismatch is at the framework level, not a permission issue.
 
 ---
 
@@ -49,149 +53,176 @@ Most stock vendor partitions (especially on older devices) only ship **HIDL HALs
 
 Before extracting, determine what your device needs:
 
-| Feature | Files to extract | Protocol | Recommendation |
-|---------|-----------------|----------|----------------|
-| **Fingerprint (UDFPS)** | Binary, .rc, VINTF, libs, sepolicy | AIDL (Preferred) | Try stock HIDL first; if fails, get AIDL from Custom ROM. |
-| **Vibrator** | Binary, .rc, VINTF, sepolicy | AIDL (Preferred) | Usually works with stock HIDL, but AIDL is better for A16. |
-| **Display/AOD** | .rc file for sysfs permissions | N/A | Always extract from stock vendor. |
+| Feature | What you need | Protocol | Recommendation |
+|---------|--------------|----------|----------------|
+| **Fingerprint (UDFPS)** | AIDL binary, .rc, VINTF, libs, sepolicy | AIDL (Required for A16) | Stock HIDL is incompatible with A16. Source AIDL from a Custom ROM or device tree. |
+| **Vibrator** | AIDL binary, .rc, VINTF, sepolicy | AIDL (Required for A16) | Stock HIDL won't be discovered by A16. Source AIDL from a Custom ROM. |
+| **Display/AOD** | .rc file for sysfs permissions | N/A | Can be extracted from stock vendor (sysfs access is not HAL-dependent). |
 
 Most devices only **need the overlay APK** (corner radius, cutout, brightness, etc.). Vendor HALs are only needed for features that don't work on the GSI's default implementation.
 
 ---
 
-## 🛠 Step 1: Identify Your Device's Vendor HALs
+## 🛠 Step 1: Source AIDL HALs (Do NOT Use Stock HIDL)
 
-Connect your device over ADB and check what's running:
+Before you begin: **Stock vendor HIDL HALs will not work on A16 GSI.** You must source AIDL HALs. Here are the options, in order of preference:
+
+### Option A: Custom ROM has AIDL HALs (Best — No extra work needed)
+
+If your device has a custom ROM (LineageOS 21+, Pixel Experience, crDroid, etc.) based on Android 14+:
+1. Flash the custom ROM on your device
+2. Boot it up — if fingerprint and vibrator work, the AIDL HALs are built-in
+3. Either pull the entire vendor (see "Option: Use full vendor from custom ROM" section at the end), or extract individual HALs from the running ROM (see Step 2)
+
+### Option B: Find AIDL HALs in a Custom ROM device tree
+
+Most custom ROM device trees on GitHub ship AIDL HAL source under:
+```
+device/<manufacturer>/<codename>/aidl/
+hardware/<manufacturer>/<codename>/aidl/
+```
+Look for directories like:
+```
+android.hardware.biometrics.fingerprint/
+android.hardware.vibrator/
+```
+
+These are compiled into AIDL HAL binaries. You can build them yourself or find pre-built ones in the ROM's `vendor/` partition.
+
+### Option C: Check if your device already has AIDL HALs (rare but possible)
+
+Boot a custom ROM or even stock (if on A14+) and check:
 
 ```bash
-# Check if HALs are HIDL or AIDL
-adb shell hwservicemanager --list        # Lists HIDL services
-adb shell servicemanager --list-services # Lists AIDL services (look for 'android.hardware.*')
+# Check for AIDL fingerprint/vibrator services
+adb shell servicemanager --list-services | grep -iE 'finger|vibrat|biometric'
 
-# Check running HAL services
-adb shell dumpsys -l | grep -iE 'finger|vibrat|udfps|biometric'
-
-# Look for specific HALs in vendor
-adb shell ls /vendor/bin/hw/*finger* /vendor/bin/hw/*biometric* 2>/dev/null
-adb shell ls /vendor/bin/hw/*vibrat* 2>/dev/null
+# List HAL binaries — AIDL binaries look like:
+#   android.hardware.biometrics.fingerprint-service.<device>
+#   android.hardware.vibrator-service.<device>
+adb shell ls /vendor/bin/hw/*finger* /vendor/bin/hw/*vibrat* 2>/dev/null
 ```
 
-> 💡 **Note on GSIs:** If you're running a GSI, `/vendor/bin/hw/` may only contain basic AOSP HALs. You need to extract from a **stock firmware vendor.img** or a **Custom ROM zip**.
+> 💡 **AIDL vs HIDL naming:** AIDL HAL binaries follow the pattern `android.hardware.<feature>-service.<device>` (e.g., `android.hardware.biometrics.fingerprint-service.r3q`). HIDL binaries look like `android.hardware.biometrics.fingerprint@2.3-service.<device>`. The `@<version>` pattern is HIDL.
 
-# List init scripts for these HALs
-adb shell ls /vendor/etc/init/*finger* /vendor/etc/init/*vibrat* /vendor/etc/init/*udfps* 2>/dev/null
+### What if no custom ROM exists for your device?
 
-# List all VINTF manifest fragments
-adb shell ls /vendor/etc/vintf/manifest/ 2>/dev/null
+If your device has no custom ROM support at all, you have three paths:
+1. **Stick with A14 or earlier GSI** that still supports HIDL HALs
+2. **Port AIDL HALs yourself** — find a device with similar hardware and adapt their AIDL HAL source (advanced)
+3. **Use the overlay-only module** (without vendor HALs) — fingerprint and vibrator won't work, but display, brightness, and cutout overrides will
 
-# List shared libraries for HALs
-adb shell ls /vendor/lib64/*finger* /vendor/lib64/*biometric* 2>/dev/null
-adb shell ls /vendor/lib64/*vibrat* 2>/dev/null
-```
+### Reference: Stock HIDL layout (for comparison only)
 
-> 💡 **Note on GSIs:** If you're running a GSI or a Custom ROM, `/vendor/bin/hw/` may only contain basic AOSP HALs while your stock vendor's proprietary HALs are gone. In that case, you need to extract from a **stock firmware vendor.img** instead (see Method B).
-
-### Reference Example: Samsung Galaxy A90 5G (r3q)
-
-On a stock Samsung vendor, you'd find:
+If you're curious what stock HIDL HALs look like (for reference, NOT for extraction):
 
 ```
-# Fingerprint (Goodix ET715 optical UDFPS)
+# Fingerprint HIDL (Won't work on A16 GSI)
 /vendor/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samsung
 /vendor/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samsung.rc
-/vendor/etc/init/init.udfps.rc
-/vendor/etc/init/fingerprint_common.rc
 /vendor/etc/vintf/manifest/android.hardware.biometrics.fingerprint@2.3-service.samsung.xml
 /vendor/lib64/android.hardware.biometrics.fingerprint@2.1.so
 /vendor/lib64/android.hardware.biometrics.fingerprint@2.2.so
 /vendor/lib64/android.hardware.biometrics.fingerprint@2.3.so
 
-# Vibrator (Samsung sec-vibrator-2-2)
+# Vibrator HIDL (Won't work on A16 GSI)
 /vendor/bin/hw/vendor.samsung.hardware.vibrator@2.2-service
 /vendor/etc/init/vendor.samsung.hardware.vibrator@2.2-service.rc
 /vendor/etc/vintf/manifest/vendor.samsung.hardware.vibrator@2.2-service.xml
-
-# Display (AOD sysfs permissions)
-/vendor/etc/init/init.samsung.display.rc
 ```
 
-> Your device will likely have **different HAL names** — look for patterns in the filenames (e.g., `*fingerprint*`, `*vibrat*`, `*display*`) rather than exact names.
+> Notice the `@2.3` and `@2.2` version suffixes — that's the HIDL versioning pattern. AIDL HALs don't have version suffixes in the binary name.
 
 ---
 
-## 📦 Step 2: Extract the Files
+## 📦 Step 2: Extract the AIDL HAL Files
 
-You can either pull files from a running device (Method A) or extract from a vendor image dump (Method B).
+Once you've found a source of AIDL HALs (from a custom ROM zip, running custom ROM, or device tree build), use one of these methods to extract them.
 
-### Method A: Pull from running device (requires root)
+> ⚠️ **Important:** If you're pulling the **entire vendor** from a custom ROM (recommended for simplicity), skip to the "Option: Use full vendor from custom ROM" section at the end. These methods are for extracting individual AIDL HALs.
 
-This works if you're booted into **stock firmware** (not a GSI) or if the HALs survived the GSI flash.
+### Method A: Extract from Custom ROM zip file (No root needed)
+
+Download your device's custom ROM zip and extract the vendor directly:
 
 ```bash
-# Create extraction directories (these already exist in this project)
+# Create extraction directories
 mkdir -p system/vendor/bin/hw
 mkdir -p system/vendor/etc/init
 mkdir -p system/vendor/etc/vintf/manifest
 mkdir -p system/vendor/lib64
 
-# --- Option 1: Pull individual files ---
-# Replace paths with YOUR device's actual paths from Step 1.
-# Binary file (HAL executable):
-adb shell su -c 'cat /vendor/bin/hw/<your_fingerprint_hal_binary>' > system/vendor/bin/hw/<your_fingerprint_hal_binary>
+# Extract from ROM zip (adjust ROM zip path)
+unzip -j <rom_name>.zip "vendor/bin/hw/*finger*" -d system/vendor/bin/hw/
+unzip -j <rom_name>.zip "vendor/bin/hw/*vibrat*" -d system/vendor/bin/hw/
+unzip -j <rom_name>.zip "vendor/etc/init/*finger*" -d system/vendor/etc/init/
+unzip -j <rom_name>.zip "vendor/etc/init/*vibrat*" -d system/vendor/etc/init/
+unzip -j <rom_name>.zip "vendor/etc/vintf/manifest/*" -d system/vendor/etc/vintf/manifest/
+unzip -j <rom_name>.zip "vendor/lib64/*finger*" -d system/vendor/lib64/
+unzip -j <rom_name>.zip "vendor/lib64/*vibrat*" -d system/vendor/lib64/
+
+# Make binaries executable
+chmod +x system/vendor/bin/hw/*
+```
+
+> Some ROM zips use `payload.bin` (Pixel-style) or `dat.br` (LineageOS-style). For `payload.bin`, use `payload-dumper-go`. For `dat.br`, use `sdat2img` then mount.
+
+### Method B: Pull from running Custom ROM (requires root)
+
+Boot your device into the **custom ROM** (not stock firmware) and pull:
+
+```bash
+# Create extraction directories
+mkdir -p system/vendor/bin/hw
+mkdir -p system/vendor/etc/init
+mkdir -p system/vendor/etc/vintf/manifest
+mkdir -p system/vendor/lib64
+
+# --- Pull individual files ---
+# Binary file (HAL executable) — AIDL names won't have @version:
+adb shell su -c 'cat /vendor/bin/hw/<your_aidl_hal_binary>' > system/vendor/bin/hw/<your_aidl_hal_binary>
 
 # Init script:
-adb shell su -c 'cat /vendor/etc/init/<your_fingerprint_init.rc>' > system/vendor/etc/init/<your_fingerprint_init.rc>
+adb shell su -c 'cat /vendor/etc/init/<your_aidl_init.rc>' > system/vendor/etc/init/<your_aidl_init.rc>
 
 # VINTF manifest:
-adb shell su -c 'cat /vendor/etc/vintf/manifest/<your_fingerprint_manifest.xml>' > system/vendor/etc/vintf/manifest/<your_fingerprint_manifest.xml>
+adb shell su -c 'cat /vendor/etc/vintf/manifest/<your_aidl_manifest.xml>' > system/vendor/etc/vintf/manifest/<your_aidl_manifest.xml>
 
 # Shared library:
-adb shell su -c 'cat /vendor/lib64/<your_fingerprint_library.so>' > system/vendor/lib64/<your_fingerprint_library.so>
+adb shell su -c 'cat /vendor/lib64/<your_aidl_library.so>' > system/vendor/lib64/<your_aidl_library.so>
 
 # Make binaries executable
 chmod +x system/vendor/bin/hw/*
 
-# --- Option 2: Pull via tar (faster for many files) ---
-# This is much faster if you have many files to extract:
-adb shell su -c 'tar -czf /data/local/tmp/vendor_hal.tar.gz -C / vendor/bin/hw/*finger* vendor/etc/init/*finger* vendor/etc/vintf/manifest/*finger* vendor/lib64/*finger*'
-adb pull /data/local/tmp/vendor_hal.tar.gz /tmp/
-cd system/vendor && tar -xzf /tmp/vendor_hal.tar.gz
+# --- Pull via tar (faster for many files) ---
+adb shell su -c 'tar -czf /data/local/tmp/vendor_aidl.tar.gz -C / vendor/bin/hw/*finger* vendor/etc/init/*finger* vendor/etc/vintf/manifest/*finger* vendor/lib64/*finger*'
+adb pull /data/local/tmp/vendor_aidl.tar.gz /tmp/
+cd system/vendor && tar -xzf /tmp/vendor_aidl.tar.gz
 ```
 
-### Method B: Extract from a vendor image dump
+### Method C: Extract from custom ROM vendor.img
 
-Use this if you have a `vendor.img` from your device's stock ROM or a properly working Custom ROM:
+If you have a `vendor.img` from a custom ROM:
 
 ```bash
-# 1. Mount the vendor image (Or just double click to mount if works):
 sudo mount -o loop vendor.img /mnt/vendor
 
-# 2. Copy files (adjust paths to match your device's HALs)
-# Fingerprint:
+# Copy files — AIDL HALs won't have @version in names
 sudo cp /mnt/vendor/bin/hw/*finger* system/vendor/bin/hw/
 sudo cp /mnt/vendor/etc/init/*finger* system/vendor/etc/init/
-sudo cp /mnt/vendor/etc/vintf/manifest/*finger*.xml system/vendor/etc/vintf/manifest/
+sudo cp /mnt/vendor/etc/vintf/manifest/*.xml system/vendor/etc/vintf/manifest/
 sudo cp /mnt/vendor/lib64/*finger* system/vendor/lib64/
-
-# Vibrator (if applicable):
-sudo cp /mnt/vendor/bin/hw/*vibrat* system/vendor/bin/hw/
-sudo cp /mnt/vendor/etc/init/*vibrat* system/vendor/etc/init/
-sudo cp /mnt/vendor/etc/vintf/manifest/*vibrat*.xml system/vendor/etc/vintf/manifest/
-
-# Display init scripts (if applicable):
+sudo cp /mnt/vendor/bin/hw/*vibrat* system/vendor/bin/hw/ 2>/dev/null
+sudo cp /mnt/vendor/etc/init/*vibrat* system/vendor/etc/init/ 2>/dev/null
+sudo cp /mnt/vendor/lib64/*vibrat* system/vendor/lib64/ 2>/dev/null
 sudo cp /mnt/vendor/etc/init/*display* system/vendor/etc/init/ 2>/dev/null
 
-# 3. Fix ownership
 sudo chown -R $USER:$USER system/vendor/
-
-# 4. Make binaries executable
 chmod +x system/vendor/bin/hw/*
-
-# 5. Unmount
 sudo umount /mnt/vendor
 ```
 
-> 💡 **Tip:** You can copy **all** vendor init scripts and manifests at once and then remove what you don't need:
+> 💡 **Tip:** You can copy **all** vendor init scripts and manifests at once, then remove what you don't need:
 > ```bash
 > sudo cp -r /mnt/vendor/etc/init/ system/vendor/etc/
 > sudo cp -r /mnt/vendor/etc/vintf/ system/vendor/etc/
@@ -200,25 +231,58 @@ sudo umount /mnt/vendor
 
 ---
 
-## 🔧 Step 3: Prepare the Init .rc File
+## 📦 Option: Use Full Vendor from Custom ROM (Simplest Path)
 
-The `.rc` file tells Android's init system how to start your HAL service. Extract this from your device (at `/vendor/etc/init/`) and place it in `system/vendor/etc/init/`.
+If your device has a custom ROM (LineageOS 21+, crDroid, Pixel Experience, etc.) based on Android 14+, this is the **easiest and most reliable** approach:
 
-### Generic .rc file format
+1. **Flash the custom ROM** on your device
+2. **Boot it up** and verify everything works (fingerprint, vibrator, etc.)
+3. **Pull the entire vendor partition** while booted into the custom ROM:
 
-The exact content varies by device, but the structure is always similar:
+```bash
+# Create the system/vendor directory structure
+mkdir -p system/vendor
 
-```rc
-# Name the service (use a unique name to avoid conflicts with stock vendor)
-service <your_service_name> /vendor/bin/hw/<your_hal_binary>
-    class late_start          # or "hal" for some HALs
-    user system
-    group system <additional_groups>
-    <capabilities>
-    <device_node_permissions>
+# Pull entire vendor (requires root)
+adb shell su -c 'tar -czf /data/local/tmp/vendor_full.tar.gz -C / vendor'
+adb pull /data/local/tmp/vendor_full.tar.gz
+cd system && tar -xzf ../vendor_full.tar.gz vendor
+cd ..
 ```
 
-Find the `class`, `user`, `group`, and other directives by looking at the original `.rc` file from your device. Key things to note:
+This gives you everything: AIDL HALs, correct SELinux contexts, proper init .rc files, working VINTF manifests, and all required libraries — all guaranteed to work together because they were already running on your hardware.
+
+### What to do after extracting full vendor
+
+1. **Trim unused HALs** — remove binaries/init scripts for features you don't need (NFC, radio, etc.)
+2. **Check service.sh** — the build script auto-generates this, but verify it starts the services you want
+3. **Run `./build.sh`** — it will package everything automatically
+
+> ✅ **This is the recommended approach.** Individual HAL extraction is only needed if you want to cherry-pick specific features from a full vendor dump.
+
+---
+
+## 🔧 Step 3: Init .rc File
+
+### AIDL HALs: Already correct, just extract
+
+AIDL HALs from custom ROMs ship with their correct `.rc` files already in `/vendor/etc/init/`. In most cases, you can drop the extracted `.rc` file into `system/vendor/etc/init/` without modification. Just make sure the binary path matches.
+
+### AIDL .rc example
+
+```rc
+service vendor.fingerprint_aidl /vendor/bin/hw/android.hardware.biometrics.fingerprint-service.r3q
+    class late_start
+    user system
+    group system input uhid
+    capabilities SYS_NICE
+    file /dev/goodix_fp 0660 system system
+    file /dev/esfp0 0660 system system
+```
+
+Notice the binary name: no `@2.3` version suffix — AIDL HALs use the pattern `android.hardware.<feature>-service.<device>`.
+
+### Common .rc directives
 
 | Directive | Common values | Notes |
 |-----------|--------------|-------|
@@ -228,12 +292,15 @@ Find the `class`, `user`, `group`, and other directives by looking at the origin
 | `capabilities` | `SYS_NICE`, `SYS_RESOURCE` | Only if the HAL needs elevated caps |
 | `file` | `/dev/...` | Device node permissions |
 
-> **⚠️ IMPORTANT:** If the stock vendor already has a service with the same name (e.g., `vendor.fps_hal`), you must use a **different service name** (e.g., `vendor.fps_hal_aosp`) to avoid conflict. Both binaries can coexist!
+> **⚠️ IMPORTANT:** If the stock vendor already has a service with the same name, use a **different service name** to avoid conflict. Both can coexist!
 
-### Reference Example: Samsung Fingerprint
+### Reference: HIDL .rc format (for comparison only)
 
+These are HIDL-style init files — shown here for reference so you can recognize them:
+
+**Fingerprint (HIDL):**
 ```rc
-service vendor.fps_hal_aosp /vendor/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samsung
+service vendor.fps_hal /vendor/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samsung
     class late_start
     user system
     group system input uhid
@@ -242,13 +309,11 @@ service vendor.fps_hal_aosp /vendor/bin/hw/android.hardware.biometrics.fingerpri
     file /dev/esfp0 0660 system system
 ```
 
-### Reference Example: Samsung Vibrator
-
+**Vibrator (HIDL):**
 ```rc
 on early-boot
     chown system system /sys/class/timed_output/vibrator/intensity
     chmod 660 /sys/class/timed_output/vibrator/intensity
-    # ... (all sysfs nodes the HAL needs)
 
 service sec-vibrator-2-2 /vendor/bin/hw/vendor.samsung.hardware.vibrator@2.2-service
     class hal
@@ -258,30 +323,45 @@ service sec-vibrator-2-2 /vendor/bin/hw/vendor.samsung.hardware.vibrator@2.2-ser
 
 ---
 
-## 📄 Step 4: Prepare the VINTF Manifest Fragment
+## 📄 Step 4: VINTF Manifest Fragment
 
-The VINTF manifest tells the framework what HAL interfaces your service implements. Extract from your device at `/vendor/etc/vintf/manifest/`. Incorrect one will bootloop or freeze the device.
+The VINTF manifest tells the framework what HAL interfaces your service implements. Extract this from your custom ROM's `/vendor/etc/vintf/manifest/`. An incorrect manifest can cause bootloops or HAL manager crashes.
 
-### Generic VINTF manifest format
+### AIDL VINTF format (what you need)
+
+AIDL VINTF manifests use `format="aidl"` and specify the interface FQN directly — no version suffix:
 
 ```xml
 <manifest version="1.0" type="device">
-    <hal format="hidl">              <!-- or "aidl" for newer HALs -->
-        <name><hal_interface_name></name>
-        <transport>hwbinder</transport>
-        <version><major.minor></version>
+    <hal format="aidl">
+        <name>android.hardware.biometrics.fingerprint</name>
+        <version>2</version>              <!-- AIDL version (just the major) -->
         <interface>
-            <name><InterfaceName></name>
+            <name>IFingerprint</name>
             <instance>default</instance>
         </interface>
-        <fqname>@<major.minor>::<InterfaceName>/default</fqname>
     </hal>
 </manifest>
 ```
 
-> 💡 **Just extract it!** The VINTF manifest from your device already has the correct format — there's usually no need to write one from scratch.
+```xml
+<manifest version="1.0" type="device">
+    <hal format="aidl">
+        <name>android.hardware.vibrator</name>
+        <version>1</version>
+        <interface>
+            <name>IVibrator</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+</manifest>
+```
 
-### Reference Example: Fingerprint VINTF (Samsung)
+> 💡 **Just extract it!** The VINTF manifest from your custom ROM already has the correct format — there's no need to write one from scratch.
+
+### Reference: HIDL VINTF format (for comparison only)
+
+HIDL manifests use `format="hidl"` with `@major.minor` versioning:
 
 ```xml
 <manifest version="1.0" type="device">
@@ -297,8 +377,6 @@ The VINTF manifest tells the framework what HAL interfaces your service implemen
     </hal>
 </manifest>
 ```
-
-### Reference Example: Vibrator VINTF (Samsung)
 
 ```xml
 <manifest version="1.0" type="device">
@@ -318,11 +396,11 @@ The VINTF manifest tells the framework what HAL interfaces your service implemen
 
 ## 🔒 Step 5: Add SELinux Policy Rules
 
-SELinux might block your HAL from accessing device nodes or sysfs files which might also cause bootloops or freezes. Add the necessary rules to `sepolicy.rule` in the project root. A reference example is in `sepolicy.rule.example` (Samsung Galaxy A90 5G).
+SELinux rules are equally needed for AIDL and HIDL HALs. Add the necessary rules to `sepolicy.rule` in the project root. A reference example is in `sepolicy.rule.example`.
+
+> 💡 **AIDL SELinux context:** AIDL HALs from custom ROMs use the same SELinux domain names as HIDL ones (e.g., `hal_fingerprint_default`, `hal_vibrator_default`). The rules are identical — the SELinux policy doesn't distinguish between AIDL and HIDL at the domain level.
 
 ### Generic SELinux rules pattern
-
-The rules follow this pattern for any HAL type:
 
 ```
 # Allow init to execute the HAL binary (domain transition)
@@ -343,7 +421,7 @@ allow <hal_type> <data_type>:dir create_dir_perms;
 allow <hal_type> <data_type>:file create_file_perms;
 ```
 
-Replace `<hal_type>`, `<device_type>`, `<sysfs_type>`, and `<data_type>` with your device's actual SELinux types. Determine the right types by checking the stock device's `sepolicy` or by examining logcat denials.
+Replace `<hal_type>`, `<device_type>`, `<sysfs_type>`, and `<data_type>` with your device's actual SELinux types. Determine the right types by checking logcat denials after flashing.
 
 ### Finding SELinux denials on your device
 
@@ -399,10 +477,12 @@ allow hal_vibrator_default timed_output_device:chr_file rw_file_perms;
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| Service not found | Missing VINTF manifest | Add .xml to `system/vendor/etc/vintf/manifest/` |
+| Service not found / not registered | HIDL HAL used instead of AIDL | Replace with AIDL HAL from a custom ROM |
+| Service not found | Missing VINTF manifest | Add `.xml` to `system/vendor/etc/vintf/manifest/` |
+| Service not found | Wrong VINTF format (HIDL vs AIDL) | Ensure `format="aidl"` in the manifest |
 | Service won't start | SELinux denial | Check logcat, add rules to `sepolicy.rule` |
-| Service starts but doesn't work | Wrong HAL binary version | Extract from your exact device model and firmware |
-| "No such file" in logcat | Missing shared library | Check `system/vendor/lib64/` for missing .so files |
+| Service starts but fails | Wrong HAL binary for this Android version | Extract from a custom ROM built for A14+ |
+| "No such file" in logcat | Missing shared library | Check `system/vendor/lib64/` for missing `.so` files |
 | Device bootloops | Incompatible sepolicy or VINTF | Remove the vendor files and re-test |
 
 ---
@@ -416,12 +496,12 @@ project_root/
 ├── system/
 │   └── vendor/
 │       ├── bin/
-│       │   └── hw/          # ← Put HAL binaries here (e.g., fingerprint@2.3-service.*)
+│       │   └── hw/          # ← AIDL HAL binaries (e.g., android.hardware.biometrics.fingerprint-service.<device>)
 │       ├── etc/
-│       │   ├── init/        # ← Put init .rc files here
+│       │   ├── init/        # ← Init .rc files for the HALs
 │       │   └── vintf/
-│       │       └── manifest/ # ← Put VINTF manifest .xml files here
-│       └── lib64/           # ← Put shared libraries (.so) here
+│       │       └── manifest/ # ← VINTF manifest .xml files (format="aidl")
+│       └── lib64/           # ← Shared libraries (.so) for the HALs
 ├── sepolicy.rule             # ← Add YOUR SELinux rules here (template)
 ├── sepolicy.rule.example     # ← Reference: Samsung A90 5G rules (copy as starting point)
 ├── customize.sh              # ← Sets SELinux contexts at install time (update if you add new HALs)
@@ -489,17 +569,19 @@ If your device has a high-quality custom ROM (like LineageOS), find the `power_p
 
 ## ⚠️ Safety Notes
 
-1. **Always keep a backup** of your working module before adding vendor HALs
-2. **Test one HAL at a time** — add fingerprint first, get it working, then add vibrator
-3. **If the device bootloops**, boot to recovery and remove the module, if you absolutely can't remove the module, just format data 🙂‍↕️:
+1. **HIDL HALs will NOT work on A16 GSI.** Save yourself the debugging time — source AIDL HALs from a custom ROM or device tree from the start.
+2. **Always keep a backup** of your working module before adding vendor HALs
+3. **Test one HAL at a time** — add fingerprint first, get it working, then add vibrator
+4. **If the device bootloops**, boot to recovery and remove the module:
    ```bash
    adb reboot recovery
    adb shell mount /data
    adb shell rm -rf /data/adb/modules/treble-overlay-<device_manufacturer>-<device_codename>
    adb shell reboot
    ```
-4. **VINTF manifest fragments from the wrong device can cause HAL manager crashes** — only use fragments from your exact device model and firmware version.
-5. **Don't blindly copy ALL vendor files** — only copy the HALs you actually need. Each extra file is another potential source of conflicts.
+5. **VINTF manifest fragments from the wrong device can cause HAL manager crashes** — only use fragments from your exact device model.
+6. **Don't blindly copy ALL vendor files** — only copy the HALs you actually need. Each extra file is another potential source of conflicts.
+7. **If no custom ROM exists for your device**, consider using an A14 or earlier GSI that still supports HIDL HALs for full hardware compatibility.
 
 ---
 

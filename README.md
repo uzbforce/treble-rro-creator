@@ -53,8 +53,8 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
 
 **Important:** Do NOT use /sdcard. You MUST clone to the internal home directory.
 
-1. **Install Termux:** [F-Droid version](https://f-droid.org/en/packages/com.termux/) is required for the latest build tools.
-2. **Setup Environment:**
+1. **Install Termux:** [F-Droid version](https://f-droid.org/en/packages/com.termux/) is required for the latest build tools, **DO NOT USE TERMUX FROM GOOGLE PLAY**.
+
    Run these commands one by one. **Do NOT skip steps.**
    ```bash
    termux-setup-storage
@@ -71,7 +71,7 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
 3. **Download Project:**
    ```bash
    cd ~
-   git clone -b ARM https://github.com/uzbforce/treble-rro-creator
+   git clone -b main https://github.com/uzbforce/treble-rro-creator
    cd treble-rro-creator
    chmod +x *.sh
    ```
@@ -140,7 +140,7 @@ nano config.env
 #   out/<device>-hardware-overlay.zip         — Source-based overlay for GSI repos
 ```
 
-### 🌐 Treble Hardware Overlay Repository Support
+### 🌐 Treble Hardware Overlay Repository Support **(EXPERIMENTAL FOR NOW)**
 
 This tool can also generate a package compatible with the [Treble Hardware Overlay Repo](https://github.com/Doze-off/vendor_hardware_overlay). This is useful for contributing your device's overlay to be included in GSIs by default.
 
@@ -151,7 +151,7 @@ This tool can also generate a package compatible with the [Treble Hardware Overl
 ---
 
 > **First run?**
- If you haven't edited `config.env` yet, `build.sh` will create rro with generic values. config.env.example contains example values.
+ If you haven't edited `config.env` yet, `build.sh` will create rro with **generic** values. And config.env.example contains example values.
 
 ### Deploy
 
@@ -198,7 +198,7 @@ adb shell su -c 'getprop | grep -E "udfps|fingerprint|ims"'
 ├── setup.sh                          # Tool installer (aapt2, zipalign, framework-res)
 ├── cleanup.sh                        # Build artifact cleaner
 ├── customize.sh                      # KSU install script (auto-generated if not present)
-├── service.sh                        # Post-boot init (auto-generated if not present)
+├── service.sh                        # Post-boot init (auto-generated if not present), You can edit and add extra tweaks if you know what you're doing.
 ├── sepolicy.rule                     # SELinux policy (template for vendor HALs)
 ├── vendor_extraction_guide.md        # Guide for extracting vendor HAL files
 ├── README.md                         # This file
@@ -246,7 +246,7 @@ GSI framework-res.apk  ← idmap2 ←  Our overlay APK
 (original values)                 (overridden values)
 ```
 
-The overlay activates when `ro.product.device` matches your codename (set in `config.env`).
+The overlay activates when `ro.product.device` or `ro.product.vendor.device` matches your codename (set in `config.env`).
 
 ### Deployment via KSU Module
 
@@ -343,13 +343,7 @@ adb shell getprop ro.product.device
 
 > **⚠️ Why not ro.vendor.build.fingerprint?** AOSP's `PatternMatcher.PATTERN_SIMPLE_GLOB` does NOT match `/` in file paths. Using glob patterns on the fingerprint (which contains slashes) can fail silently. Using `ro.product.device` with a literal value is **simpler and more reliable**.
 
-### 5. Remove or replace vendor files (optional)
-
-The `system/vendor/` directory contains Samsung A90 5G-specific HAL binaries. If you're building for a different device:
-- **Replace** with your own files (see [vendor_extraction_guide.md](vendor_extraction_guide.md))
-- **Remove** the `system/vendor/` directory entirely for a pure overlay-only module
-
-The build script **gracefully skips** vendor sections if directories are empty or don't exist.
+The build script **gracefully skips** vendor sections if you set the HALs to false in config.env, and do not set them to true unless you have a proper files in place, or it will cause the phone into bootloop.
 
 ---
 
@@ -431,7 +425,7 @@ If your fingerprint sensor doesn't work on Android 16 despite having the stock H
 ### How it works
 
 The vendor partition on stock firmware contains:
-- HAL binary (e.g., `fingerprint@2.3-service.samsung` [HIDL] or `android.hardware.biometrics.fingerprint-service.samsung` [AIDL])
+- HAL binary (e.g. `android.hardware.biometrics.fingerprint-service.samsung` [AIDL])
 - Init .rc file (defines the service)
 - VINTF manifest fragment (declares the interface)
 - Shared libraries (needed by the binary)
@@ -439,7 +433,7 @@ The vendor partition on stock firmware contains:
 
 When you flash a GSI, **system is replaced but vendor is kept**. If the GSI lacks the logic to talk to your specific hardware, shipping these HALs in the KSU module "bridges" the gap.
 
-### Extracting from your device
+### Extracting from your device while running a Custom Rom with AIDL HALs
 
 See the full guide: **[vendor_extraction_guide.md](vendor_extraction_guide.md)**
 
@@ -469,7 +463,7 @@ adb shell ls -la /vendor/etc/vintf/manifest/
 | Cause | Check | Fix |
 |-------|-------|-----|
 | Condition mismatch | `adb shell getprop ro.product.device` | Update `DEVICE_PROP_VALUE` in config.env |
-| APK not installed | `adb shell ls -la /system/product/overlay/` | Re-flash KSU module |
+| APK not installed | `adb shell ls -la /system/product/overlay/` | Re-flash KSU module with Magic Mount |
 | idmap error | `adb logcat -d \| grep -iE "overlay\|idmap"` | Remove non-existent resources from XML |
 
 ### "service 'idmap' died" in logcat
@@ -557,99 +551,6 @@ Adding VINTF manifest fragments from a different device **can cause HAL manager 
 2. **Add one HAL at a time** — fingerprint first, test, then vibrator, etc.
 3. **Test each change** — flash, reboot, check logcats, verify features
 4. **Keep backups** — save working versions before adding new components
-
----
-
-## 📖 Reference: Samsung A90 5G Values
-
-These are the values used throughout this project for the reference device. Use them as a template for your own device.
-
-### Display
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Resolution | 1080×2400 | FHD+ Super AMOLED |
-| DPI | 420 | from `ro.sf.lcd_density` |
-| Corner radius | 100px | Stock vendor RRO value |
-| Status bar height | 76px | Matches waterdrop notch |
-| QS offset height | 76px | Must match status bar |
-| Refresh rate | 60Hz | Panel max |
-| Cutout shape | Infinity-U (waterdrop) | SVG: `M-35.93,0...` |
-
-### UDFPS (Goodix ET715)
-
-| Parameter | Value | Source |
-|-----------|-------|--------|
-| X position | 540 | Screen center (half of 1080) |
-| Y position | 2145 | From device tree overlay |
-| Radius | 114 | From device tree overlay |
-| Sensor type | Optical in-display | Goodix ET715 |
-| HAL bridge | AOSP v2.3 → Samsung v3.0 | `fingerprint@2.3-service.samsung` |
-
-### Brightness
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Dim | 15 | Minimum before flicker |
-| Dark | 3 | Auto-brightness floor |
-| Doze/AOD | 60 | Adjusted up from stock 17 |
-| Min/Max | 0–255 | Standard range |
-| Default | 128 | Mid-point |
-| Auto-brightness levels | 28 | From stock OneUI 4.1 |
-
-### Battery
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Capacity (nom) | 4400 mAh | Typical: 4500 mAh |
-| CPU | 1×Cortex-A76 + 3×A76 + 4×A55 | Snapdragon 855 |
-
-### Connectivity
-
-| Feature | Status on A90 5G | Mechanism |
-|---------|------------------|-----------|
-| 5G NR | NSA (LTE+NR) | `slsiims_telephony` overlay + properties |
-| VoLTE | Via Samsung IMS | `persist.sys.phh.ims.sec=true` |
-| RIL | Samsung libsec-ril.so | IMS via `slsiims_telephony` |
-
-### Critical Doze Configuration
-
-```xml
-<!-- SystemUI overlay — prevents DOZE_SUSPEND crash -->
-<!-- Without this, Samsung's hwcomposer can't handle DOZE_SUSPEND→DOZE transition
-     on GSI, causing: "trackPendingFrame: Invalid present fence" -->
-<bool name="doze_suspend_display_state_supported">false</bool>
-
-<!-- Framework overlay — prevents display blanking in doze -->
-<bool name="config_displayBlanksAfterDoze">false</bool>
-```
-
-### Verified Properties (set in service.sh)
-
-```bash
-# UDFPS
-setprop persist.sys.udfps.custom 1
-setprop persist.sys.udfps.x 540
-setprop persist.sys.udfps.y 2145
-setprop persist.sys.udfps.size 114
-setprop persist.sys.phh.samsung_fingerprint 1
-
-# Brightness
-setprop persist.sys.samsung.full_brightness true
-setprop persist.sys.qcom-brightness -1
-setprop persist.sys.phh.disable_display_doze_suspend true
-
-# 5G / VoLTE
-setprop persist.sys.phh.ims.sec true
-setprop persist.sys.phh.force_display_5g 1
-setprop persist.sys.phh.radio.nr 1
-setprop persist.dbg.volte_avail_ovr 1
-setprop persist.dbg.allow_ims_off 0
-
-# IMS overlays
-cmd overlay enable me.phh.treble.overlay.slsiims_telephony
-cmd overlay disable me.phh.treble.overlay.cafims_telephony
-```
 
 ---
 
