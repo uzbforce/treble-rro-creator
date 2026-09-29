@@ -1510,37 +1510,37 @@ XML_EOF
     # Deduplicate: if a resource name appears multiple times, keep only the LAST occurrence.
     # This ensures that generated.xml (which is sourced after static files) wins.
     # Use awk with a portable approach (no gawk-specific match() with 3 args).
-    if command -v awk &>/dev/null; then
-        local tmp="${TMPDIR:-/tmp}/rro_merge.$$"
-        # Reverse the file, keep first occurrence of each resource name, then reverse back.
-        awk '
-            { lines[NR] = $0 }
-            END {
-                for (i = NR; i >= 1; i--) {
-                    line = lines[i]
-                    if (match(line, /name="[^"]+"/)) {
-                        name = substr(line, RSTART, RLENGTH)
-                        if (!seen[name]++) {
-                            print line
-                        }
-                    } else {
-                        print line
-                    }
-                }
-            }
-        ' "$target" | awk '
-            { lines[NR] = $0 }
-            END {
-                for (i = NR; i >= 1; i--) print lines[i]
-            }
-        ' > "$tmp" 2>/dev/null
-        # Only replace target if the tmp file has content
-        if [ -s "$tmp" ]; then
-            mv "$tmp" "$target"
-        else
-            rm -f "$tmp"
-        fi
-    fi
+#    if command -v awk &>/dev/null; then
+#        local tmp="${TMPDIR:-/tmp}/rro_merge.$$"
+#        # Reverse the file, keep first occurrence of each resource name, then reverse back.
+#        awk '
+#            { lines[NR] = $0 }
+#            END {
+#                for (i = NR; i >= 1; i--) {
+#                    line = lines[i]
+#                    if (match(line, /name="[^"]+"/)) {
+#                        name = substr(line, RSTART, RLENGTH)
+#                        if (!seen[name]++) {
+#                            print line
+#                        }
+#                    } else {
+#                        print line
+#                    }
+#                }
+#            }
+#        ' "$target" | awk '
+#            { lines[NR] = $0 }
+#            END {
+#                for (i = NR; i >= 1; i--) print lines[i]
+#            }
+#        ' > "$tmp" 2>/dev/null
+#        # Only replace target if the tmp file has content
+#        if [ -s "$tmp" ]; then
+#            mv "$tmp" "$target"
+#        else
+#            rm -f "$tmp"
+#        fi
+#    fi
     
     echo "</resources>" >> "$target"
 }
