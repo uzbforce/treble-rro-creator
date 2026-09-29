@@ -1510,37 +1510,37 @@ XML_EOF
     # Deduplicate: if a resource name appears multiple times, keep only the LAST occurrence.
     # This ensures that generated.xml (which is sourced after static files) wins.
     # Use awk with a portable approach (no gawk-specific match() with 3 args).
-    if command -v awk &>/dev/null; then
-        local tmp="${TMPDIR:-/tmp}/rro_merge.$$"
-        # Reverse the file, keep first occurrence of each resource name, then reverse back.
-        awk '
-            { lines[NR] = $0 }
-            END {
-                for (i = NR; i >= 1; i--) {
-                    line = lines[i]
-                    if (match(line, /name="[^"]+"/)) {
-                        name = substr(line, RSTART, RLENGTH)
-                        if (!seen[name]++) {
-                            print line
-                        }
-                    } else {
-                        print line
-                    }
-                }
-            }
-        ' "$target" | awk '
-            { lines[NR] = $0 }
-            END {
-                for (i = NR; i >= 1; i--) print lines[i]
-            }
-        ' > "$tmp" 2>/dev/null
-        # Only replace target if the tmp file has content
-        if [ -s "$tmp" ]; then
-            mv "$tmp" "$target"
-        else
-            rm -f "$tmp"
-        fi
-    fi
+#    if command -v awk &>/dev/null; then
+#        local tmp="${TMPDIR:-/tmp}/rro_merge.$$"
+#        # Reverse the file, keep first occurrence of each resource name, then reverse back.
+#        awk '
+#            { lines[NR] = $0 }
+#            END {
+#                for (i = NR; i >= 1; i--) {
+#                    line = lines[i]
+#                    if (match(line, /name="[^"]+"/)) {
+#                        name = substr(line, RSTART, RLENGTH)
+#                        if (!seen[name]++) {
+#                            print line
+#                        }
+#                    } else {
+#                        print line
+#                    }
+#                }
+#            }
+#        ' "$target" | awk '
+#            { lines[NR] = $0 }
+#            END {
+#                for (i = NR; i >= 1; i--) print lines[i]
+#            }
+#        ' > "$tmp" 2>/dev/null
+#        # Only replace target if the tmp file has content
+#        if [ -s "$tmp" ]; then
+#            mv "$tmp" "$target"
+#        else
+#            rm -f "$tmp"
+#        fi
+#    fi
     
     echo "</resources>" >> "$target"
 }
@@ -1693,7 +1693,7 @@ echo -e "${GREEN}${BOLD}  ╔═════════════════
 echo -e "${GREEN}${BOLD}  ║              BUILD COMPLETE ✓                        ║${NC}"
 echo -e "${GREEN}${BOLD}  ╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo "  ${BOLD}Output files (out/):${NC}"
+echo -e "  ${BOLD}Output files (out/):${NC}"
 echo "    out/apks/${OVERLAY_NAME}.apk         $(du -sh "out/apks/${OVERLAY_NAME}.apk" | cut -f1)"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     echo "    out/apks/${OVERLAY_NAME}-systemui.apk  $(du -sh "out/apks/${OVERLAY_NAME}-systemui.apk" | cut -f1)"
@@ -1707,14 +1707,14 @@ echo -e "  ${RED}${BOLD}⚠ IMPORTANT (KernelSU / KSU Next Users):${NC}"
 echo "    - You MUST install a mount system like 'Magic Mount' for overlays to activate."
 echo "    - DO NOT use 'OverlayFS' — this will likely cause a BOOTLOOP."
 echo ""
-echo "  ${BOLD}Deploy:${NC}"
+echo -e "  ${BOLD}Deploy:${NC}"
 echo "    Standard: Install out/${OVERLAY_NAME}-ksu.zip via your Manager App."
 echo ""
 echo "    Manual (ADB):"
 echo "      adb push out/${OVERLAY_NAME}-ksu.zip /sdcard/"
 echo "      adb shell su -c 'ksud module install /sdcard/${OVERLAY_NAME}-ksu.zip'"
 echo ""
-echo "  ${BOLD}Verify:${NC}"
-echo "    adb shell cmd overlay list | grep ${OVERLAY_NAME#treble-overlay-}"
+echo -e "  ${BOLD}Verify:${NC}"
+echo "    adb shell cmd overlay list | grep ${OVERLAY_PACKAGE#me.phh.treble.overlay.}"
 echo "    adb shell cmd overlay lookup ${OVERLAY_PACKAGE} android:dimen/rounded_corner_radius"
 echo ""

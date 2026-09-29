@@ -261,12 +261,12 @@ case "$env_choice" in
         ;;
     3)
         info "Termux selected."
-        info "Running: pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu"
+        info "Running: pkg install aapt aapt2 bc apksigner android-tools openjdk-17 unzip zip curl tsu"
         echo ""
 
         # Try install — using `if` so `set -e` doesn't kill the script on failure
         TERMUX_PKG_OK=false
-        if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+        if pkg install aapt aapt2 bc apksigner android-tools openjdk-17 unzip zip curl tsu; then
             TERMUX_PKG_OK=true
             ok "Packages installed successfully"
         else
@@ -298,7 +298,7 @@ case "$env_choice" in
                     apt update
                     echo ""
                     info "Retrying package installation..."
-                    if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+                    if pkg install aapt aapt2 bc apksigner android-tools openjdk-17 unzip zip curl tsu; then
                         TERMUX_PKG_OK=true
                         ok "Packages installed successfully after repo change"
                     else
@@ -326,7 +326,7 @@ case "$env_choice" in
                     apt update
                     echo ""
                     info "Retrying package installation..."
-                    if pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+                    if pkg install aapt aapt2 bc apksigner android-tools openjdk-17 unzip zip curl tsu; then
                         TERMUX_PKG_OK=true
                         ok "Packages installed successfully after mirror change"
                     else
@@ -339,7 +339,7 @@ case "$env_choice" in
                     echo "     1. Run: termux-change-repo"
                     echo "     2. Select a mirror close to your region"
                     echo "     3. Run: apt update"
-                    echo "     4. Run: pkg install aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu"
+                    echo "     4. Run: pkg install aapt aapt2 bc apksigner android-tools openjdk-17 unzip zip curl tsu"
                     echo "     5. Re-run: ./setup.sh"
                     ;;
             esac

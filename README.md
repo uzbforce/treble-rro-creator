@@ -66,7 +66,7 @@ Building RROs straight on your phone is now supported. ARM Branch is for termux
    apt upgrade -y
    
    # Install build dependencies (Use apt, NOT pkg)
-   apt install git aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu -y
+   apt install git bc aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu -y
    ```
 3. **Download Project:**
    ```bash
