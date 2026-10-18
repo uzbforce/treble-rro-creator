@@ -16,12 +16,18 @@ termux-setup-storage
 apt update
 apt upgrade -y
 
-apt install -y git aapt2 apksigner android-tools openjdk-17 \
+apt install -y git aapt aapt2 apksigner android-tools openjdk-17 \
                unzip zip curl tsu
 ```
 
 If `pkg install` fails with signature or mirror errors, run
 `termux-change-repo`, pick a mirror close to you, then repeat `apt update`.
+
+> **`zipalign` comes from the `aapt` package, not from `aapt2`.** Installing
+> `aapt2`, `apksigner` and `android-tools` leaves `zipalign` missing; adding
+> `aapt` provides it. If it is still absent, `build.sh` continues and copies
+> the APK instead of aligning it (valid, just not mmap-aligned) and tells you
+> to run `pkg install aapt`.
 
 ---
 

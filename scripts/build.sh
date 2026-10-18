@@ -409,9 +409,17 @@ fi
 # Dependency check
 # ---------------------------------------------------------------------------
 step "Checking dependencies"
-for cmd in aapt2 zipalign; do
-    command -v "$cmd" &>/dev/null || { err "Missing: $cmd — run ./build.sh setup"; exit 1; }
-done
+tool_ready aapt2 || { err "Missing: aapt2 — run ./build.sh setup"; exit 1; }
+if ! tool_ready zipalign; then
+    if $IS_TERMUX; then
+        # zipalign lives in the 'aapt' package (aapt2 does not ship it).
+        warn "zipalign missing on Termux — install it with: pkg install aapt"
+        warn "Continuing without it: APKs stay unaligned (valid, just not mmap-aligned)"
+    else
+        err "Missing: zipalign — run ./build.sh setup"
+        exit 1
+    fi
+fi
 
 # Windows cannot execute Linux binaries. A Linux aapt2/zipalign sitting in
 # tools/ (left there by a WSL/Kali run of this project on the same checkout)
@@ -703,12 +711,12 @@ fi
 # ---------------------------------------------------------------------------
 step "Zipaligning APKs"
 run_or_die "zipalign (framework overlay)" \
-    zipalign -f 4 build/apk/unsigned.apk build/apk/aligned.apk || exit 1
+    align_apk build/apk/unsigned.apk build/apk/aligned.apk || exit 1
 ok "Framework-res APK aligned"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     run_or_die "zipalign (SystemUI overlay)" \
-        zipalign -f 4 build/apk/systemui_unsigned.apk build/apk/systemui_aligned.apk || exit 1
+        align_apk build/apk/systemui_unsigned.apk build/apk/systemui_aligned.apk || exit 1
     ok "SystemUI APK aligned"
 fi
 
@@ -1051,7 +1059,7 @@ run_or_die "TEST: aapt2 link (framework)" \
     "$TEST_BUILD_DIR/compiled"/*.flat || exit 1
 
 run_or_die "TEST: zipalign (framework)" \
-    zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk" || exit 1
+    align_apk "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk" || exit 1
 run_or_die "TEST: apksigner sign (framework)" \
     "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
@@ -1073,7 +1081,7 @@ if [ "$LINKED_SYSTEMUI" = "true" ]; then
         "$TEST_BUILD_DIR/compiled_systemui"/*.flat || exit 1
 
     run_or_die "TEST: zipalign (SystemUI)" \
-        zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" || exit 1
+        align_apk "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" || exit 1
     run_or_die "TEST: apksigner sign (SystemUI)" \
         "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \

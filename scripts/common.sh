@@ -322,9 +322,34 @@ framework_res_path() {
 }
 
 # Everything the build needs, as a space-separated list (empty = ready).
+# zipalign is not in the Termux package repository (pkg cannot install it) and
+# an unaligned RRO still loads, so it is optional there instead of blocking the
+# build forever. Everything else still requires it.
+zipalign_optional() {
+    $IS_TERMUX && ! tool_ready zipalign
+}
+
+# align_apk <unsigned> <aligned> — zipalign when available, plain copy if not.
+# An unaligned APK is valid and installs; it just cannot be mmap'ed as
+# efficiently, so this is a warning, not a failure.
+ALIGN_WARNED=false
+align_apk() {
+    if tool_ready zipalign; then
+        zipalign -f 4 "$1" "$2"
+        return $?
+    fi
+    if ! $ALIGN_WARNED; then
+        warn "zipalign not available — APKs stay unaligned (valid, slightly slower to map)"
+        $IS_TERMUX && warn "  Termux: pkg install aapt  (that package ships zipalign)"
+        ALIGN_WARNED=true
+    fi
+    cp -f "$1" "$2"
+}
+
 toolchain_missing() {
     local missing="" t
     for t in aapt2 zipalign apksigner; do
+        [ "$t" = "zipalign" ] && zipalign_optional && continue
         tool_ready "$t" || missing="$missing $t"
     done
     command -v java >/dev/null 2>&1 || missing="$missing java"

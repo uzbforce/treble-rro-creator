@@ -112,6 +112,21 @@ git pull
 If it still fails, the file was edited by hand: each `<item>` must sit inside its
 `<integer-array>`/`<array>` block, and every opening tag needs a matching close.
 
+### Termux: `Toolchain is still incomplete — missing: zipalign`
+
+`zipalign` is **not** in `aapt2`, `apksigner` or `android-tools` — it ships in
+the `aapt` package. That is why reinstalling the tools hinted by the build loop
+never fixes it:
+
+```bash
+pkg install aapt
+command -v zipalign     # /data/data/com.termux/files/usr/bin/zipalign
+```
+
+Current builds also install `aapt` automatically and, if `zipalign` is still
+missing, continue with unaligned APKs (one warning) instead of stopping — an
+unaligned RRO loads fine, it just misses the 4-byte mmap alignment.
+
 ### `cp: -r not specified; omitting directory …/etc/init/hw`
 
 Something in `src/vendor/etc/init/` is a **directory**, usually `hw/` from a

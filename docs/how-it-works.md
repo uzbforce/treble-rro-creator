@@ -176,7 +176,8 @@ Everything is local to the project:
 | Platform | `tools/` contents |
 |---|---|
 | Windows | `aapt2.exe`, `zipalign.exe`, `apksigner` (wrapper) + `apksigner.jar` |
-| Linux / Termux | `aapt2`, `zipalign`, `apksigner` (system or SDK build-tools) |
+| Linux | `aapt2`, `zipalign`, `apksigner` (system or SDK build-tools) |
+| Termux | `aapt2`, `apksigner`, `zipalign` (the last one comes from the `aapt` package) |
 | All | `framework-res.apk` (Android 13 resource dictionary) |
 
 `build.sh` prefers a usable tool on `PATH`, then `tools/`. It refuses binaries

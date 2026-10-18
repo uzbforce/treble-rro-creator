@@ -232,7 +232,8 @@ acquire_framework_res() {
 # error messages when an unattended install is not possible).
 package_install_hint() {
     if $IS_TERMUX; then
-        echo "pkg install -y aapt2 apksigner android-tools openjdk-17 unzip zip curl"
+        # zipalign is shipped by the 'aapt' package, not by 'aapt2'.
+        echo "pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl"
     elif command -v apt-get >/dev/null 2>&1; then
         echo "sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res zip curl"
     elif command -v pacman >/dev/null 2>&1; then
@@ -251,7 +252,8 @@ install_linux_packages() {
 
     if $IS_TERMUX; then
         info "Termux detected — running: pkg install ..."
-        if pkg install -y aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+        # 'aapt' carries zipalign (the aapt2 package does not).
+        if pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
             ok "Packages installed"
             return 0
         fi
@@ -492,6 +494,8 @@ run_doctor() {
         elif [ -n "$bad" ]; then
             printf '    %-12s ✗ only unusable copies: %s\n' "$t" "$bad"
             problems=$((problems + 1))
+        elif [ "$t" = "zipalign" ] && $IS_TERMUX; then
+            printf '    %-12s – missing; install with: pkg install aapt\n' "$t"
         else
             printf '    %-12s ✗ not found\n' "$t"
             problems=$((problems + 1))
@@ -578,6 +582,8 @@ print_toolchain() {
     for t in aapt2 zipalign apksigner; do
         if p=$(tool_path "$t"); then
             ok "$t: $p"
+        elif [ "$t" = "zipalign" ] && $IS_TERMUX; then
+            warn "$t: missing — pkg install aapt (APKs would stay unaligned)"
         else
             err "$t: not found"
         fi
@@ -684,6 +690,7 @@ ensure_toolchain() {
     # used): no need to reinstall the compiler/signer, just pick resources.
     local missing_tools=false
     for t in aapt2 zipalign apksigner; do
+        [ "$t" = "zipalign" ] && zipalign_optional && continue
         tool_ready "$t" || missing_tools=true
     done
     command -v java >/dev/null 2>&1 || missing_tools=true
