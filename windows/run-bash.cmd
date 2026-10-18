@@ -1,10 +1,10 @@
 @echo off
 rem ---------------------------------------------------------------------------
-rem run-bash.cmd - run one of this project's shell scripts under Git Bash
+rem run-bash.cmd - run build.sh under Git Bash
 rem ---------------------------------------------------------------------------
 rem Usage:  windows\run-bash.cmd <script.sh> [args...]
 rem
-rem Kept in one place so build.cmd / setup.cmd / cleanup.cmd cannot drift apart.
+rem Kept in one place so the Windows launchers cannot drift apart.
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
 
@@ -60,7 +60,9 @@ exit /b 0
 echo.
 echo   Git for Windows was not found.
 echo   Install it from https://git-scm.com/download/win and try again.
-echo   WSL's bash.exe is not supported - this tool needs Git Bash (MSYS2).
+echo.
+echo   WSL's bash.exe is not supported: this tool needs Git Bash (MSYS2),
+echo   because the Android build tools are native Windows programs.
 echo.
 pause
 exit /b 1

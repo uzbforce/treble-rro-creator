@@ -89,17 +89,19 @@ def dynamic_udfps_props():
         print("Fingerprint position data not found.")
         return None
 
-# Function to print the desired XML with calculated values
-def print_dimen_xml(udfps_props):
+# Print the config.env lines this tool expects
+def print_config_env(udfps_props):
     if udfps_props:
-        print(f"""
-<dimen name="physical_fingerprint_sensor_center_screen_location_x">{udfps_props['mX']}px</dimen>
-<dimen name="physical_fingerprint_sensor_center_screen_location_y">{udfps_props['mY']}px</dimen>
-        """)
+        print("\nAdd these lines to config.env (then rebuild):\n")
+        print(f"HAS_UDFPS=true")
+        print(f"UDFPS_X={udfps_props['mX']}")
+        print(f"UDFPS_Y={udfps_props['mY']}")
+        print(f"UDFPS_RADIUS={udfps_props['mW']}")
+        print("\nAdjust UDFPS_RADIUS until the unlock area matches the sensor.")
     else:
         print("Unable to calculate the fingerprint sensor dimensions.")
 
 # Main function
 if __name__ == "__main__":
     udfps_props = dynamic_udfps_props()
-    print_dimen_xml(udfps_props)
+    print_config_env(udfps_props)

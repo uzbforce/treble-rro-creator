@@ -21,13 +21,17 @@ done
 # SECTION 2: Enable overlays
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Enable the main framework-res overlay
-# Note: @OVERLAY_PACKAGE@ is replaced by build.sh with your config.env value
+# The APKs are static RROs: Android already enabled them during boot. These
+# calls are only a fallback for a non-static build and will fail on a static
+# overlay; the list check reports what actually happened.
+# Note: @OVERLAY_PACKAGE@ / @OVERLAY_PACKAGE_SYSTEMUI@ are replaced by build.sh.
 cmd overlay enable @OVERLAY_PACKAGE@ 2>/dev/null || true
-
-# Enable the SystemUI overlay (doze/AOD fix)
-# Note: @OVERLAY_PACKAGE_SYSTEMUI@ is replaced by build.sh with your config.env value
 cmd overlay enable @OVERLAY_PACKAGE_SYSTEMUI@ 2>/dev/null || true
+
+for pkg in @OVERLAY_PACKAGE@ @OVERLAY_PACKAGE_SYSTEMUI@; do
+    cmd overlay list 2>/dev/null | grep -q "\[x\] $pkg" \
+        && log -t treble-overlay "enabled: $pkg" 2>/dev/null || true
+done
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 3: AOD / Doze configuration
@@ -36,8 +40,9 @@ cmd overlay enable @OVERLAY_PACKAGE_SYSTEMUI@ 2>/dev/null || true
 # Enable AOD overlay via Phh-Treble property
 setprop persist.sys.overlay.aod true
 
-# Prevent DOZE_SUSPEND — keeps AOD content updating (clock, notifications)
-setprop persist.sys.phh.disable_display_doze_suspend true
+# DOZE_SUSPEND is controlled by doze_suspend_display_state_supported in the
+# SystemUI overlay (config.env DOZE_SUSPEND_UNSUPPORTED). There is no
+# supported property for it.
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 4: Vendor HAL services (optional)
@@ -63,16 +68,14 @@ if [ -f "/sys/class/sec/tsp/cmd" ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SECTION 5: UDFPS Fingerprint properties
+# SECTION 5: UDFPS fingerprint
 # ═══════════════════════════════════════════════════════════════════════════
-# Set these to match your sensor position (override in config.env).
-# Reference (A90 5G): X=540, Y=2145, Size=114
+# The sensor geometry is a framework overlay resource, not a property:
+# configure UDFPS_X / UDFPS_Y / UDFPS_RADIUS in config.env (they become
+# config_udfps_sensor_props). persist.sys.udfps.* does not exist in AOSP.
 
+# Samsung Goodix sensors only (PHH Treble Settings)
 setprop persist.sys.phh.samsung_fingerprint 1
-setprop persist.sys.udfps.custom 1
-setprop persist.sys.udfps.x 540
-setprop persist.sys.udfps.y 2145
-setprop persist.sys.udfps.size 114
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SECTION 6: Brightness fix (Samsung AMOLED panels)
@@ -92,9 +95,6 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
     if [ "$(getprop persist.sys.qcom-brightness)" != "-1" ]; then
         setprop persist.sys.qcom-brightness -1
     fi
-    if [ "$(getprop persist.sys.phh.disable_display_doze_suspend)" != "true" ]; then
-        setprop persist.sys.phh.disable_display_doze_suspend true
-    fi
 done
 
 # Final long-delay check to catch late overrides
@@ -104,9 +104,6 @@ if [ "$(getprop persist.sys.samsung.full_brightness)" != "true" ]; then
 fi
 if [ "$(getprop persist.sys.qcom-brightness)" != "-1" ]; then
     setprop persist.sys.qcom-brightness -1
-fi
-if [ "$(getprop persist.sys.phh.disable_display_doze_suspend)" != "true" ]; then
-    setprop persist.sys.phh.disable_display_doze_suspend true
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -119,12 +116,11 @@ fi
 # --- Samsung IMS ---
 setprop persist.sys.phh.ims.sec true
 
-# --- 5G display ---
+# --- 5G display / VoLTE availability ---
+# Do not force preferred_network_mode: a wrong mode breaks mobile data.
 setprop persist.sys.phh.force_display_5g 1
-setprop persist.sys.phh.radio.nr 1
 setprop persist.dbg.volte_avail_ovr 1
 setprop persist.dbg.allow_ims_off 0
-settings put global preferred_network_mode 26
 
 # Restart RIL to pick up new IMS properties
 stop ril-daemon 2>/dev/null || true

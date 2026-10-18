@@ -7,17 +7,17 @@
     =========================================================================
     
     For your device-specific overlay config:
-      1. Run ./setup.sh to get the Android 13 framework-res.apk
+      1. Run ./build.sh setup to get the Android 13 framework-res.apk
       2. Extract stock overlay APKs from your device:
            /system/product/overlay/framework-res__auto_generated_rro_product.apk
            /system/vendor/overlay/framework-res__auto_generated_rro_vendor.apk
-      3. Decompile with apktool and compare values (see README for guide link)
-      4. Put the product-specific values in a file at project root:
-           stock_overlay.xml
-         The build will automatically include it.
+      3. Decompile with apktool and compare values (see docs/device-extraction.md)
+      4. Add the product-specific values below, or in a new file such as
+           src/framework/res/values/stock_overlay.xml
+         Every XML file in this folder is compiled into the overlay.
     
     For values controlled by config.env (UDFPS, AOD, brightness, etc.):
-      Edit config.env → build.sh generates res/values/generated.xml
+      Edit config.env → build.sh generates src/framework/res/values/generated.xml
     
     For simple bool/integer/string overrides:
       Uncomment the corresponding OPTIONAL STOCK VALUES in config.env
@@ -56,7 +56,7 @@
          To extract your device-specific values:
          1. Follow the guide at the top of this file
          2. Extract values from your stock product overlay APK
-         3. Place them here, or better: create stock_overlay.xml
+         3. Place them here, or better: create src/framework/res/values/stock_overlay.xml
          
          Common values to extract:
          - config_radio_access_family (e.g., "GSM|WCDMA|LTE|NR")

@@ -6,24 +6,25 @@ To build an overlay, `aapt2` needs to know the exact "Resource IDs" used by the 
 
 ### ⚠️ The Android 13 Rule
 For this tool, **Android 13's `framework-res.apk` is the gold standard**.
-- **Why?** It contains the most stable set of resource IDs that are backwards and forwards compatible with most GSIs (A12 through A16).
+- **Why?** It contains the most stable set of resource IDs: the dictionary links overlays for Android 13 through 16, and every generated resource is checked against it before the build continues.
 - **Avoid pulling from your phone:** Manufacturers "optimize" (strip) their `framework-res.apk` to save space. If you use a pulled file, `aapt2` will often throw "Resource not found" errors because the ID dictionary is incomplete.
 
-**Always use the "Download Android 13" option in `./setup.sh`.**
+**Always use the "Download Android 13" option in `./build.sh setup`.**
 
 ---
 
-## 🔧 Build Tools Quick Setup
+## 🔧 Build Tools
 
-Before extracting vendor HALs or building the overlay, make sure you have the required build tools installed.
-
-### Method 1: Run the setup script (recommended — works on any distro)
+The same entry point that builds also installs the toolchain:
 
 ```bash
-./setup.sh
+./build.sh            # installs what is missing, then builds
+./build.sh setup      # interactive installer only
+./build.sh doctor     # verify the toolchain, install nothing
 ```
 
-This downloads `aapt2`, `zipalign`, and `apksigner` into a local `tools/` directory and guides you on getting `framework-res.apk`. No root needed.
+`aapt2`, `zipalign`, `apksigner` and `framework-res.apk` are downloaded into the
+local `tools/` folder — no root required. On Windows use `build.cmd` instead.
 
 ---
 
@@ -95,7 +96,7 @@ Boot a custom ROM or even stock (if on A14+) and check:
 
 ```bash
 # Check for AIDL fingerprint/vibrator services
-adb shell servicemanager --list-services | grep -iE 'finger|vibrat|biometric'
+adb shell service list | grep -iE 'finger|vibrat|biometric'
 
 # List HAL binaries — AIDL binaries look like:
 #   android.hardware.biometrics.fingerprint-service.<device>
@@ -147,22 +148,22 @@ Download your device's custom ROM zip and extract the vendor directly:
 
 ```bash
 # Create extraction directories
-mkdir -p system/vendor/bin/hw
-mkdir -p system/vendor/etc/init
-mkdir -p system/vendor/etc/vintf/manifest
-mkdir -p system/vendor/lib64
+mkdir -p src/vendor/bin/hw
+mkdir -p src/vendor/etc/init
+mkdir -p src/vendor/etc/vintf/manifest
+mkdir -p src/vendor/lib64
 
 # Extract from ROM zip (adjust ROM zip path)
-unzip -j <rom_name>.zip "vendor/bin/hw/*finger*" -d system/vendor/bin/hw/
-unzip -j <rom_name>.zip "vendor/bin/hw/*vibrat*" -d system/vendor/bin/hw/
-unzip -j <rom_name>.zip "vendor/etc/init/*finger*" -d system/vendor/etc/init/
-unzip -j <rom_name>.zip "vendor/etc/init/*vibrat*" -d system/vendor/etc/init/
-unzip -j <rom_name>.zip "vendor/etc/vintf/manifest/*" -d system/vendor/etc/vintf/manifest/
-unzip -j <rom_name>.zip "vendor/lib64/*finger*" -d system/vendor/lib64/
-unzip -j <rom_name>.zip "vendor/lib64/*vibrat*" -d system/vendor/lib64/
+unzip -j <rom_name>.zip "vendor/bin/hw/*finger*" -d src/vendor/bin/hw/
+unzip -j <rom_name>.zip "vendor/bin/hw/*vibrat*" -d src/vendor/bin/hw/
+unzip -j <rom_name>.zip "vendor/etc/init/*finger*" -d src/vendor/etc/init/
+unzip -j <rom_name>.zip "vendor/etc/init/*vibrat*" -d src/vendor/etc/init/
+unzip -j <rom_name>.zip "vendor/etc/vintf/manifest/*" -d src/vendor/etc/vintf/manifest/
+unzip -j <rom_name>.zip "vendor/lib64/*finger*" -d src/vendor/lib64/
+unzip -j <rom_name>.zip "vendor/lib64/*vibrat*" -d src/vendor/lib64/
 
 # Make binaries executable
-chmod +x system/vendor/bin/hw/*
+chmod +x src/vendor/bin/hw/*
 ```
 
 > Some ROM zips use `payload.bin` (Pixel-style) or `dat.br` (LineageOS-style). For `payload.bin`, use `payload-dumper-go`. For `dat.br`, use `sdat2img` then mount.
@@ -173,31 +174,31 @@ Boot your device into the **custom ROM** (not stock firmware) and pull:
 
 ```bash
 # Create extraction directories
-mkdir -p system/vendor/bin/hw
-mkdir -p system/vendor/etc/init
-mkdir -p system/vendor/etc/vintf/manifest
-mkdir -p system/vendor/lib64
+mkdir -p src/vendor/bin/hw
+mkdir -p src/vendor/etc/init
+mkdir -p src/vendor/etc/vintf/manifest
+mkdir -p src/vendor/lib64
 
 # --- Pull individual files ---
 # Binary file (HAL executable) — AIDL names won't have @version:
-adb shell su -c 'cat /vendor/bin/hw/<your_aidl_hal_binary>' > system/vendor/bin/hw/<your_aidl_hal_binary>
+adb shell su -c 'cat /vendor/bin/hw/<your_aidl_hal_binary>' > src/vendor/bin/hw/<your_aidl_hal_binary>
 
 # Init script:
-adb shell su -c 'cat /vendor/etc/init/<your_aidl_init.rc>' > system/vendor/etc/init/<your_aidl_init.rc>
+adb shell su -c 'cat /vendor/etc/init/<your_aidl_init.rc>' > src/vendor/etc/init/<your_aidl_init.rc>
 
 # VINTF manifest:
-adb shell su -c 'cat /vendor/etc/vintf/manifest/<your_aidl_manifest.xml>' > system/vendor/etc/vintf/manifest/<your_aidl_manifest.xml>
+adb shell su -c 'cat /vendor/etc/vintf/manifest/<your_aidl_manifest.xml>' > src/vendor/etc/vintf/manifest/<your_aidl_manifest.xml>
 
 # Shared library:
-adb shell su -c 'cat /vendor/lib64/<your_aidl_library.so>' > system/vendor/lib64/<your_aidl_library.so>
+adb shell su -c 'cat /vendor/lib64/<your_aidl_library.so>' > src/vendor/lib64/<your_aidl_library.so>
 
 # Make binaries executable
-chmod +x system/vendor/bin/hw/*
+chmod +x src/vendor/bin/hw/*
 
 # --- Pull via tar (faster for many files) ---
 adb shell su -c 'tar -czf /data/local/tmp/vendor_aidl.tar.gz -C / vendor/bin/hw/*finger* vendor/etc/init/*finger* vendor/etc/vintf/manifest/*finger* vendor/lib64/*finger*'
 adb pull /data/local/tmp/vendor_aidl.tar.gz /tmp/
-cd system/vendor && tar -xzf /tmp/vendor_aidl.tar.gz
+cd src/vendor && tar -xzf /tmp/vendor_aidl.tar.gz
 ```
 
 ### Method C: Extract from custom ROM vendor.img
@@ -208,24 +209,24 @@ If you have a `vendor.img` from a custom ROM:
 sudo mount -o loop vendor.img /mnt/vendor
 
 # Copy files — AIDL HALs won't have @version in names
-sudo cp /mnt/vendor/bin/hw/*finger* system/vendor/bin/hw/
-sudo cp /mnt/vendor/etc/init/*finger* system/vendor/etc/init/
-sudo cp /mnt/vendor/etc/vintf/manifest/*.xml system/vendor/etc/vintf/manifest/
-sudo cp /mnt/vendor/lib64/*finger* system/vendor/lib64/
-sudo cp /mnt/vendor/bin/hw/*vibrat* system/vendor/bin/hw/ 2>/dev/null
-sudo cp /mnt/vendor/etc/init/*vibrat* system/vendor/etc/init/ 2>/dev/null
-sudo cp /mnt/vendor/lib64/*vibrat* system/vendor/lib64/ 2>/dev/null
-sudo cp /mnt/vendor/etc/init/*display* system/vendor/etc/init/ 2>/dev/null
+sudo cp /mnt/vendor/bin/hw/*finger* src/vendor/bin/hw/
+sudo cp /mnt/vendor/etc/init/*finger* src/vendor/etc/init/
+sudo cp /mnt/vendor/etc/vintf/manifest/*.xml src/vendor/etc/vintf/manifest/
+sudo cp /mnt/vendor/lib64/*finger* src/vendor/lib64/
+sudo cp /mnt/vendor/bin/hw/*vibrat* src/vendor/bin/hw/ 2>/dev/null
+sudo cp /mnt/vendor/etc/init/*vibrat* src/vendor/etc/init/ 2>/dev/null
+sudo cp /mnt/vendor/lib64/*vibrat* src/vendor/lib64/ 2>/dev/null
+sudo cp /mnt/vendor/etc/init/*display* src/vendor/etc/init/ 2>/dev/null
 
-sudo chown -R $USER:$USER system/vendor/
-chmod +x system/vendor/bin/hw/*
+sudo chown -R $USER:$USER src/vendor/
+chmod +x src/vendor/bin/hw/*
 sudo umount /mnt/vendor
 ```
 
 > 💡 **Tip:** You can copy **all** vendor init scripts and manifests at once, then remove what you don't need:
 > ```bash
-> sudo cp -r /mnt/vendor/etc/init/ system/vendor/etc/
-> sudo cp -r /mnt/vendor/etc/vintf/ system/vendor/etc/
+> sudo cp -r /mnt/vendor/etc/init/ src/vendor/etc/
+> sudo cp -r /mnt/vendor/etc/vintf/ src/vendor/etc/
 > # Then delete files you don't want or select all the necessary files
 > ```
 
@@ -240,8 +241,8 @@ If your device has a custom ROM (LineageOS 21+, crDroid, Pixel Experience, etc.)
 3. **Pull the entire vendor partition** while booted into the custom ROM:
 
 ```bash
-# Create the system/vendor directory structure
-mkdir -p system/vendor
+# Create the src/vendor directory structure
+mkdir -p src/vendor
 
 # Pull entire vendor (requires root)
 adb shell su -c 'tar -czf /data/local/tmp/vendor_full.tar.gz -C / vendor'
@@ -266,7 +267,7 @@ This gives you everything: AIDL HALs, correct SELinux contexts, proper init .rc 
 
 ### AIDL HALs: Already correct, just extract
 
-AIDL HALs from custom ROMs ship with their correct `.rc` files already in `/vendor/etc/init/`. In most cases, you can drop the extracted `.rc` file into `system/vendor/etc/init/` without modification. Just make sure the binary path matches.
+AIDL HALs from custom ROMs ship with their correct `.rc` files already in `/vendor/etc/init/`. In most cases, you can drop the extracted `.rc` file into `src/vendor/etc/init/` without modification. Just make sure the binary path matches.
 
 ### AIDL .rc example
 
@@ -396,7 +397,7 @@ HIDL manifests use `format="hidl"` with `@major.minor` versioning:
 
 ## 🔒 Step 5: Add SELinux Policy Rules
 
-SELinux rules are equally needed for AIDL and HIDL HALs. Add the necessary rules to `sepolicy.rule` in the project root. A reference example is in `sepolicy.rule.example`.
+SELinux rules are equally needed for AIDL and HIDL HALs. Add them to `src/module/sepolicy.rule`. A reference example is in `templates/sepolicy.rule.example`.
 
 > 💡 **AIDL SELinux context:** AIDL HALs from custom ROMs use the same SELinux domain names as HIDL ones (e.g., `hal_fingerprint_default`, `hal_vibrator_default`). The rules are identical — the SELinux policy doesn't distinguish between AIDL and HIDL at the domain level.
 
@@ -478,55 +479,67 @@ allow hal_vibrator_default timed_output_device:chr_file rw_file_perms;
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | Service not found / not registered | HIDL HAL used instead of AIDL | Replace with AIDL HAL from a custom ROM |
-| Service not found | Missing VINTF manifest | Add `.xml` to `system/vendor/etc/vintf/manifest/` |
+| Service not found | Missing VINTF manifest | Add `.xml` to `src/vendor/etc/vintf/manifest/` |
 | Service not found | Wrong VINTF format (HIDL vs AIDL) | Ensure `format="aidl"` in the manifest |
 | Service won't start | SELinux denial | Check logcat, add rules to `sepolicy.rule` |
 | Service starts but fails | Wrong HAL binary for this Android version | Extract from a custom ROM built for A14+ |
-| "No such file" in logcat | Missing shared library | Check `system/vendor/lib64/` for missing `.so` files |
+| "No such file" in logcat | Missing shared library | Check `src/vendor/lib64/` for missing `.so` files |
 | Device bootloops | Incompatible sepolicy or VINTF | Remove the vendor files and re-test |
 
 ---
 
-## 📁 File Layout Reference
+## 📁 Where the files go
 
-The `system/vendor/` directory structure should look like this. Place your extracted files here:
+Vendor files live in `src/vendor/`, using the same shape they have on the device
+but without the leading `/system`:
 
 ```
 project_root/
-├── system/
-│   └── vendor/
-│       ├── bin/
-│       │   └── hw/          # ← AIDL HAL binaries (e.g., android.hardware.biometrics.fingerprint-service.<device>)
-│       ├── etc/
-│       │   ├── init/        # ← Init .rc files for the HALs
-│       │   └── vintf/
-│       │       └── manifest/ # ← VINTF manifest .xml files (format="aidl")
-│       └── lib64/           # ← Shared libraries (.so) for the HALs
-├── sepolicy.rule             # ← Add YOUR SELinux rules here (template)
-├── sepolicy.rule.example     # ← Reference: Samsung A90 5G rules (copy as starting point)
-├── customize.sh              # ← Sets SELinux contexts at install time (update if you add new HALs)
-└── service.sh                # ← Starts services at boot (update if you add new HALs)
+├── src/
+│   ├── vendor/
+│   │   ├── bin/hw/                  # HAL binaries
+│   │   ├── etc/init/                # init .rc files for those HALs
+│   │   ├── etc/vintf/manifest/      # VINTF fragments (format="aidl")
+│   │   └── lib64/                   # shared libraries used by the HALs
+│   └── module/
+│       ├── customize.sh             # optional override (generated by default)
+│       ├── service.sh               # optional override (generated by default)
+│       └── sepolicy.rule            # your SELinux rules
+├── templates/
+│   ├── sepolicy.rule.example        # Samsung A90 5G reference rules
+│   ├── customize.sh.example
+│   └── service.sh.example
+├── config.env                       # device settings
+└── build.sh
 ```
 
-The empty directories are already created — just drop your files in the right folder and they'll be picked up automatically by `build.sh`.
+Drop the files in the matching folder and `build.sh` picks them up. Each
+subfolder has its own purpose:
 
-This project has a well-structured file system for the vendor handling, PLEASE RE-STRUCTURE IF INCORRECT:
-> - `system/vendor/bin/hw/` — fingerprint, vibrator, display HAL binaries
-> - `system/vendor/etc/init/` — init scripts for those HALs
-> - `system/vendor/etc/vintf/manifest/` — VINTF manifest fragment
-> - `system/vendor/lib64/` — fingerprint shared libraries
-> - `system/vendor/vendor_overlay_ref/` — stock vendor overlay APKs (useful for extracting config values like corner radius, UDFPS coords, brightness curve)
-> - `system/vendor/build.prop` — vendor build properties (all device identifiers in one file)
+> - `src/vendor/bin/hw/` — fingerprint, vibrator, display HAL binaries
+> - `src/vendor/etc/init/` — init scripts for those HALs
+> - `src/vendor/etc/vintf/manifest/` — VINTF manifest fragment
+> - `src/vendor/lib64/` — shared libraries
+> - `src/vendor/vendor_overlay_ref/` — stock vendor overlay APKs (useful for
+>   extracting values like corner radius, UDFPS coordinates and brightness curves)
+> - `src/vendor/build.prop` — vendor build properties
 >
-> Place YOUR device's files before building for your device.
+> Everything under `src/vendor/` is ignored by git: these files are
+> device-specific and usually proprietary.
 
 ---
 
-## ⚙️ Power Profile (power_profile.xml) — MANDATORY
+## Power Profile (`power_profile.xml`) — mandatory
 
-The `res/xml/power_profile.xml` file is **CRITICAL** for your device's health and performance on a GSI. It tells Android exactly how much power each hardware component uses and defines the CPU cluster architecture.
+The `src/framework/res/xml/power_profile.xml` file is important for your device's health and performance on a GSI. It tells Android how much power each hardware component uses and defines the CPU cluster architecture.
 
-### ⚠️ Why this is NOT optional
+> The file shipped in `src/framework/res/xml/` is an **empty template**. The
+> build detects that and leaves it out of the APK, so the GSI keeps its own
+> default profile. It will not override the GSI with an empty/broken profile.
+> Add your device's entries to make battery statistics and CPU power mapping
+> accurate.
+
+### ⚠️ Why you should replace the template
 While your phone might boot without it, using a generic or missing `power_profile.xml` causes:
 - **Poor Battery Life:** The system cannot accurately calculate power-efficient task placement.
 - **CPU Mismatch:** Modern "Big.Little" or "1+3+4" CPU cluster layouts need correct frequency/power maps to scale correctly.
@@ -553,12 +566,10 @@ While your phone might boot without it, using a generic or missing `power_profil
    ```
 2. Unzip and extract the power profile:
    ```bash
-   unzip framework-res.apk res/xml/power_profile.xml
+   unzip -p framework-res.apk res/xml/power_profile.xml > src/framework/res/xml/power_profile.xml
    ```
-3. Copy it to your project:
-   ```bash
-   cp res/xml/power_profile.xml res/xml/power_profile.xml
-   ```
+3. Rebuild. The build now sees real `<item>` entries and compiles the file
+   into the overlay.
 
 #### Method B: Get from device tree source (for custom ROMs)
 

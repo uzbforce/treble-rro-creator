@@ -34,7 +34,4 @@
     <!-- Wifi Display -->
     <bool name="config_enableWifiDisplay">true</bool>
 
-    <!-- Performance: Pin home app in memory (safe for all devices) -->
-    <bool name="config_pinnerHomeApp">true</bool>
-
 </resources>

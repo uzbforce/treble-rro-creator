@@ -16,10 +16,14 @@ If it returns comma-separated numbers (`bottom_mm,?,height_mm,?,?,area_size_mm`)
 
 ```bash
 # Needs ADB connection + root
-python3 get_udfps_location.py
+python3 scripts/udfps-location.py
 ```
 
-It reads the position, gets display properties, and outputs the XML dimen values you need **IT IS NOT GUARANTEED TO BE THE RIGHT VALUES**.
+It reads the position, gets display properties, and prints the `UDFPS_X` /
+`UDFPS_Y` / `UDFPS_RADIUS` lines to put in `config.env`.
+**The result is not guaranteed to be correct** — the kernel's sensor position
+format differs between vendors. Verify with the lock-screen fingerprint icon
+before trusting it.
 
 ---
 
@@ -71,10 +75,11 @@ Also check SystemUI dimens:
 # List overlay APKs
 adb shell ls /vendor/overlay/
 
-# Pull and search, need adb root access, turn it on in developer options > Rooted debugging
-adb root
-adb pull /vendor/overlay/<name>.apk
-# install jre-opensdk with your package manager, then install apktool, search on google for the install command
+# Has to run as root: `adb root` (userdebug/eng builds), or pull via su
+adb shell su -c 'cp /vendor/overlay/<name>.apk /data/local/tmp/'
+adb pull /data/local/tmp/<name>.apk
+
+# Decompile: apt install apktool / brew install apktool, or the jar from apktool.org
 apktool d <name>.apk
 grep -ri "fingerprint_sensor_location\|udfps\|sensor_position" ./<decompiled>/
 ```
