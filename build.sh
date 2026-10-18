@@ -30,9 +30,13 @@
 #   See vendor_extraction_guide.md for platform-specific instructions
 # =============================================================================
 
-# set -e
-# Fail on aapt2/zipalign errors instead of letting `| sed` report success.
-set -o pipefail
+set -e
+
+# NOTE: `set -o pipefail` is deliberately NOT enabled. Combined with `set -e`
+# it turns any harmless failure inside an unrelated pipeline (e.g.
+# `ls -d .../lib64 | head -1` matching nothing) into a silent, message-less
+# abort. Every command whose exit status matters goes through run_or_die(),
+# which captures the status explicitly and prints what went wrong.
 
 # ── Platform detection ─────────────────────────────────────────────────────
 # Windows (Git Bash / MSYS2 / Cygwin) needs a few adjustments: tools are .exe
@@ -63,7 +67,12 @@ if [ -d "${SCRIPT_DIR}/tools" ]; then
     export PATH="${SCRIPT_DIR}/tools:${PATH}"
     # zipalign from Linux build-tools needs libc++.so (the Windows .exe does not)
     if ! $IS_WINDOWS; then
-        BT_LIB64=$(ls -d "${SCRIPT_DIR}/tools/android-sdk/build-tools/"*/lib64 2>/dev/null | head -1)
+        # Glob loop instead of `ls | head`: ls fails when nothing matches, which
+        # used to abort the whole build under `set -e` + `pipefail`.
+        BT_LIB64=""
+        for _lib64 in "${SCRIPT_DIR}/tools/android-sdk/build-tools/"*/lib64; do
+            [ -d "$_lib64" ] && { BT_LIB64="$_lib64"; break; }
+        done
         if [ -n "$BT_LIB64" ] && [ -f "$BT_LIB64/libc++.so" ]; then
             export LD_LIBRARY_PATH="$BT_LIB64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         fi
@@ -76,6 +85,54 @@ ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 info() { echo -e "  ${YELLOW}→${NC} $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*" >&2; }
 step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $*"; }
+
+# Never die silently: any unexpected `set -e` abort says where and why.
+trap 'err "Unexpected failure at line ${LINENO}: ${BASH_COMMAND}"; err "Re-run with: bash -x ./build.sh  and report the last lines"' ERR
+
+usage() {
+    echo ""
+    echo -e "  ${BOLD}Usage:${NC} ./build.sh [options]"
+    echo ""
+    echo "    --check              Validate config.env, then exit without building"
+    echo "    -y, --yes            Non-interactive: accept the config, skip prompts"
+    echo "    --with-vendor-hals   With --yes, include system/vendor/ (HALs + sepolicy)"
+    echo "    -h, --help           Show this help"
+    echo ""
+}
+
+# Ask something without ever aborting the build. When stdin is not an
+# interactive terminal (IDE task, CI, launcher without a console, piped input)
+# `read` fails — under `set -e` that used to kill the script mid-run with no
+# message at all, before any build step. Now it just keeps the default answer.
+ASK_REPLY=""
+ask_reply() {
+    local prompt="$1"
+    ASK_REPLY=""
+    $ASSUME_YES && return 0
+    if ! read -r -p "$prompt" ASK_REPLY; then
+        ASK_REPLY=""
+        info "No terminal input available — using the default answer."
+    fi
+    return 0
+}
+
+# Run a build command, indent its output, and abort with a clear message if it
+# fails. Replaces the old `cmd | sed || err` form, where the pipeline status
+# came from sed and the error branch could never fire without `pipefail`.
+run_or_die() {
+    local label="$1"; shift
+    local log="${TMPDIR:-/tmp}/treble-build.$$.log"
+    if "$@" >"$log" 2>&1; then
+        [ -s "$log" ] && sed 's/^/  /' "$log"
+        rm -f "$log"
+        return 0
+    fi
+    [ -s "$log" ] && sed 's/^/  /' "$log"
+    rm -f "$log"
+    err "${label} failed"
+    return 1
+}
 
 # ---------------------------------------------------------------------------
 # Portable helpers (Linux / Termux / Windows)
@@ -117,13 +174,22 @@ div255() {
     awk -v n="$1" 'BEGIN { printf "%.8f", n / 255 }'
 }
 
-# ── Check mode ──────────────────────────────────────────────────────────────
-# If --check is passed, validate config.env and exit without building.
+# ── Command-line options ────────────────────────────────────────────────────
+#   --check              validate config.env, then exit
+#   -y, --yes            non-interactive (accept config, skip prompts)
+#   --with-vendor-hals   with --yes, include system/vendor/
+#   -h, --help           usage
 CHECK_MODE=false
+ASSUME_YES=false
+FORCE_VENDOR_HALS=false
 for arg in "$@"; do
-    if [ "$arg" = "--check" ]; then
-        CHECK_MODE=true
-    fi
+    case "$arg" in
+        --check)            CHECK_MODE=true ;;
+        -y|--yes)           ASSUME_YES=true ;;
+        --with-vendor-hals) FORCE_VENDOR_HALS=true ;;
+        -h|--help)          usage; exit 0 ;;
+        *)                  warn "Ignoring unknown option: $arg" ;;
+    esac
 done
 
 # Store derived values
@@ -892,7 +958,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
     if [ -f "config.env.example" ]; then
         echo -e "  ${BOLD}Use example config (config.env.example) for testing?${NC}"
         echo -e "  This will pre-fill values for the Samsung Galaxy A90 5G as a reference."
-        read -r -p "  [y/N] " use_example
+        ask_reply "  [y/N] "
+        use_example="$ASK_REPLY"
         echo ""
         if [[ "$use_example" =~ ^[Yy]$ ]]; then
             cp config.env.example config.env
@@ -1087,8 +1154,11 @@ if [ "$CHECK_MODE" = "true" ]; then
     exit 0
 fi
 
-echo -e "  ${YELLOW}Are these values correct for your device?${NC}"
-read -r -p "  [Y/n] " confirm_values
+if ! $ASSUME_YES; then
+    echo -e "  ${YELLOW}Are these values correct for your device?${NC}"
+fi
+ask_reply "  [Y/n] "
+confirm_values="$ASK_REPLY"
 
 if [[ "$confirm_values" =~ ^[Nn] ]]; then
     echo ""
@@ -1108,7 +1178,19 @@ if [ -d "system/vendor/bin/hw" ] && [ "$(ls -A system/vendor/bin/hw/ 2>/dev/null
     echo -e "  ${BOLD}[1]${NC} Overlay-only — simpler, safer, no vendor HALs"
     echo -e "  ${BOLD}[2]${NC} Include vendor HALs — for fingerprint, vibrator, etc."
     echo -e ""
-    read -r -p "  Choose [1/2]: " build_mode
+    if $ASSUME_YES; then
+        # Non-interactive: default to the safe overlay-only build.
+        if $FORCE_VENDOR_HALS; then
+            build_mode="2"
+            info "Non-interactive: build mode 2 (vendor HALs)"
+        else
+            build_mode="1"
+            info "Non-interactive: build mode 1 (overlay-only)"
+        fi
+    else
+        ask_reply "  Choose [1/2]: "
+        build_mode="$ASK_REPLY"
+    fi
     if [[ "$build_mode" == "2" ]]; then
         INCLUDE_VENDOR_HALS=true
         echo -e "  ${GREEN}→${NC} Building with vendor HAL files and sepolicy.rule"
@@ -1321,7 +1403,8 @@ generate_systemui_resource_xml
 # Compile framework-res overlay
 # ---------------------------------------------------------------------------
 step "Compiling framework-res overlay"
-aapt2 compile --dir res -o build/compiled/ 2>&1 | sed 's/^/  /' || { err "aapt2 compile failed"; exit 1; }
+run_or_die "aapt2 compile (framework resources)" \
+    aapt2 compile --dir res -o build/compiled/ || exit 1
 ok "Framework resources compiled"
 
 # ---------------------------------------------------------------------------
@@ -1330,7 +1413,8 @@ ok "Framework resources compiled"
 step "Compiling SystemUI overlay"
 mkdir -p build/compiled_systemui
 if [ -d "systemui_overlay/res" ] && [ "$(ls -A systemui_overlay/res 2>/dev/null)" ]; then
-    aapt2 compile --dir systemui_overlay/res -o build/compiled_systemui/ 2>&1 | sed 's/^/  /' || { err "aapt2 compile (systemui) failed"; exit 1; }
+    run_or_die "aapt2 compile (SystemUI resources)" \
+        aapt2 compile --dir systemui_overlay/res -o build/compiled_systemui/ || exit 1
     ok "SystemUI resources compiled"
 else
     info "No SystemUI resources found — skipping SystemUI overlay"
@@ -1340,13 +1424,14 @@ fi
 # Link framework-res overlay
 # ---------------------------------------------------------------------------
 step "Linking framework-res APK"
-aapt2 link --manifest AndroidManifest.xml \
+run_or_die "aapt2 link (framework overlay)" \
+    aapt2 link --manifest AndroidManifest.xml \
     -I "${PLATFORM_JAR}" \
     --auto-add-overlay \
     --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
     --compile-sdk-version-name "${ANDROID_VERSION}" \
     -o build/apk/unsigned.apk \
-    build/compiled/*.flat 2>&1 | sed 's/^/  /' || { err "aapt2 link failed"; exit 1; }
+    build/compiled/*.flat || exit 1
 ok "Framework-res APK linked"
 
 # ---------------------------------------------------------------------------
@@ -1355,13 +1440,14 @@ ok "Framework-res APK linked"
 LINKED_SYSTEMUI=false
 if [ -f "build/compiled_systemui/values_config.arsc.flat" ] || [ "$(ls build/compiled_systemui/*.flat 2>/dev/null | wc -l)" -gt 0 ]; then
     step "Linking SystemUI APK"
-    aapt2 link --manifest systemui_overlay/AndroidManifest.xml \
+    run_or_die "aapt2 link (SystemUI overlay)" \
+        aapt2 link --manifest systemui_overlay/AndroidManifest.xml \
         -I "${PLATFORM_JAR}" \
         --auto-add-overlay \
         --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
         --compile-sdk-version-name "${ANDROID_VERSION}" \
         -o build/apk/systemui_unsigned.apk \
-        build/compiled_systemui/*.flat 2>&1 | sed 's/^/  /' || { err "aapt2 link (systemui) failed"; exit 1; }
+        build/compiled_systemui/*.flat || exit 1
     LINKED_SYSTEMUI=true
     ok "SystemUI APK linked"
 fi
@@ -1370,11 +1456,13 @@ fi
 # Zipalign
 # ---------------------------------------------------------------------------
 step "Zipaligning APKs"
-zipalign -f 4 build/apk/unsigned.apk build/apk/aligned.apk 2>&1 || { err "zipalign failed"; exit 1; }
+run_or_die "zipalign (framework overlay)" \
+    zipalign -f 4 build/apk/unsigned.apk build/apk/aligned.apk || exit 1
 ok "Framework-res APK aligned"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    zipalign -f 4 build/apk/systemui_unsigned.apk build/apk/systemui_aligned.apk 2>&1 || { err "zipalign (systemui) failed"; exit 1; }
+    run_or_die "zipalign (SystemUI overlay)" \
+        zipalign -f 4 build/apk/systemui_unsigned.apk build/apk/systemui_aligned.apk || exit 1
     ok "SystemUI APK aligned"
 fi
 
@@ -1391,15 +1479,17 @@ if [ ! -f "$PLATFORM_KEY" ] || [ ! -f "$PLATFORM_CERT" ]; then
     exit 1
 fi
 
-"$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+run_or_die "apksigner sign (framework overlay)" \
+    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-    --out "out/apks/${OVERLAY_NAME}.apk" build/apk/aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner failed"; exit 1; }
+    --out "out/apks/${OVERLAY_NAME}.apk" build/apk/aligned.apk || exit 1
 ok "Framework-res APK signed: out/apks/${OVERLAY_NAME}.apk"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+    run_or_die "apksigner sign (SystemUI overlay)" \
+        "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-        --out "out/apks/${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner (systemui) failed"; exit 1; }
+        --out "out/apks/${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk || exit 1
     ok "SystemUI APK signed: out/apks/${OVERLAY_NAME}-systemui.apk"
 fi
 
@@ -1407,10 +1497,12 @@ fi
 # Verify
 # ---------------------------------------------------------------------------
 step "Verifying APKs"
-"$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}.apk" 2>&1 | sed 's/^/  /' || { err "APK verification failed"; exit 1; }
+run_or_die "apksigner verify (framework overlay)" \
+    "$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}.apk" || exit 1
 ok "Framework-res APK verified"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    "$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}-systemui.apk" 2>&1 | sed 's/^/  /' || { err "SystemUI APK verification failed"; exit 1; }
+    run_or_die "apksigner verify (SystemUI overlay)" \
+        "$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}-systemui.apk" || exit 1
     ok "SystemUI APK verified"
 fi
 
@@ -1713,45 +1805,45 @@ mkdir -p "$TEST_BUILD_DIR/compiled" "$TEST_BUILD_DIR/apk" "$TEST_BUILD_DIR/modul
 
 # 3a. Compile merged Framework resources
 info "Building TEST Framework APK..."
-aapt2 compile --dir "$FW_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled/" 2>&1 | sed 's/^/  /' \
-    || { err "TEST: aapt2 compile failed"; exit 1; }
-aapt2 link --manifest "$FW_HW_DIR/AndroidManifest.xml" \
+run_or_die "TEST: aapt2 compile (framework)" \
+    aapt2 compile --dir "$FW_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled/" || exit 1
+run_or_die "TEST: aapt2 link (framework)" \
+    aapt2 link --manifest "$FW_HW_DIR/AndroidManifest.xml" \
     -I "${PLATFORM_JAR}" \
     --auto-add-overlay \
     --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
     --compile-sdk-version-name "${ANDROID_VERSION}" \
     -o "$TEST_BUILD_DIR/apk/unsigned.apk" \
-    "$TEST_BUILD_DIR/compiled"/*.flat 2>&1 | sed 's/^/  /' \
-    || { err "TEST: aapt2 link failed"; exit 1; }
+    "$TEST_BUILD_DIR/compiled"/*.flat || exit 1
 
-zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk" \
-    || { err "TEST: zipalign failed"; exit 1; }
-"$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+run_or_die "TEST: zipalign (framework)" \
+    zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk" || exit 1
+run_or_die "TEST: apksigner sign (framework)" \
+    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-    --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}.apk" "$TEST_BUILD_DIR/apk/aligned.apk" \
-    || { err "TEST: apksigner failed"; exit 1; }
+    --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}.apk" "$TEST_BUILD_DIR/apk/aligned.apk" || exit 1
 
 # 3b. Compile merged SystemUI resources (if exists)
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     info "Building TEST SystemUI APK..."
     mkdir -p "$TEST_BUILD_DIR/compiled_systemui" "$TEST_BUILD_DIR/apk_systemui"
-    aapt2 compile --dir "$SYSUI_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled_systemui/" 2>&1 | sed 's/^/  /' \
-        || { err "TEST: aapt2 compile (systemui) failed"; exit 1; }
-    aapt2 link --manifest "$SYSUI_HW_DIR/AndroidManifest.xml" \
+    run_or_die "TEST: aapt2 compile (SystemUI)" \
+        aapt2 compile --dir "$SYSUI_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled_systemui/" || exit 1
+    run_or_die "TEST: aapt2 link (SystemUI)" \
+        aapt2 link --manifest "$SYSUI_HW_DIR/AndroidManifest.xml" \
         -I "${PLATFORM_JAR}" \
         --auto-add-overlay \
         --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
         --compile-sdk-version-name "${ANDROID_VERSION}" \
         -o "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" \
-        "$TEST_BUILD_DIR/compiled_systemui"/*.flat 2>&1 | sed 's/^/  /' \
-        || { err "TEST: aapt2 link (systemui) failed"; exit 1; }
+        "$TEST_BUILD_DIR/compiled_systemui"/*.flat || exit 1
 
-    zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" \
-        || { err "TEST: zipalign (systemui) failed"; exit 1; }
-    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+    run_or_die "TEST: zipalign (SystemUI)" \
+        zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" || exit 1
+    run_or_die "TEST: apksigner sign (SystemUI)" \
+        "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-        --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}-systemui.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" \
-        || { err "TEST: apksigner (systemui) failed"; exit 1; }
+        --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}-systemui.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" || exit 1
 fi
 
 # Package into test module
@@ -1792,6 +1884,7 @@ echo ""
 echo -e "  ${RED}${BOLD}⚠ IMPORTANT (KernelSU / KSU Next Users):${NC}"
 echo "    - You MUST install a mount system like 'Magic Mount' for overlays to activate."
 echo "    - DO NOT use 'OverlayFS' — this will likely cause a BOOTLOOP."
+echo "    - If you are using Hybrid Mount, you need to choose magic mount for the overlay module."
 echo ""
 echo -e "  ${BOLD}Deploy:${NC}"
 echo "    Standard: Install out/${OVERLAY_NAME}-ksu.zip via your Manager App."

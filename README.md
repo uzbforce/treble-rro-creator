@@ -142,7 +142,8 @@ work; the `.cmd` files only locate Git Bash and hand over to it.
    dictionary to download.
 2. Edit `config.env` with Notepad / VS Code.
 3. Double-click **`build.cmd`**. Use `build.cmd --check` to validate the config
-   without building, and `cleanup.cmd` to clean up.
+   without building, `build.cmd --yes` for an unattended build, and
+   `cleanup.cmd` to clean up.
 
 Output is identical to Linux: `out/apks/*.apk`, `out/*-ksu.zip`,
 `out/*-hardware-overlay*.zip`.
@@ -171,6 +172,15 @@ nano config.env
 ```bash
 # 2. Build
 ./build.sh
+
+# Options
+#   ./build.sh --check             validate config.env, then exit
+#   ./build.sh --yes               non-interactive (accept the config, skip prompts)
+#   ./build.sh --yes --with-vendor-hals   non-interactive + include system/vendor/
+#   ./build.sh --help              show usage
+#
+# Use --yes for scripts/CI/IDE tasks. Without a terminal the questions fall back
+# to their defaults instead of stopping the build.
 
 # Output files (in out/):
 #   out/apks/<device>.apk                     — Framework overlay APK (signed)
