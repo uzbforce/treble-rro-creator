@@ -84,6 +84,34 @@ does not have. Fix the spelling, remove it from
 `src/framework/res/values/*.xml`, or — only when you intentionally target a
 newer framework — run `./build.sh --allow-unknown-resources`.
 
+### `<item> must have a 'type' attribute` / `xml parser error: mismatched tag`
+
+```
+build/hardware_overlay/<vendor>/<device>/res/values/config.xml:154: error: <item> must have a 'type' attribute.
+build/hardware_overlay/<vendor>/<device>/res/values/config.xml:0: error: xml parser error: mismatched tag.
+```
+
+The hardware-overlay copy of `config.xml` is malformed: array items ended up
+outside their array because the opening tag was dropped. In the old build the
+AOSP-source tree was made by merging every `values/*.xml` into a single
+`config.xml` and removing duplicate `name="…"` lines — which also removed the
+opening tags of arrays whose names appear in the commented reference lists in
+`src/framework/res/values/integers.xml`.
+
+The current build copies the values tree 1:1 instead
+(`generated.xml` stays its own file), so the merge no longer happens. If you see
+this, you are on an old clone:
+
+```bash
+cd ~/treble-rro-creator
+git pull
+./build.sh clean
+./build.sh
+```
+
+If it still fails, the file was edited by hand: each `<item>` must sit inside its
+`<integer-array>`/`<array>` block, and every opening tag needs a matching close.
+
 ### The build stops with `Unexpected failure at line …`
 
 That is the safety net printing the exact command that failed. Get a trace:
