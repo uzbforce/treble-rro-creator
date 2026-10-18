@@ -46,6 +46,8 @@ All device-specific settings are in **[`config.env`](config.env)** — edit that
 ./setup.sh
 ```
 
+**On Windows** use `setup.cmd` instead (see [Windows](#windows-git-bash)).
+
 Or install via your package manager:
 
 ## Termux (Android) Master Guide
@@ -121,6 +123,40 @@ You need a reference file so `aapt2` can find system IDs. **Android 13** is the 
 > ⚠️ **Warning:** Pulled files from your phone often fail because they are "optimized" (resources stripped) by the manufacturer. **Always use the download option.**
 
 **Recommended:** Run `./setup.sh` and choose the **Download Android 13** option. It works on both PC and Termux.
+
+### Windows (Git Bash)
+
+The project runs natively on Windows — no WSL, no VM. `build.sh` still does the
+work; the `.cmd` files only locate Git Bash and hand over to it.
+
+**Requirements**
+- [Git for Windows](https://git-scm.com/download/win) (provides `bash.exe`)
+- JDK 17+ on `PATH` (`apksigner` needs Java) — e.g. `winget install EclipseAdoptium.Temurin.17.JDK`
+
+**Steps**
+
+1. Double-click **`setup.cmd`** (or run it from a terminal).
+   It downloads Google's official Windows build-tools once and installs
+   `tools/aapt2.exe`, `tools/zipalign.exe` and `tools/apksigner` (a small
+   wrapper around `apksigner.jar`), then asks which Android resource
+   dictionary to download.
+2. Edit `config.env` with Notepad / VS Code.
+3. Double-click **`build.cmd`**. Use `build.cmd --check` to validate the config
+   without building, and `cleanup.cmd` to clean up.
+
+Output is identical to Linux: `out/apks/*.apk`, `out/*-ksu.zip`,
+`out/*-hardware-overlay*.zip`.
+
+**Notes**
+- WSL's `bash.exe` is deliberately rejected: the build needs MSYS paths and the
+  native Windows toolchain.
+- Everything the build generates (`service.sh`, `customize.sh`, module zips) is
+  written with LF line endings and POSIX `/` paths inside the zip, because it
+  runs on Android, not on Windows. `.gitattributes` keeps the checkout that way.
+- Prefer a terminal? Any Git Bash window works with the usual
+  `./setup.sh` / `./build.sh` commands.
+- Requirements for the bash path are unchanged on Linux/Termux; only `zip` was
+  replaced by a portable fallback (`zip` → `7z` → PowerShell).
 
 ---
 
@@ -200,6 +236,13 @@ adb shell su -c 'getprop | grep -E "udfps|fingerprint|ims"'
 ├── build.sh                          # Build script (reads config.env)
 ├── setup.sh                          # Tool installer (aapt2, zipalign, framework-res)
 ├── cleanup.sh                        # Build artifact cleaner
+├── build.cmd                         # Windows launcher → build.sh (double-clickable)
+├── setup.cmd                         # Windows launcher → setup.sh
+├── cleanup.cmd                       # Windows launcher → cleanup.sh
+├── windows/
+│   ├── run-bash.cmd                  # Finds Git Bash (rejects WSL) and runs a script
+│   └── zipdir.ps1                    # Portable zip fallback (no `zip` on Windows)
+├── .gitattributes                    # LF for scripts/XML, CRLF for .cmd
 ├── customize.sh                      # KSU install script (auto-generated if not present)
 ├── service.sh                        # Post-boot init (auto-generated if not present), You can edit and add extra tweaks if you know what you're doing.
 ├── sepolicy.rule                     # SELinux policy (template for vendor HALs)

@@ -30,8 +30,25 @@
 #   See vendor_extraction_guide.md for platform-specific instructions
 # =============================================================================
 
-set -e
+# set -e
+# Fail on aapt2/zipalign errors instead of letting `| sed` report success.
+set -o pipefail
+
+# ── Platform detection ─────────────────────────────────────────────────────
+# Windows (Git Bash / MSYS2 / Cygwin) needs a few adjustments: tools are .exe
+# binaries, there is no `bc` and no Info-ZIP `zip`, and generated paths must
+# not be handed to native tools in MSYS form.
+IS_WINDOWS=false
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=true ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Launched from cmd.exe, PWD can be "C:/..." instead of "/c/..."; MSYS does
+# not search such an entry on PATH, so aapt2/zipalign would be "missing".
+if $IS_WINDOWS && command -v cygpath >/dev/null 2>&1; then
+    SCRIPT_DIR=$(cygpath -u "$SCRIPT_DIR")
+fi
 cd "$SCRIPT_DIR"
 
 # ── Clean up editor backups ────────────────────────────────────────────────
@@ -44,10 +61,12 @@ find . -name "*.bak" -type f -delete 2>/dev/null || true
 # This allows setup.sh to install tools locally without sudo.
 if [ -d "${SCRIPT_DIR}/tools" ]; then
     export PATH="${SCRIPT_DIR}/tools:${PATH}"
-    # zipalign from build-tools needs libc++.so
-    BT_LIB64=$(ls -d "${SCRIPT_DIR}/tools/android-sdk/build-tools/"*/lib64 2>/dev/null | head -1)
-    if [ -n "$BT_LIB64" ] && [ -f "$BT_LIB64/libc++.so" ]; then
-        export LD_LIBRARY_PATH="$BT_LIB64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # zipalign from Linux build-tools needs libc++.so (the Windows .exe does not)
+    if ! $IS_WINDOWS; then
+        BT_LIB64=$(ls -d "${SCRIPT_DIR}/tools/android-sdk/build-tools/"*/lib64 2>/dev/null | head -1)
+        if [ -n "$BT_LIB64" ] && [ -f "$BT_LIB64/libc++.so" ]; then
+            export LD_LIBRARY_PATH="$BT_LIB64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        fi
     fi
 fi
 
@@ -57,6 +76,46 @@ ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
 info() { echo -e "  ${YELLOW}→${NC} $*"; }
 err()  { echo -e "  ${RED}✗${NC} $*" >&2; }
 step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+
+# ---------------------------------------------------------------------------
+# Portable helpers (Linux / Termux / Windows)
+# ---------------------------------------------------------------------------
+# Git for Windows ships neither `bc` nor `zip`, so anything the build needs
+# from them has a portable implementation here.
+
+# Convert an MSYS path to a native Windows path (no-op elsewhere).
+to_win_path() {
+    if $IS_WINDOWS && command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+# Create <dest> from the contents of <src>, using whichever zip tool exists:
+# Info-ZIP (Linux/Termux), 7-Zip, or PowerShell's ZipArchive API (Windows).
+create_zip() {
+    local src="$1" dest="$2"
+    rm -f "$dest"
+    if command -v zip >/dev/null 2>&1; then
+        ( cd "$src" && zip -r "$dest" . >/dev/null ) || return 1
+    elif command -v 7z >/dev/null 2>&1; then
+        ( cd "$src" && 7z a -tzip "$dest" . >/dev/null ) || return 1
+    elif command -v powershell >/dev/null 2>&1 && [ -f "${SCRIPT_DIR}/windows/zipdir.ps1" ]; then
+        powershell -NoProfile -ExecutionPolicy Bypass \
+            -File "$(to_win_path "${SCRIPT_DIR}/windows/zipdir.ps1")" \
+            -Source "$(to_win_path "$src")" \
+            -Dest "$(to_win_path "$dest")" >/dev/null || return 1
+    else
+        err "No zip tool available (install zip, 7-Zip, or run ./setup.sh on Windows)"
+        return 1
+    fi
+}
+
+# bc is not installed by default on Windows or in minimal Termux — use awk.
+div255() {
+    awk -v n="$1" 'BEGIN { printf "%.8f", n / 255 }'
+}
 
 # ── Check mode ──────────────────────────────────────────────────────────────
 # If --check is passed, validate config.env and exit without building.
@@ -223,26 +282,13 @@ GENEOF
 
 GENEOF
 
-        # Compute float equivalents (approximate)
-        local doze_float=$(echo "scale=8; $BRIGHTNESS_DOZE / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.23529412")
-        local dim_float=$(echo "scale=8; $BRIGHTNESS_DIM / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.05098039")
-        local min_float=$(echo "scale=8; $BRIGHTNESS_MIN / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.0")
-        local default_float=$(echo "scale=8; $BRIGHTNESS_DEFAULT / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "0.50196078")
-        local max_float=$(echo "scale=8; $BRIGHTNESS_MAX / 255" | bc 2>/dev/null | sed 's/^\./0./' || echo "1.0")
-
-        # Ensure even the fallback/echo values have leading zeros
-        [[ "$doze_float" == .* ]] && doze_float="0${doze_float}"
-        [[ "$dim_float" == .* ]] && dim_float="0${dim_float}"
-        [[ "$min_float" == .* ]] && min_float="0${min_float}"
-        [[ "$default_float" == .* ]] && default_float="0${default_float}"
-        [[ "$max_float" == .* ]] && max_float="0${max_float}"
-
-        # Ensure floats have a decimal point (e.g. "0" -> "0.0")
-        [[ "$doze_float" != *.* ]] && doze_float="${doze_float}.0"
-        [[ "$dim_float" != *.* ]] && dim_float="${dim_float}.0"
-        [[ "$min_float" != *.* ]] && min_float="${min_float}.0"
-        [[ "$default_float" != *.* ]] && default_float="${default_float}.0"
-        [[ "$max_float" != *.* ]] && max_float="${max_float}.0"
+        # Compute float equivalents (0-255 scale -> 0.0-1.0) with awk:
+        # `bc` does not exist on Windows and is optional in Termux.
+        local doze_float=$(div255 "$BRIGHTNESS_DOZE")
+        local dim_float=$(div255 "$BRIGHTNESS_DIM")
+        local min_float=$(div255 "$BRIGHTNESS_MIN")
+        local default_float=$(div255 "$BRIGHTNESS_DEFAULT")
+        local max_float=$(div255 "$BRIGHTNESS_MAX")
 
         cat >> "$gen" << GENEOF
     <item name="config_screenBrightnessDozeFloat" format="float" type="dimen">${doze_float}</item>
@@ -1078,10 +1124,38 @@ fi
 # Dependency check
 # ---------------------------------------------------------------------------
 step "Checking dependencies"
-for cmd in aapt2 zipalign apksigner; do
+for cmd in aapt2 zipalign; do
     command -v "$cmd" &>/dev/null || { err "Missing: $cmd — run ./setup.sh first"; exit 1; }
 done
+
+# apksigner ships as a .bat wrapper on Windows and `command -v` does not
+# resolve .bat files, so locate the real binary explicitly.
+APKSIGNER_BIN=""
+if command -v apksigner >/dev/null 2>&1; then
+    APKSIGNER_BIN="$(command -v apksigner)"
+elif [ -f "${SCRIPT_DIR}/tools/apksigner" ]; then
+    APKSIGNER_BIN="${SCRIPT_DIR}/tools/apksigner"
+elif [ -f "${SCRIPT_DIR}/tools/apksigner.bat" ]; then
+    APKSIGNER_BIN="${SCRIPT_DIR}/tools/apksigner.bat"
+elif command -v apksigner.bat >/dev/null 2>&1; then
+    APKSIGNER_BIN="$(command -v apksigner.bat)"
+fi
+[ -n "$APKSIGNER_BIN" ] || { err "Missing: apksigner — run ./setup.sh first"; exit 1; }
+
+# apksigner is a Java tool; fail early with a useful message rather than
+# deep inside the signing step.
+command -v java >/dev/null 2>&1 || {
+    err "Java not found — apksigner needs a JDK (17+). Install one and re-run."; exit 1;
+}
+
+# A zip tool is required to package the module; create_zip() picks the best one.
+if ! command -v zip >/dev/null 2>&1 && ! command -v 7z >/dev/null 2>&1 \
+   && ! command -v powershell >/dev/null 2>&1; then
+    err "Missing: zip (or 7z / PowerShell) — needed to package the module"
+    exit 1
+fi
 ok "All tools found"
+ok "apksigner: ${APKSIGNER_BIN}"
 
 # Determine PLATFORM_JAR location (check tools/ first, then system path)
 if [ ! -f "$PLATFORM_JAR" ]; then
@@ -1114,6 +1188,11 @@ if [ ! -f "$PLATFORM_JAR" ]; then
     err "Or run: ./setup.sh"
     exit 1
 fi
+# Prefer a project-relative path: native Windows tools would otherwise get an
+# MSYS path (/c/...) that some of them fail to open.
+case "$PLATFORM_JAR" in
+    "$SCRIPT_DIR"/*) PLATFORM_JAR="${PLATFORM_JAR#"$SCRIPT_DIR"/}" ;;
+esac
 ok "Platform JAR: ${PLATFORM_JAR}"
 
 # ---------------------------------------------------------------------------
@@ -1312,13 +1391,13 @@ if [ ! -f "$PLATFORM_KEY" ] || [ ! -f "$PLATFORM_CERT" ]; then
     exit 1
 fi
 
-apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+"$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
     --out "out/apks/${OVERLAY_NAME}.apk" build/apk/aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner failed"; exit 1; }
 ok "Framework-res APK signed: out/apks/${OVERLAY_NAME}.apk"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
         --out "out/apks/${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk 2>&1 | sed 's/^/  /' || { err "apksigner (systemui) failed"; exit 1; }
     ok "SystemUI APK signed: out/apks/${OVERLAY_NAME}-systemui.apk"
@@ -1328,9 +1407,11 @@ fi
 # Verify
 # ---------------------------------------------------------------------------
 step "Verifying APKs"
-apksigner verify "out/apks/${OVERLAY_NAME}.apk" 2>&1 | sed 's/^/  /' && ok "Framework-res APK verified" || err "Verification failed"
+"$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}.apk" 2>&1 | sed 's/^/  /' || { err "APK verification failed"; exit 1; }
+ok "Framework-res APK verified"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    apksigner verify "out/apks/${OVERLAY_NAME}-systemui.apk" 2>&1 | sed 's/^/  /' && ok "SystemUI APK verified" || err "Verification failed"
+    "$APKSIGNER_BIN" verify "out/apks/${OVERLAY_NAME}-systemui.apk" 2>&1 | sed 's/^/  /' || { err "SystemUI APK verification failed"; exit 1; }
+    ok "SystemUI APK verified"
 fi
 
 SIZE_FW=$(du -sh "out/apks/${OVERLAY_NAME}.apk" 2>/dev/null | cut -f1)
@@ -1462,9 +1543,8 @@ fi
 # ---------------------------------------------------------------------------
 # Package module
 # ---------------------------------------------------------------------------
-cd "$MODULE_TMP"
-zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-ksu.zip" . 2>&1 > /dev/null
-cd "$SCRIPT_DIR"
+create_zip "$MODULE_TMP" "${SCRIPT_DIR}/out/${OVERLAY_NAME}-ksu.zip" \
+    || { err "Failed to package KSU module"; exit 1; }
 rm -rf "$MODULE_TMP"
 ok "KSU module packaged: out/${OVERLAY_NAME}-ksu.zip"
 
@@ -1618,9 +1698,8 @@ MANIFEST
 fi
 
 # Package it
-cd "$HW_OVERLAY_DIR"
-zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay.zip" . 2>&1 > /dev/null
-cd "$SCRIPT_DIR"
+create_zip "$HW_OVERLAY_DIR" "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay.zip" \
+    || { err "Failed to package hardware overlay sources"; exit 1; }
 ok "Hardware Overlay Repo package created: out/${OVERLAY_NAME}-hardware-overlay.zip"
 
 # 3. Build Hardware Overlay TEST Flashable Zip
@@ -1634,37 +1713,45 @@ mkdir -p "$TEST_BUILD_DIR/compiled" "$TEST_BUILD_DIR/apk" "$TEST_BUILD_DIR/modul
 
 # 3a. Compile merged Framework resources
 info "Building TEST Framework APK..."
-aapt2 compile --dir "$FW_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled/" 2>&1 | sed 's/^/  /'
+aapt2 compile --dir "$FW_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled/" 2>&1 | sed 's/^/  /' \
+    || { err "TEST: aapt2 compile failed"; exit 1; }
 aapt2 link --manifest "$FW_HW_DIR/AndroidManifest.xml" \
     -I "${PLATFORM_JAR}" \
     --auto-add-overlay \
     --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
     --compile-sdk-version-name "${ANDROID_VERSION}" \
     -o "$TEST_BUILD_DIR/apk/unsigned.apk" \
-    "$TEST_BUILD_DIR/compiled"/*.flat 2>&1 | sed 's/^/  /'
+    "$TEST_BUILD_DIR/compiled"/*.flat 2>&1 | sed 's/^/  /' \
+    || { err "TEST: aapt2 link failed"; exit 1; }
 
-zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk"
-apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+zipalign -f 4 "$TEST_BUILD_DIR/apk/unsigned.apk" "$TEST_BUILD_DIR/apk/aligned.apk" \
+    || { err "TEST: zipalign failed"; exit 1; }
+"$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-    --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}.apk" "$TEST_BUILD_DIR/apk/aligned.apk"
+    --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}.apk" "$TEST_BUILD_DIR/apk/aligned.apk" \
+    || { err "TEST: apksigner failed"; exit 1; }
 
 # 3b. Compile merged SystemUI resources (if exists)
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     info "Building TEST SystemUI APK..."
     mkdir -p "$TEST_BUILD_DIR/compiled_systemui" "$TEST_BUILD_DIR/apk_systemui"
-    aapt2 compile --dir "$SYSUI_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled_systemui/" 2>&1 | sed 's/^/  /'
+    aapt2 compile --dir "$SYSUI_HW_DIR/res" -o "$TEST_BUILD_DIR/compiled_systemui/" 2>&1 | sed 's/^/  /' \
+        || { err "TEST: aapt2 compile (systemui) failed"; exit 1; }
     aapt2 link --manifest "$SYSUI_HW_DIR/AndroidManifest.xml" \
         -I "${PLATFORM_JAR}" \
         --auto-add-overlay \
         --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
         --compile-sdk-version-name "${ANDROID_VERSION}" \
         -o "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" \
-        "$TEST_BUILD_DIR/compiled_systemui"/*.flat 2>&1 | sed 's/^/  /'
-    
-    zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk"
-    apksigner sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
+        "$TEST_BUILD_DIR/compiled_systemui"/*.flat 2>&1 | sed 's/^/  /' \
+        || { err "TEST: aapt2 link (systemui) failed"; exit 1; }
+
+    zipalign -f 4 "$TEST_BUILD_DIR/apk_systemui/unsigned.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" \
+        || { err "TEST: zipalign (systemui) failed"; exit 1; }
+    "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-        --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}-systemui.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk"
+        --out "$TEST_BUILD_DIR/module/system/product/overlay/${OVERLAY_NAME}-systemui.apk" "$TEST_BUILD_DIR/apk_systemui/aligned.apk" \
+        || { err "TEST: apksigner (systemui) failed"; exit 1; }
 fi
 
 # Package into test module
@@ -1680,9 +1767,8 @@ set_perm_recursive $MODPATH/system/product/overlay 0 0 0644 u:object_r:system_fi
 ui_print "  ✓ TEST module installed."
 CUSTOM_EOF
 
-cd "$TEST_BUILD_DIR/module"
-zip -r "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay-test.zip" . 2>&1 > /dev/null
-cd "$SCRIPT_DIR"
+create_zip "$TEST_BUILD_DIR/module" "${SCRIPT_DIR}/out/${OVERLAY_NAME}-hardware-overlay-test.zip" \
+    || { err "Failed to package hardware overlay TEST module"; exit 1; }
 ok "Hardware Overlay TEST module created: out/${OVERLAY_NAME}-hardware-overlay-test.zip"
 
 # ---------------------------------------------------------------------------
@@ -1693,7 +1779,7 @@ echo -e "${GREEN}${BOLD}  ╔═════════════════
 echo -e "${GREEN}${BOLD}  ║              BUILD COMPLETE ✓                        ║${NC}"
 echo -e "${GREEN}${BOLD}  ╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo "  ${BOLD}Output files (out/):${NC}"
+echo -e "  ${BOLD}Output files (out/):${NC}"
 echo "    out/apks/${OVERLAY_NAME}.apk         $(du -sh "out/apks/${OVERLAY_NAME}.apk" | cut -f1)"
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     echo "    out/apks/${OVERLAY_NAME}-systemui.apk  $(du -sh "out/apks/${OVERLAY_NAME}-systemui.apk" | cut -f1)"
@@ -1707,14 +1793,14 @@ echo -e "  ${RED}${BOLD}⚠ IMPORTANT (KernelSU / KSU Next Users):${NC}"
 echo "    - You MUST install a mount system like 'Magic Mount' for overlays to activate."
 echo "    - DO NOT use 'OverlayFS' — this will likely cause a BOOTLOOP."
 echo ""
-echo "  ${BOLD}Deploy:${NC}"
+echo -e "  ${BOLD}Deploy:${NC}"
 echo "    Standard: Install out/${OVERLAY_NAME}-ksu.zip via your Manager App."
 echo ""
 echo "    Manual (ADB):"
 echo "      adb push out/${OVERLAY_NAME}-ksu.zip /sdcard/"
 echo "      adb shell su -c 'ksud module install /sdcard/${OVERLAY_NAME}-ksu.zip'"
 echo ""
-echo "  ${BOLD}Verify:${NC}"
+echo -e "  ${BOLD}Verify:${NC}"
 echo "    adb shell cmd overlay list | grep ${OVERLAY_NAME#treble-overlay-}"
 echo "    adb shell cmd overlay lookup ${OVERLAY_PACKAGE} android:dimen/rounded_corner_radius"
 echo ""

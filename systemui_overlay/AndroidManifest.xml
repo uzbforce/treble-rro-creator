@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="me.phh.treble.overlay.<device_codename>.systemui"
+    package="me.phh.treble.overlay.generic.generic.systemui"
     android:versionCode="1"
     android:versionName="1.0">
 
@@ -8,14 +8,14 @@
         android:usesNonSdkApi="true" />
 
     <uses-sdk
-        android:minSdkVersion="36"
-        android:targetSdkVersion="36" />
+        android:minSdkVersion="35"
+        android:targetSdkVersion="35" />
 
     <overlay
         android:targetPackage="com.android.systemui"
         android:priority="9999"
         android:isStatic="true"
         android:requiredSystemPropertyName="ro.product.device"
-        android:requiredSystemPropertyValue="<device_codename>" />
+        android:requiredSystemPropertyValue="generic" />
 
 </manifest>

@@ -44,7 +44,11 @@ fmt_size() {
 }
 
 list_build_artifacts() {
-    [ -d "out" ] && find out -type f \( -name '*.apk' -o -name '*.zip' \) 2>/dev/null | sort
+    if [ -d "out" ]; then
+        find out -type f \( -name '*.apk' -o -name '*.zip' \) 2>/dev/null | sort
+    fi
+    # Always succeed: this runs under `set -e` when out/ may not exist yet.
+    return 0
 }
 
 # ---------------------------------------------------------------------------
