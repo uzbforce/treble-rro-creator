@@ -148,6 +148,42 @@ work; the `.cmd` files only locate Git Bash and hand over to it.
 Output is identical to Linux: `out/apks/*.apk`, `out/*-ksu.zip`,
 `out/*-hardware-overlay*.zip`.
 
+**Verify the toolchain (no install, nothing changed)**
+
+```bash
+setup.cmd --doctor        # or: ./setup.sh --doctor  in Git Bash
+```
+
+It checks, in order: which shell it is running under, every copy of
+`aapt2` / `zipalign` / `apksigner` it can find (including the `tools/` folder),
+what each file really is (Windows PE, Linux ELF, shell script…), whether the
+tools **actually run** (`aapt2 version`), and whether anything in `tools/` or on
+`PATH` belongs to the other platform. Exit code is `0` only when a build should
+succeed, so it is safe to use in scripts.
+
+This is the reliable answer to *"did setup work?"* on Windows, because the
+tricky failure is silent: if you ever ran `setup.sh` on this same checkout from
+WSL / Kali, Linux binaries land in the **shared** `tools/` folder. Windows then
+reads them as "found" and the build dies later with `Exec format error`.
+`--doctor` names the offending file and prints the exact `rm -f` that fixes it;
+running `setup.cmd` again re-downloads the Windows binaries over them.
+
+A healthy run ends with:
+
+```
+  ✓ Toolchain is correct for this platform — ./build.sh will work.
+```
+
+`setup.sh` itself is safe to run unattended: with no console (CI, a scheduled
+task, `setup.cmd < /dev/null`) each prompt takes its default — on Windows that
+is *Windows build-tools* + *Android 13 resources* — and it exits `0` only when
+the whole toolchain is present. A missing JDK stops it at the first step with
+the `winget` line that fixes it, rather than leaving half a toolchain behind.
+
+On a fresh clone `tools/` does not exist yet (it is gitignored) — `setup.sh`
+creates it and downloads everything into it: about 33 MB, roughly 20 seconds on
+a normal connection.
+
 **Notes**
 - WSL's `bash.exe` is deliberately rejected: the build needs MSYS paths and the
   native Windows toolchain.
@@ -244,7 +280,7 @@ adb shell su -c 'getprop | grep -E "udfps|fingerprint|ims"'
 ├── config.env                        # ← YOUR DEVICE SETTINGS (edit this first!)
 ├── config.env.example                # Reference example (Samsung A90 5G)
 ├── build.sh                          # Build script (reads config.env)
-├── setup.sh                          # Tool installer (aapt2, zipalign, framework-res)
+├── setup.sh                          # Tool installer (aapt2, zipalign, framework-res); --doctor verifies
 ├── cleanup.sh                        # Build artifact cleaner
 ├── build.cmd                         # Windows launcher → build.sh (double-clickable)
 ├── setup.cmd                         # Windows launcher → setup.sh

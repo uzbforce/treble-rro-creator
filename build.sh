@@ -1210,6 +1210,24 @@ for cmd in aapt2 zipalign; do
     command -v "$cmd" &>/dev/null || { err "Missing: $cmd — run ./setup.sh first"; exit 1; }
 done
 
+# Windows cannot execute Linux binaries. A Linux aapt2/zipalign sitting in
+# tools/ (left there by a WSL/Kali run of setup.sh on this same checkout)
+# shadows the .exe on PATH and used to fail much later, mid-build, with
+# "cannot execute binary file: Exec format error". Catch it up front instead.
+if $IS_WINDOWS; then
+    for cmd in aapt2 zipalign; do
+        _bin=$(command -v "$cmd")
+        _magic=$(head -c 2 "$_bin" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+        if [ "$_magic" != "4d5a" ]; then
+            err "${cmd} at ${_bin} is not a Windows program (no PE header)."
+            err "This is usually a Linux/WSL binary left in the shared tools/ folder."
+            err "Fix:   rm -f \"${_bin}\"   then re-run ./setup.sh"
+            err "Check: ./setup.sh --doctor    (or setup.cmd --doctor)"
+            exit 1
+        fi
+    done
+fi
+
 # apksigner ships as a .bat wrapper on Windows and `command -v` does not
 # resolve .bat files, so locate the real binary explicitly.
 APKSIGNER_BIN=""
