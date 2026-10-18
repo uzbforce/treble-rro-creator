@@ -397,6 +397,12 @@ if [ -d "$VENDOR_SRC_REL/bin/hw" ] && [ "$(ls -A "$VENDOR_SRC_REL"/bin/hw/ 2>/de
     fi
 else
     INCLUDE_VENDOR_HALS=false
+    # The documented tar pulls paths as vendor/bin/hw/…; extracting it from
+    # inside src/vendor yields src/vendor/vendor/… and nothing is found.
+    if [ -d "$VENDOR_SRC_REL/vendor" ]; then
+        warn "${VENDOR_SRC_REL}/vendor/ exists — the HAL tarball was extracted one level too deep."
+        warn "  Move it up: mv ${VENDOR_SRC_REL}/vendor/* ${VENDOR_SRC_REL}/ && rmdir ${VENDOR_SRC_REL}/vendor"
+    fi
     echo -e "  ${YELLOW}→${NC} No vendor HAL files found — building overlay-only"
 fi
 # ---------------------------------------------------------------------------
@@ -849,9 +855,9 @@ if [ "$INCLUDE_VENDOR_HALS" = "true" ]; then
     # Vendor HAL binaries
     if [ -d "$VENDOR_SRC_REL/bin/hw" ] && [ "$(ls -A "$VENDOR_SRC_REL"/bin/hw/ 2>/dev/null | grep -c .)" -gt 0 ]; then
         mkdir -p "${MODULE_TMP}/system/vendor/bin/hw"
-        cp "$VENDOR_SRC_REL"/bin/hw/* "${MODULE_TMP}/system/vendor/bin/hw/"
+        cp -R "$VENDOR_SRC_REL"/bin/hw/. "${MODULE_TMP}/system/vendor/bin/hw/"
         for f in "$VENDOR_SRC_REL"/bin/hw/*; do
-            ok "Vendor HAL: $(basename "$f")"
+            [ -f "$f" ] && ok "Vendor HAL: $(basename "$f")"
         done
         VENDOR_HALS_COPIED=true
     fi
@@ -865,17 +871,18 @@ if [ "$INCLUDE_VENDOR_HALS" = "true" ]; then
         done
     fi
 
-    # Init .rc files
+    # Init .rc files. A dumped tree can contain subdirectories (etc/init/hw/),
+    # so copy the contents recursively instead of a plain glob.
     if [ -d "$VENDOR_SRC_REL/etc/init" ] && [ "$(ls -A "$VENDOR_SRC_REL"/etc/init/ 2>/dev/null | grep -c .)" -gt 0 ]; then
         mkdir -p "${MODULE_TMP}/system/vendor/etc/init"
-        cp "$VENDOR_SRC_REL"/etc/init/* "${MODULE_TMP}/system/vendor/etc/init/"
-        ok "Included $(ls "$VENDOR_SRC_REL"/etc/init/* 2>/dev/null | wc -l) init .rc files"
+        cp -R "$VENDOR_SRC_REL"/etc/init/. "${MODULE_TMP}/system/vendor/etc/init/"
+        ok "Included $(find "$VENDOR_SRC_REL/etc/init" -type f -name '*.rc' 2>/dev/null | wc -l) init .rc files"
     fi
 
     # VINTF manifest fragments
     if [ -d "$VENDOR_SRC_REL/etc/vintf/manifest" ] && [ "$(ls -A "$VENDOR_SRC_REL"/etc/vintf/manifest/ 2>/dev/null | grep -c .)" -gt 0 ]; then
         mkdir -p "${MODULE_TMP}/system/vendor/etc/vintf/manifest"
-        cp "$VENDOR_SRC_REL"/etc/vintf/manifest/* "${MODULE_TMP}/system/vendor/etc/vintf/manifest/"
+        cp -R "$VENDOR_SRC_REL"/etc/vintf/manifest/. "${MODULE_TMP}/system/vendor/etc/vintf/manifest/"
         ok "Included $(ls "$VENDOR_SRC_REL"/etc/vintf/manifest/* 2>/dev/null | wc -l) VINTF manifest files"
     fi
 

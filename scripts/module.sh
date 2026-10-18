@@ -283,10 +283,8 @@ CUSTOMIZE_LIB
 
 # ── Init .rc files ────────────────────────────────────────────────────────
 if [ -d "$MODPATH/system/vendor/etc/init" ]; then
-    for rc in $MODPATH/system/vendor/etc/init/*.rc; do
-        [ -f "$rc" ] && set_perm "$rc" 0 0 0644 u:object_r:vendor_configs_file:s0
-    done
-    ui_print "  • Init .rc files set ($(ls $MODPATH/system/vendor/etc/init/*.rc 2>/dev/null | wc -l) files)"
+    set_perm_recursive $MODPATH/system/vendor/etc/init 0 0 0755 0644 u:object_r:vendor_configs_file:s0
+    ui_print "  • Init .rc files set ($(find $MODPATH/system/vendor/etc/init -name '*.rc' 2>/dev/null | wc -l) files)"
 fi
 
 CUSTOMIZE_RC

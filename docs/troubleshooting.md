@@ -112,6 +112,29 @@ git pull
 If it still fails, the file was edited by hand: each `<item>` must sit inside its
 `<integer-array>`/`<array>` block, and every opening tag needs a matching close.
 
+### `cp: -r not specified; omitting directory …/etc/init/hw`
+
+Something in `src/vendor/etc/init/` is a **directory**, usually `hw/` from a
+dumped vendor tree. Older builds copied that folder with a plain glob, which can
+only copy files, so the build aborted (or skipped the init scripts).
+
+Current builds copy the tree recursively and set SELinux contexts recursively,
+so `etc/init/hw/*.rc` is preserved:
+
+```bash
+cd ~/treble-rro-creator && git pull
+```
+
+If you prefer a flat tree, remove the subdirectory instead:
+
+```bash
+mv src/vendor/etc/init/hw/*.rc src/vendor/etc/init/ && rmdir src/vendor/etc/init/hw
+```
+
+Related: if the build says **no vendor HAL files found** right after extracting
+a tarball, check for `src/vendor/vendor/`. The archive stores paths as
+`vendor/bin/hw/…`, so it must be extracted from `src/`, not from `src/vendor/`.
+
 ### The build stops with `Unexpected failure at line …`
 
 That is the safety net printing the exact command that failed. Get a trace:

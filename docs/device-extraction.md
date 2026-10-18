@@ -198,7 +198,11 @@ chmod +x src/vendor/bin/hw/*
 # --- Pull via tar (faster for many files) ---
 adb shell su -c 'tar -czf /data/local/tmp/vendor_aidl.tar.gz -C / vendor/bin/hw/*finger* vendor/etc/init/*finger* vendor/etc/vintf/manifest/*finger* vendor/lib64/*finger*'
 adb pull /data/local/tmp/vendor_aidl.tar.gz /tmp/
-cd src/vendor && tar -xzf /tmp/vendor_aidl.tar.gz
+
+# The archive stores paths as vendor/bin/hw/…, so extract one level ABOVE
+# src/vendor. Extracting inside src/vendor gives src/vendor/vendor/… and the
+# build then finds no HALs at all.
+cd src && tar -xzf /tmp/vendor_aidl.tar.gz
 ```
 
 ### Method C: Extract from custom ROM vendor.img
