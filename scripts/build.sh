@@ -243,10 +243,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
     if [ "$USE_EXAMPLE" != "true" ]; then
         echo -e "  ${YELLOW}Generating placeholder config.env — edit it for YOUR device, then re-run.${NC}\n"
 
-        if [ -f "$RECOVERIES_DIR/config.env" ]; then
-            cp "$RECOVERIES_DIR/config.env" "$CONFIG_FILE"
-        else
-            err "Template config missing: templates/recoveries/config.env"
+        # The starter is the committed config.env (see restore_from_release):
+        # templates/recoveries/ is only the fallback for a checkout without .git.
+        if ! restore_from_release "config.env" "$RECOVERIES_DIR/config.env"; then
+            err "Template config missing: neither git HEAD nor templates/recoveries/config.env has it"
             exit 1
         fi
 

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treble RRO Creator</title>
+<!-- Inline icon: the window is a webview with no address bar, but Chromium
+     still asks for /favicon.ico, and outside the token prefix that is a 404. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93d0e'/><text x='16' y='22' font-size='14' font-weight='700' font-family='sans-serif' fill='%23fff7ef' text-anchor='middle'>TR</text></svg>">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">TR</span>
+    <div class="brand-text">
+      <h1>Treble RRO Creator</h1>
+      <p id="sub">looking for the clone…</p>
+    </div>
+  </div>
+  <div class="chips">
+    <button class="chip" id="chip-update" type="button" hidden>
+      <span class="dot" aria-hidden="true"></span><span class="label">update available</span>
+    </button>
+    <button class="chip" id="chip-clone" type="button" title="Change the clone">
+      <span class="dot" aria-hidden="true"></span><span class="label">no clone</span>
+    </button>
+    <button class="chip" id="chip-bash" type="button" title="Change the bash binary">
+      <span class="dot" aria-hidden="true"></span><span class="label">no bash</span>
+    </button>
+    <span class="chip plain" id="chip-branch">—</span>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" data-tab="build" role="tab">Build</button>
+  <button class="tab" data-tab="config" role="tab">config.env</button>
+  <button class="tab" data-tab="device" role="tab">Device</button>
+  <button class="tab" data-tab="docs" role="tab">Docs</button>
+</nav>
+
+<main>
+  <!-- ---------------------------------------------------------------- build -->
+  <section class="pane is-active" id="pane-build" role="tabpanel">
+    <div class="verbs" id="verbs"></div>
+
+    <div class="row flags" id="flags-row">
+      <span class="row-label">Options</span>
+      <div id="flags" class="flag-list"><span class="muted">none for this command</span></div>
+    </div>
+
+    <div class="row actions">
+      <button class="primary" id="run" type="button" disabled>Run</button>
+      <button id="stop" type="button" disabled>Stop</button>
+      <span class="spacer"></span>
+      <button id="open-out" type="button">Open out/</button>
+      <span class="muted small" id="run-status"></span>
+    </div>
+
+    <div class="logwrap">
+      <div class="logbar">
+        <span id="log-title">Output</span>
+        <button class="link" id="log-clear" type="button">clear</button>
+      </div>
+      <pre id="log" class="log" aria-live="polite"></pre>
+    </div>
+
+    <!-- The file list is the least interesting thing on the page until a build
+         has just finished, so it stays folded at the bottom: the window opens
+         on the buttons and the log instead of scrolling a stale out/. -->
+    <details class="out-fold" id="out-fold">
+      <summary>
+        <span class="row-label">Last build</span>
+        <span id="out-summary" class="out-summary">nothing in out/ yet</span>
+      </summary>
+      <div id="out" class="out-list"><span class="muted">nothing in out/ yet</span></div>
+    </details>
+  </section>
+
+  <!-- --------------------------------------------------------------- config -->
+  <section class="pane" id="pane-config" role="tabpanel">
+    <div class="row actions">
+      <button class="primary" id="cfg-save" type="button" disabled>Save</button>
+      <button id="cfg-check" type="button">Check</button>
+      <button id="cfg-revert" type="button" disabled>Revert</button>
+      <span class="spacer"></span>
+      <button class="link" id="cfg-mode" type="button">edit the raw file</button>
+      <span class="muted small" id="cfg-status"></span>
+    </div>
+
+    <!-- Form view: one row per setting, with the file's own comment behind the
+         ⓘ. The raw textarea is one click away and is what actually gets
+         written, so nothing here can hide a line from the build. -->
+    <div id="cfg-fields" class="cfg-fields"></div>
+    <textarea id="cfg" spellcheck="false" autocomplete="off" autocapitalize="off" hidden></textarea>
+
+    <p class="hint" id="cfg-hint">
+      Saved as <code>config.env</code> in the clone. A line with <code>#</code>
+      in front is off — the switch on the left does that for you, keeping the
+      comment and the order intact. <b>Check</b> runs <code>build.sh check</code>.
+    </p>
+  </section>
+
+  <!-- --------------------------------------------------------------- device -->
+  <section class="pane" id="pane-device" role="tabpanel">
+    <div class="card">
+      <h2>adb</h2>
+      <p class="muted" id="adb-status">not checked yet</p>
+      <div class="row actions">
+        <button id="adb-install" type="button" hidden>Download platform-tools</button>
+        <button id="adb-refresh" type="button">Refresh</button>
+        <span class="spacer"></span>
+        <span class="muted small" id="adb-status-note"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Codename and manufacturer</h2>
+      <div class="adb-values">
+        <label>codename <input id="adb-codename" type="text" spellcheck="false" placeholder="r3q"></label>
+        <label>manufacturer <input id="adb-manufacturer" type="text" spellcheck="false" placeholder="samsung"></label>
+        <button id="adb-detect" type="button">Detect from device</button>
+      </div>
+      <p class="hint">
+        Filled in from <code>config.env</code>; <b>Detect</b> asks the phone and
+        prefers <code>ro.product.vendor.device</code>, which survives on a GSI
+        when <code>ro.product.device</code> only names the GSI itself.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Command</h2>
+      <div class="adb-form">
+        <input id="adb-input" type="text" spellcheck="false" autocomplete="off"
+               placeholder="adb shell getprop ro.product.vendor.device">
+        <button class="primary" id="adb-run" type="button">Run</button>
+        <button id="adb-stop" type="button" disabled>Stop</button>
+      </div>
+      <pre id="adb-console" class="device-log" aria-live="polite"></pre>
+      <p class="hint">
+        Anything adb understands: <code>devices -l</code>, <code>shell …</code>,
+        <code>pull …</code>. Pipes are the phone's, so
+        <code>shell getprop | grep -i r3q</code> works as written. History:
+        <kbd>↑</kbd> / <kbd>↓</kbd>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Useful commands</h2>
+      <p class="hint">Each one explains what the answer is for, so the output
+        means something the first time.</p>
+      <div id="adb-presets" class="presets"></div>
+    </div>
+
+    <div class="card">
+      <h2>Pull what the build needs</h2>
+      <p class="hint">
+        Both write into <code>tools/</code> and stream into the build log, so
+        they can be stopped half way. The vendor tarball is not extracted for
+        you: <code>docs/device-extraction.md</code> explains why it has to be
+        unpacked one level above <code>src/vendor</code>.
+      </p>
+      <div class="row actions">
+        <button data-extract="framework-res" type="button">Pull framework-res.apk</button>
+        <button data-extract="vendor" type="button">Pull full vendor (root)</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ----------------------------------------------------------------- docs -->
+  <section class="pane" id="pane-docs" role="tabpanel">
+    <div class="docs">
+      <nav class="docs-nav" id="docs-nav"></nav>
+      <article class="docs-body" id="docs-body">
+        <p class="muted">Pick a page.</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Paths</h2>
+
+    <label for="set-clone">Clone folder</label>
+    <input id="set-clone" type="text" spellcheck="false" placeholder="C:\Users\you\treble-rro-creator">
+    <p class="hint">The folder holding <code>build.sh</code> and <code>scripts/</code>.</p>
+
+    <label for="set-bash">bash</label>
+    <input id="set-bash" type="text" spellcheck="false" placeholder="C:\Program Files\Git\bin\bash.exe">
+    <p class="hint">
+      Git Bash on Windows. WSL's <code>bash</code> is rejected: it cannot run the
+      native Android tools.
+    </p>
+
+    <p class="error" id="set-error" hidden></p>
+
+    <menu>
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="save" class="primary" id="set-save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Update: what is waiting upstream, and what pulling it would do to the files
+     that were edited here. The second part is the whole point — a pull that
+     overwrites config.env would take the device settings with it. -->
+<dialog id="update">
+  <form method="dialog" id="update-form">
+    <h2>Update available</h2>
+    <p class="muted" id="upd-head">checking…</p>
+
+    <p class="upd-label" id="upd-files-label" hidden>Files the update changes</p>
+    <pre class="device-log" id="upd-files" hidden></pre>
+
+    <div id="upd-clash" hidden>
+      <p class="upd-label">Your uncommitted edits in those files</p>
+      <pre class="device-log" id="upd-clash-files"></pre>
+      <p class="hint" id="upd-clash-note"></p>
+    </div>
+
+    <pre class="device-log" id="upd-output" hidden></pre>
+    <p class="error" id="upd-error" hidden></p>
+
+    <menu>
+      <button value="cancel" formnovalidate>Later</button>
+      <button type="button" class="primary" id="upd-go">Update now</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -15,6 +15,12 @@ Values are plain shell assignments: `KEY=value` or `KEY="value"`.
 > not "set it to zero". Booleans left out keep the GSI default; numbers left out
 > keep the framework default.
 
+The desktop app shows this file as a form — one row per setting, the switch on
+the left writing exactly that `#`, and the paragraph above the key behind an ⓘ
+button — so none of it has to be typed as bash. It saves only the rows you
+changed; every other line stays as it was. See
+[gui.md](gui.md#the-other-tabs).
+
 ---
 
 ## Checking values before a build

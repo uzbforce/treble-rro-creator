@@ -20,5 +20,14 @@ jobs:
         with:
           node-version: "20"
 
+      # The desktop app's own tests. CGO_ENABLED=0 is what tests/run.sh uses:
+      # it skips the webview file, so no WebKitGTK headers are needed here —
+      # and the browser fallback is the build that gets exercised.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: go.sum
+          cache: true
+
       - name: Run the checks
         run: bash tests/run.sh

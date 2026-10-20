@@ -94,24 +94,20 @@ remove_build_output() {
 }
 
 restore_templates() {
-    if [ ! -d "$RECOVERIES_DIR" ]; then
-        warn "templates/recoveries/ is missing — nothing restored"
-        return 1
+    # git first: a tracked file's committed content is the template for this
+    # release, so "start over" cannot hand back a copy that froze at an old
+    # commit. templates/recoveries/ is only the no-.git fallback.
+    if restore_from_release "config.env" "$RECOVERIES_DIR/config.env"; then
+        ok "Restored: config.env"
+    else
+        warn "config.env was not restored — no git, and templates/recoveries/config.env is missing"
     fi
 
-    local f
-    if [ -f "$RECOVERIES_DIR/config.env" ]; then
-        cp "$RECOVERIES_DIR/config.env" "$CONFIG_FILE"
-        ok "Restored: config.env"
-    fi
     # customize.sh and service.sh are generated from config.env at build time.
     # Only sepolicy.rule is a real template that can be restored here.
-    for f in sepolicy.rule; do
-        if [ -f "$RECOVERIES_DIR/$f" ]; then
-            cp "$RECOVERIES_DIR/$f" "$MODULE_DIR/$f"
-            ok "Restored: src/module/$f"
-        fi
-    done
+    if restore_from_release "src/module/sepolicy.rule" "$RECOVERIES_DIR/sepolicy.rule"; then
+        ok "Restored: src/module/sepolicy.rule"
+    fi
     return 0
 }
 
@@ -167,8 +163,10 @@ if [ "$CLEAN_ALL" = "true" ] && ! $ASSUME_YES; then
     echo "    • config.env"
     echo "    • src/module/customize.sh, service.sh, sepolicy.rule"
     echo ""
-    echo "  Everything is copied to backups/ first. config.env is restored from"
-    echo "  templates/recoveries/; module scripts are generated again at build time."
+    echo "  Everything is copied to backups/ first. config.env and sepolicy.rule are"
+    echo "  restored to the version this clone shipped with (git checkout, or the"
+    echo "  bundled copy when there is no .git); module scripts are generated again"
+    echo "  at build time."
     echo ""
     ask "  Type YES to continue: " "no"
     if [ "$REPLY" != "YES" ]; then

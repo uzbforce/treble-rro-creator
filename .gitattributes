@@ -8,6 +8,7 @@
 
 # Shell + data files that must stay LF
 *.sh      text eol=lf
+*.go      text eol=lf
 *.env     text eol=lf
 *.example text eol=lf
 *.rule    text eol=lf

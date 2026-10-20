@@ -23,6 +23,8 @@ OUT_DIR="$ROOT/out"
 KEYS_DIR="$ROOT/keys"
 BACKUP_DIR="$ROOT/backups"
 TEMPLATES_DIR="$ROOT/templates"
+# Not "the old version of your files": the no-git fallback for
+# restore_from_release(). Kept identical to the committed files by tests/run.sh.
 RECOVERIES_DIR="$TEMPLATES_DIR/recoveries"
 
 SRC_DIR="$ROOT/src"
@@ -35,6 +37,34 @@ VENDOR_DIR="$SRC_DIR/vendor"
 
 CONFIG_FILE="$ROOT/config.env"
 CONFIG_EXAMPLE="$ROOT/config.env.example"
+
+# ---------------------------------------------------------------------------
+# Restoring a tracked file to what this release ships
+# ---------------------------------------------------------------------------
+# "Start over" must never hand back a copy that froze at some old commit. The
+# committed blob IS the template for a tracked file, so ask git for it; the
+# copy in templates/recoveries/ is only the fallback for a checkout with no .git
+# (a fork downloaded as a zip). tests/run.sh fails if the two ever drift.
+#
+#   restore_from_release <path relative to ROOT> [fallback copy]
+#
+# Returns 0 when the file on disk now holds the release version.
+restore_from_release() {
+    local rel="$1" fallback="${2:-}"
+
+    if [ -d "$ROOT/.git" ] && command -v git >/dev/null 2>&1 \
+       && git -C "$ROOT" rev-parse --verify --quiet "HEAD:${rel}" >/dev/null 2>&1; then
+        if git -C "$ROOT" checkout HEAD -- "$rel" 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    if [ -n "$fallback" ] && [ -f "$fallback" ]; then
+        mkdir -p "$(dirname "$ROOT/$rel")"
+        cp "$fallback" "$ROOT/$rel" && return 0
+    fi
+    return 1
+}
 
 # ---------------------------------------------------------------------------
 # Platform

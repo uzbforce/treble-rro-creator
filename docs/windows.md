@@ -124,7 +124,11 @@ PowerShell profile may have a conflicting alias; use `cmd /c build.cmd`.
 | Everything, start over | `build.cmd clean --all` |
 
 `clean --all` copies `config.env`, the module scripts and `src/vendor/` into
-`backups/` first, then restores the templates from `templates/recoveries/`.
+`backups/` first, then puts `config.env` and `src/module/sepolicy.rule` back to
+the version this clone shipped with — `git checkout` for a tracked file, and the
+bundled copy in `templates/recoveries/` only when there is no `.git` (a zip
+download). Either way the restored file is the current one, not a copy that
+froze at some older commit, and your own version stays in `backups/`.
 
 ---
 

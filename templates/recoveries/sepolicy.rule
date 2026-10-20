@@ -4,7 +4,7 @@
 # Place any SELinux allow rules here that your vendor HALs need.
 #
 # HOW IT WORKS:
-#   KernelSU/Magisk injects this file at boot. Rules here are loaded
+#   KernelSU, KSU Next, APatch and Magisk inject this file at boot. Rules here are loaded
 #   AFTER the main kernel policy, so they can add new permissions that
 #   the stock policy doesn't allow.
 #
