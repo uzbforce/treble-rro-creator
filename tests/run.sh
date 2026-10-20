@@ -9,7 +9,8 @@
 #
 # 1. shell syntax of every shipped script (bash -n / sh -n, no execution)
 # 2. the WebUI resource-table writer against tests/fixtures/*.apk
-# 3. the WebUI manifest the build writes
+# 3. the WebUI manifest, built from resource XML that tests/gen-res.sh
+#    generates into a temp directory (so a fresh clone needs no build first)
 # 4. every relative link and #anchor in the docs
 # =============================================================================
 
@@ -20,7 +21,7 @@ status=0
 step() { printf '\n== %s ==\n' "$*"; }
 
 step "shell syntax"
-for f in build.sh scripts/*.sh; do
+for f in build.sh scripts/*.sh tests/*.sh; do
     [ -f "$f" ] || continue
     if bash -n "$f"; then :; else echo "bash -n failed: $f"; status=1; fi
 done

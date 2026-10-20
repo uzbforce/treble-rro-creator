@@ -19,6 +19,9 @@
 #
 #   ./scripts/manifest.sh plan        print the resource plan (no build)
 #   ./scripts/manifest.sh write F     write the manifest to F
+#
+# Both read RES_DIR / SYSUI_RES_DIR when they are set in the environment, so a
+# caller can point them at a generated tree instead of the checkout.
 # =============================================================================
 
 # Sourced by build.sh, or run directly for the standalone commands below.
@@ -254,8 +257,12 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     source "$ROOT/scripts/common.sh"
     # shellcheck source=/dev/null
     [ -f "$ROOT/config.env" ] && source "$ROOT/config.env"
-    RES_DIR="src/framework/res"
-    SYSUI_RES_DIR="src/systemui/res"
+    # The build sets these; standalone use reads the checkout, unless a caller
+    # points them elsewhere (the tests build the manifest from a generated tree
+    # in a temp directory, so the result does not depend on the local
+    # config.env). Relative paths are relative to the project root.
+    RES_DIR="${RES_DIR:-src/framework/res}"
+    SYSUI_RES_DIR="${SYSUI_RES_DIR:-src/systemui/res}"
     [ -n "${OVERLAY_NAME:-}" ] || OVERLAY_NAME="treble-overlay-standalone"
     case "${1:-plan}" in
         plan)
