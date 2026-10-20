@@ -9,6 +9,7 @@
 #   ./build.sh setup           install / repair the toolchain only
 #   ./build.sh doctor          check the toolchain (read-only)
 #   ./build.sh check           validate config.env without building
+#   ./build.sh --dry-run       print the resources config.env emits, build nothing
 #   ./build.sh clean           remove build output
 #   ./build.sh clean --all     start over for a different device
 #
@@ -45,6 +46,7 @@ tools_on_path
 # ---------------------------------------------------------------------------
 MODE="build"
 CHECK_MODE=false
+DRY_RUN=false
 ASSUME_YES=false
 FORCE_VENDOR_HALS=false
 CLEAN_ALL=false
@@ -61,6 +63,7 @@ usage() {
     echo "    doctor             Check the toolchain, install nothing"
     echo "    check              Validate config.env, build nothing"
     echo "    clean              Remove build output"
+    echo "    --dry-run          Print the resources config.env emits, build nothing"
     echo ""
     echo -e "  ${BOLD}Options${NC}"
     echo "    -y, --yes              Accept defaults, skip prompts"
@@ -81,6 +84,7 @@ for arg in "$@"; do
         doctor|--doctor) MODE="doctor" ;;
         check|--check)  MODE="check" ;;
         clean|--clean)  MODE="clean" ;;
+        dry-run|--dry-run) MODE="dryrun" ;;
         -y|--yes)       ASSUME_YES=true ;;
         --with-vendor-hals) FORCE_VENDOR_HALS=true ;;
         --all)          CLEAN_ALL=true ;;
@@ -123,6 +127,13 @@ case "$MODE" in
     clean)
         migrate_layout
         source "$ROOT/scripts/clean.sh"
+        ;;
+
+    dryrun)
+        # Needs config.env and the resource generators, no toolchain: the point
+        # is to see the plan in seconds.
+        DRY_RUN=true
+        source "$ROOT/scripts/build.sh"
         ;;
 
     build)

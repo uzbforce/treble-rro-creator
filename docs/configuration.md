@@ -17,6 +17,39 @@ Values are plain shell assignments: `KEY=value` or `KEY="value"`.
 
 ---
 
+## Checking values before a build
+
+`build.sh` runs a preflight over `config.env` before it generates anything and
+prints what it finds. `./build.sh check` runs only that preflight:
+
+- placeholders still in place (`000`, `<codename>`) that would silently produce
+  a 0 px value;
+- `STATUS_BAR_CONTENT_PADDING`, `_PADDING_START` and `_PADDING_END` disagreeing,
+  or a padding wider than the corner radius;
+- a status bar height outside 48–400 px, or a landscape bar taller than the
+  portrait one;
+- brightness arrays whose lengths do not line up (`LEVELS` + 1, and
+  `SCREEN_BRIGHTNESS_NITS` against `SCREEN_BRIGHTNESS_BACKLIGHT`);
+- a half-filled UDFPS triple, or `UDFPS_*` set while `HAS_UDFPS=false`;
+- `PEAK_REFRESH_RATE` below `DEFAULT_REFRESH_RATE`;
+- a `CONFIG_*` key that no build script reads (a typo).
+
+They are warnings, so the build continues — a value that looks odd can still be
+deliberate. Values that cannot compile at all (a radius of `abc`) are errors in
+[`scripts/resources.sh`](../scripts/resources.sh) and stop the build.
+
+To see exactly what `config.env` produces without compiling anything:
+
+```bash
+./build.sh --dry-run
+```
+
+That prints every resource — type, name, value and which overlay APK it lands
+in — grouped the same way the module WebUI groups them. It needs no aapt2, no
+Java and no signing keys, so it is the quickest way to check a change.
+
+---
+
 ## Identity
 
 | Key | Example | Meaning |
@@ -308,16 +341,34 @@ what `aapt2 link` resolves, which is how `resource not found` errors start.
 
 ---
 
-## Hardware Overlay Repo (optional)
+## Overlay repo submission (optional)
 
-Only affects `out/<name>-hardware-overlay.zip`, not the flashable module.
+Only affects `out/<name>-hardware-overlay.zip`, the source tree you submit as a
+pull request to
+[Doze-off/vendor_hardware_overlay](https://github.com/Doze-off/vendor_hardware_overlay)
+(base branch `pie`) so GSI builds ship the overlay themselves; upstream
+[TrebleDroid/vendor_hardware_overlay](https://github.com/TrebleDroid/vendor_hardware_overlay)
+takes the same tree. It does not change the flashable module.
+Walkthrough: [submission.md](submission.md).
 
-| Key | Example | Meaning |
+| Key | Default | Meaning |
 |---|---|---|
-| `HW_OVERLAY_MATCH_PROP` | `ro.vendor.build.fingerprint` | Property used by the repo version. |
-| `HW_OVERLAY_MATCH_VALUE` | `+*samsung/r3q*` | Glob value for that property. |
+| `HW_OVERLAY_MATCH_PROP` | `ro.product.vendor.device` | Property the preinstalled overlay matches on. Empty = always active. |
+| `HW_OVERLAY_MATCH_VALUE` | `DEVICE_CODENAME` | Exact value of that property (no globs). |
+| `HW_OVERLAY_PRIORITY` | a free number | `android:priority` for the framework overlay. |
+| `HW_OVERLAY_PRIORITY_SYSTEMUI` | `OVERLAY_PRIORITY_SYSTEMUI` | Priority for the SystemUI overlay. |
 
-Useful when the repo needs broader matching than `ro.product.device`.
+`android:requiredSystemPropertyValue` is compared with plain string equality
+(`FrameworkParsingPackageUtils#checkRequiredSystemProperties`), so `*` and `+`
+are not wildcards: an overlay carrying `+*samsung/r3q*` never activates. Use the
+literal value from `adb shell getprop ro.product.vendor.device`.
+
+The repo's `tests/tests.sh` rejects a priority that another overlay already
+uses, which is why the submission does not reuse `OVERLAY_PRIORITY` (628 is
+taken). Nothing runs that script for you on the Doze-off fork (its Actions tab
+has no runs), so run it in your clone before opening the pull request. The default is the first free number at or after a device-specific
+start in `scripts/data/treble-overlay-priorities.txt` (a snapshot of the repo);
+take the number the test script suggests if it differs.
 
 ---
 

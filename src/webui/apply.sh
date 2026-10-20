@@ -21,8 +21,10 @@
 #           registered at runtime and again at boot.
 #
 #   sh apply.sh get                 saved values + build-time defaults
+#   sh apply.sh conf                only the saved values (webui.conf)
 #   sh apply.sh set KEY=VALUE ...   store values only
 #   sh apply.sh apply [--boot]      register the fabricated (bool) overlays
+#   sh apply.sh manifest            the resource list the page renders
 #   sh apply.sh apks                overlay APK paths the page patches
 #   sh apply.sh backup              keep a pristine copy of those APKs
 #   sh apply.sh restore             put the pristine APKs back
@@ -31,6 +33,15 @@
 #   sh apply.sh restart             restart SystemUI only (no framework reload)
 #   sh apply.sh status              effective (current) device values
 #   sh apply.sh reset               restore the APKs and forget the values
+#   sh apply.sh arm                 the page wrote an APK, start guarding it
+#   sh apply.sh boot-guard          post-fs-data: undo a patch whose boot failed
+#   sh apply.sh boot-confirm        post-boot: this patch booted fine
+#   sh apply.sh restore-conf        customize.sh: bring saved values into a new install
+#
+# Saved values are mirrored to $STATE_DIR, because the module directory itself
+# is replaced when the module is updated: the new zip carries the build-time
+# APKs again, and the page re-applies webui.conf onto them the next time it is
+# opened. customize.sh copies the file back on install.
 #
 # Resource arrays such as the auto-brightness curves cannot be expressed this
 # way at all - those still need a rebuild.
@@ -51,6 +62,12 @@ MODDIR=$(cd "$SELF_DIR/.." 2>/dev/null && pwd)
 [ -n "$MODDIR" ] || MODDIR=$SELF_DIR
 CONF="$MODDIR/webui.conf"
 DEFAULTS="$MODDIR/webui-defaults.conf"
+# Outside the module directory on purpose: an update replaces that directory.
+# WEBUI_STATE_DIR exists so the script can be exercised off-device.
+STATE_DIR="${WEBUI_STATE_DIR:-/data/adb/treble-webui/${MODDIR##*/}}"
+GEN_FILE="$MODDIR/webui-gen"
+OK_FILE="$MODDIR/webui-gen-ok"
+TRY_FILE="$MODDIR/webui-try"
 OWNER="com.android.shell"
 PREFIX="treble_webui"
 
@@ -62,10 +79,21 @@ KEYS="RADIUS SB_HEIGHT PAD_CONTENT PAD_START PAD_END DOZE_BLANK"
 say() { echo "$*"; }
 
 # --- storage ---------------------------------------------------------------
+# Keys are either the five short names (RADIUS, SB_HEIGHT, PAD_CONTENT,
+# PAD_START, PAD_END, DOZE_BLANK) or a full resource name the page found in
+# webui-manifest.json (bool/config_showNavigationBar, dimen/status_bar_padding_top,
+# integer/config_multiuserMaximumUsers, string/config_radio_access_family).
 
-conf_value() { # <file> <key>
+conf_value() { # <file> <key> -> last value of that key
     [ -f "$1" ] || return 0
-    sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1
+    awk -v k="$2" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { printf "%s", v }' "$1" 2>/dev/null
+}
+
+all_keys() {
+    for f in "$DEFAULTS" "$STATE_DIR/webui.conf" "$CONF"; do
+        [ -f "$f" ] || continue
+        sed -n 's/^\([A-Za-z0-9_./][A-Za-z0-9_./-]*\)=.*/\1/p' "$f" 2>/dev/null
+    done | awk '!seen[$0]++'
 }
 
 get_effective() { # <key> -> saved value, else the build-time default
@@ -73,26 +101,105 @@ get_effective() { # <key> -> saved value, else the build-time default
     if [ -z "$v" ]; then
         v=$(conf_value "$DEFAULTS" "$1")
     fi
+    if [ -z "$v" ]; then
+        v=$(conf_value "$STATE_DIR/webui.conf" "$1")
+    fi
     printf '%s' "$v"
+}
+
+# The saved values live in two places: the module (what the page reads) and
+# $STATE_DIR (what survives an update).
+mirror_conf() {
+    mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+    cp "$CONF" "$STATE_DIR/webui.conf" 2>/dev/null || true
+    chmod 600 "$STATE_DIR/webui.conf" 2>/dev/null || true
 }
 
 put_conf() { # <key> <value>
     key=$1
     val=$2
+    case "$key" in
+        *[!A-Za-z0-9_./-]*) say "x invalid key: $key"; return 1 ;;
+    esac
     tmp="$CONF.tmp"
     if [ -f "$CONF" ]; then
-        grep -v "^${key}=" "$CONF" > "$tmp" 2>/dev/null
+        awk -v k="$key" -v v="$val" '
+            index($0, k "=") == 1 { if (!done) { print k "=" v; done = 1 } next }
+            { print }
+            END { if (!done) print k "=" v }
+        ' "$CONF" > "$tmp" 2>/dev/null
     else
-        : > "$tmp" 2>/dev/null
+        printf '%s=%s\n' "$key" "$val" > "$tmp" 2>/dev/null
     fi
-    printf '%s=%s\n' "$key" "$val" >> "$tmp" 2>/dev/null
-    if ! mv "$tmp" "$CONF" 2>/dev/null; then
+    if [ ! -f "$tmp" ] || ! mv "$tmp" "$CONF" 2>/dev/null; then
         rm -f "$tmp" 2>/dev/null
         say "x cannot write $CONF (uid $(id -u 2>/dev/null))"
         say "  The WebUI host ran this script without write access to the module."
         return 1
     fi
+    chmod 600 "$CONF" 2>/dev/null || true
+    mirror_conf
     return 0
+}
+
+# --- boot guard ------------------------------------------------------------
+# A patched APK is loaded before anything can react to it, so a value that
+# breaks the framework would otherwise need a reinstall to undo. apply.sh
+# counts patches instead: post-fs-data.sh gives the first boot after a patch a
+# chance, and if that boot never reaches boot_completed (service.sh confirms
+# it) the next boot puts the build-time APKs back before zygote starts.
+
+read_num() { # <file> -> integer, 0 when missing
+    n=$(cat "$1" 2>/dev/null | tr -dc '0-9')
+    printf '%s' "${n:-0}"
+}
+
+boot_arm() {
+    n=$(read_num "$GEN_FILE")
+    n=$((n + 1))
+    printf '%s\n' "$n" > "$GEN_FILE" 2>/dev/null || true
+    rm -f "$TRY_FILE" 2>/dev/null
+}
+
+boot_confirm() {
+    n=$(read_num "$GEN_FILE")
+    printf '%s\n' "$n" > "$OK_FILE" 2>/dev/null || true
+    rm -f "$TRY_FILE" 2>/dev/null
+}
+
+boot_guard() {
+    gen=$(read_num "$GEN_FILE")
+    ok=$(read_num "$OK_FILE")
+    tried=$(read_num "$TRY_FILE")
+    [ "$gen" -gt 0 ] || return 0
+    [ "$gen" = "$ok" ] && return 0
+    if [ "$tried" = "$gen" ]; then
+        say "! The previous boot did not finish with this patch - restoring the build APKs"
+        if ls "$(overlay_dir)"/*.webui-orig >/dev/null 2>&1; then
+            do_restore
+        else
+            say "  no patched APK to restore (the boot did not get far enough)"
+        fi
+        # Keep the rejected values, but out of the way: the page would re-apply
+        # them on its next start and undo this restore.
+        [ -f "$CONF" ] && mv "$CONF" "$CONF.failed" 2>/dev/null
+        rm -f "$STATE_DIR/webui.conf" 2>/dev/null
+        printf '%s\n' "$gen" > "$OK_FILE" 2>/dev/null || true
+        rm -f "$TRY_FILE" 2>/dev/null
+        echo "guard=restored" >> "$MODDIR/webui-boot.log" 2>/dev/null || true
+        return 0
+    fi
+    printf '%s\n' "$gen" > "$TRY_FILE" 2>/dev/null || true
+    return 0
+}
+
+restore_conf() { # customize.sh: bring the saved values into the new install
+    src="$STATE_DIR/webui.conf"
+    [ -f "$src" ] || return 0
+    if cp "$src" "$CONF" 2>/dev/null; then
+        chmod 600 "$CONF" 2>/dev/null || true
+        say "+ saved WebUI values restored"
+    fi
 }
 
 # --- fabrication -----------------------------------------------------------
@@ -229,13 +336,23 @@ do_status() {
     say "doze_blank=$(lookup_bool android android bool/config_displayBlanksAfterDoze)"
     say "conf=$([ -f "$CONF" ] && echo yes || echo no)"
     say "patched=$(ls "$(overlay_dir)"/*.webui-orig 2>/dev/null | grep -c .)"
+    # failed=yes means the boot guard undid the last patch (see boot_guard).
+    say "failed=$([ -f "$CONF.failed" ] && echo yes || echo no)"
+    say "saved=$(all_keys | grep -c .)"
 }
 
 # --- commands --------------------------------------------------------------
 
 do_get() {
+    # The five core fields first, then every other saved resource name.
     for key in $KEYS; do
         value=$(get_effective "$key")
+        [ -n "$value" ] && say "$key=$value"
+    done
+    for key in $(all_keys); do
+        case " $KEYS " in *" $key "*) continue ;; esac
+        value=$(conf_value "$CONF" "$key")
+        [ -n "$value" ] || value=$(conf_value "$STATE_DIR/webui.conf" "$key")
         [ -n "$value" ] && say "$key=$value"
     done
 }
@@ -437,6 +554,11 @@ do_restore() {
     done
     rm -f "$dir"/*.webui-new 2>/dev/null
     [ "$restored" -gt 0 ] || say "! no backup found - nothing to restore"
+    # The patch is gone, so there is nothing left for the boot guard to undo.
+    if [ "$restored" -gt 0 ] && [ -f "$GEN_FILE" ]; then
+        read_num "$GEN_FILE" > "$OK_FILE" 2>/dev/null || true
+        rm -f "$TRY_FILE" 2>/dev/null
+    fi
     return $rc
 }
 
@@ -449,6 +571,9 @@ do_reload() {
         say "x reload needs root (uid $(id -u 2>/dev/null))"
         return 1
     fi
+    # Arm the boot guard: if this patch never reaches boot_completed, the next
+    # boot restores the build-time APKs before zygote reads them.
+    boot_arm
     say "reload=zygote (the screen goes black for about 20 s)"
     if setprop ctl.restart zygote 2>/dev/null; then
         return 0
@@ -492,7 +617,9 @@ do_reset() {
             "$(overlay_id bool/config_displayBlanksAfterDoze)" >/dev/null 2>&1
     fi
 
-    rm -f "$CONF"
+    rm -f "$CONF" "$CONF.failed"
+    rm -f "$STATE_DIR/webui.conf"
+    rm -f "$GEN_FILE" "$OK_FILE" "$TRY_FILE"
     say "Reset - saved values removed."
     # Only a restored APK needs the framework to scan again: an overlay that is
     # enabled or disabled takes effect in the running system immediately.
@@ -515,6 +642,7 @@ do_diag() {
     say "webroot=$([ -f "$MODDIR/webroot/index.html" ] && echo yes || echo no)"
     say "apply=$([ -f "$MODDIR/webroot/apply.sh" ] && echo yes || echo no)"
     say "defaults=$([ -f "$DEFAULTS" ] && echo yes || echo no)"
+    say "manifest=$([ -f "$MODDIR/webroot/webui-manifest.json" ] && echo yes || echo no)"
     say "conf=$([ -f "$CONF" ] && echo yes || echo no)"
     say "cmd=$("$CMD" overlay list >/dev/null 2>&1 && echo ok || echo unavailable)"
     say "boot_log=$([ -f "$MODDIR/webui-boot.log" ] && echo yes || echo no)"
@@ -562,13 +690,24 @@ main() {
         set)
             result=0
             for pair in "$@"; do
+                case "$pair" in
+                    *=*) ;;
+                    *) say "! not a KEY=VALUE pair: $pair"; result=2; continue ;;
+                esac
                 key=${pair%%=*}
                 val=${pair#*=}
-                case " $KEYS " in
-                    *" $key "*) put_conf "$key" "$val" || result=1 ;;
-                    *) say "! unknown key: $key"; result=2 ;;
-                esac
+                val=$(printf '%s' "$val" | tr -d '\r\n')
+                # Any key is accepted: the page writes full resource names
+                # (dimen/status_bar_padding_top) next to the five short ones.
+                put_conf "$key" "$val" || result=1
             done
+            ;;
+        arm)
+            # Called by the page after it wrote an APK, so the boot guard also
+            # covers a patch that is loaded by a normal reboot, not just by
+            # 'reload'.
+            boot_arm
+            say "armed=$(read_num "$GEN_FILE")"
             ;;
         apply)
             boot=false
@@ -607,8 +746,30 @@ main() {
                 sleep 5
             done
             ;;
+        conf)
+            # Only what the page saved (no build-time defaults): this is what
+            # tells the page whether there is anything to restore.
+            [ -f "$CONF" ] && cat "$CONF"
+            ;;
         apks)
             do_apks
+            ;;
+        manifest)
+            if [ -f "$MODDIR/webroot/webui-manifest.json" ]; then
+                cat "$MODDIR/webroot/webui-manifest.json"
+            else
+                say "x no manifest in this build (rebuild the module)"
+                result=1
+            fi
+            ;;
+        boot-guard)
+            boot_guard
+            ;;
+        boot-confirm)
+            boot_confirm
+            ;;
+        restore-conf)
+            restore_conf
             ;;
         backup)
             do_backup
@@ -640,7 +801,7 @@ main() {
             do_reset
             ;;
         *)
-            say "usage: sh apply.sh get|set|apply [--boot]|apks|backup|restore|reload|verify|restart|status|diag|reset"
+            say "usage: sh apply.sh get|set|arm|apply [--boot]|manifest|apks|backup|restore|reload|verify|restart|status|diag|reset|boot-guard|boot-confirm|restore-conf"
             return 2
             ;;
     esac

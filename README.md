@@ -100,13 +100,26 @@ project is called by them.
 | `./build.sh setup` | Install or repair the toolchain (menu: distro / resource version) |
 | `./build.sh doctor` | Check the toolchain, install nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
+| `./build.sh --dry-run` | Print the resources `config.env` emits, build nothing |
 | `./build.sh clean` | Remove `build/` and `out/` |
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
 
 Options: `-y` / `--yes` (no prompts), `--with-vendor-hals` (with `--yes`),
-`--allow-unknown-resources` (build even when a resource is missing from the
-dictionary — see the audit note below), `--force` (with `setup`: re-pick the
-resource dictionary), `--help`.
+`--dry-run` (resource plan only), `--allow-unknown-resources` (build even when a
+resource is missing from the dictionary — see the audit note below), `--force`
+(with `setup`: re-pick the resource dictionary), `--help`.
+
+`--dry-run` is the fast feedback loop: it generates the resource XML from
+`config.env` and prints every resource it would emit (type, name, value, which
+overlay APK), without aapt2, signing or packaging. `check` reports the same
+config warnings and stops there.
+
+To check the project itself (the WebUI's resource-table writer, the manifest it
+renders from, script syntax, documentation anchors):
+
+```bash
+bash tests/run.sh          # what CI runs, no Android tools needed
+```
 
 On Windows, use the same words with `build.cmd`:
 `build.cmd setup`, `build.cmd doctor`, `build.cmd clean --all`.
@@ -122,10 +135,21 @@ Everything is written to `out/`:
 | `out/apks/<name>.apk` | Framework overlay (signed) |
 | `out/apks/<name>-systemui.apk` | SystemUI overlay (signed, if used) |
 | `out/<name>-ksu.zip` | **Module zip** — install this in any supported manager |
-| `out/<name>-hardware-overlay.zip` | Sources for the Hardware Overlay Repo |
+| `out/<name>-hardware-overlay.zip` | Sources to submit to the Doze-off overlay repo |
 | `out/<name>-hardware-overlay-test.zip` | Test build of the repo version |
 
 Install `out/<name>-ksu.zip` in KernelSU, KSU Next, APatch or Magisk and reboot.
+
+### Getting it built into the GSI (no module)
+
+`out/<name>-hardware-overlay.zip` is the source tree the
+[Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay)
+compiles into the GSI builds: submit it as a pull request (base branch `pie`)
+and the device gets the overlay with no module to install or update. The zip
+contains the exact folders, the `overlay.mk` lines and a `HOW-TO-SUBMIT.md`
+filled in for your device; read **[docs/submission.md](docs/submission.md)**
+first — the wiki's `+*brand/model*` match pattern never matches anything, and
+this project writes the exact value instead.
 The zip is a standard module: the same file works in all four managers (the
 `-ksu` suffix is historical; it is not KernelSU-only). It contains the normal
 `customize.sh` that KSU/APatch source and Magisk's `META-INF` installer, plus
@@ -157,9 +181,16 @@ for the doze boolean.
   provide a root exec bridge that the page detects, so the page and helper are
   shared by every manager.
 
-Only scalars can be edited there — arrays such as the auto-brightness curves
-and `power_profile.xml` still need a rebuild. Details and limits:
-[docs/webui.md](docs/webui.md).
+Below the five sliders, **All resources** lists everything else the build
+writes — booleans, integers, strings and the remaining dimens — from
+`webui-manifest.json`, which `build.sh` generates from the same XML it compiles.
+Values that are not one value (auto-brightness arrays, landscape-only configs,
+`power_profile.xml`) are shown read-only and still need a rebuild.
+
+Two safety nets: saved values survive a module update (they re-apply onto the
+new APKs the next time the page is opened), and if a patch ever prevents a
+complete boot the next boot restores the build's APKs automatically. Details
+and limits: [docs/webui.md](docs/webui.md).
 
 Both overlays are **static** RROs: Android enables them during boot, and
 `cmd overlay enable` cannot change them afterwards. Verify after reboot:
@@ -241,6 +272,7 @@ the new one.
 
 | Guide | Contents |
 |---|---|
+| [docs/submission.md](docs/submission.md) | Getting the overlay built into the GSI (Doze-off repo PR) |
 | [docs/configuration.md](docs/configuration.md) | Every `config.env` option |
 | [docs/webui.md](docs/webui.md) | KernelSU WebUI: change values without rebuilding |
 | [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |

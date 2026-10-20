@@ -96,14 +96,46 @@ this page cannot express: a resource *array* (auto-brightness), or a build whose
 `x PAD_START: dimen/status_bar_padding_start could not be added to this build`
 and names the reason.
 
-**Not editable here:** resource *arrays* (auto-brightness levels/backlight,
-`config_udfps_sensor_props`), `power_profile.xml`, vendor HAL files. Fabricated
-overlays carry one value per resource, and a value is a single `Res_value`, so
-those still need a rebuild.
+**Not editable in the five fields above:** resource *arrays* (auto-brightness
+levels/backlight, `config_udfps_sensor_props`), `power_profile.xml`, vendor HAL
+files. They are all listed under **All resources** below, marked *rebuild* where
+the page cannot write them.
 
 A rebuild from a `config.env` that leaves the padding keys commented out does
-revert them: the new APK replaces the patched one, and the page has to add the
-entries again on the next Apply.
+revert them until the page adds the entries again on the next Apply.
+
+---
+
+## All resources
+
+Below the five fields, **All resources** lists everything else the build emits.
+It is rendered from `webroot/webui-manifest.json`, which `build.sh` writes from
+the same resource XML it compiles — there is no second list to fall out of sync
+with `scripts/resources.sh`.
+
+| Type | Control | Stored as |
+|---|---|---|
+| `dimen` | number + `px`/`dp` | complex dimension, unit 0 = px, 1 = dip |
+| `bool` | switch | `Res_value` type `0x12` (`true` is `0xFFFFFFFF`, the value aapt2 writes) |
+| `integer` | number | type `0x10` |
+| `string` | text | type `0x03`, an index into the APK's global value pool |
+
+A string is the only value that can need room: if it is already in the APK's
+value pool it is rewritten in place, otherwise it is appended to the pool and
+the table is rebuilt (indices of existing strings do not change). Everything is
+read back before the APK is written.
+
+Apply patches only what differs from the build value, so opening the section and
+pressing Apply does not rewrite thirty untouched resources.
+
+Read-only rows, marked *rebuild*:
+
+- resource arrays — one overlay resource holds one `Res_value`, an array is
+  many (auto-brightness curves, `config_udfps_sensor_props`);
+- `values-land` entries — a different configuration than the one the page
+  patches, so the landscape value keeps coming from the build;
+- values that reference another resource (`@string/…`);
+- `power_profile.xml` and vendor HAL files, which are not in the table at all.
 
 ---
 
@@ -151,10 +183,46 @@ visible when the overlay manager scans it again; that is what the zygote restart
 does. `cmd overlay lookup` reports what the framework is actually using, which
 is what the `active …` labels and the chip compare against.
 
-Apply only overwrites values the build already ships. A resource that is not in
-the APK needs a rebuild, and so does anything an overlay cannot express
-(resource arrays such as the auto-brightness curves, `power_profile.xml`, vendor
-HALs).
+A value the build already ships is patched in place (same APK size, only the two
+CRCs change); one it does not ship is added to the table as described above. What
+still needs a rebuild is a name the page cannot express — a resource array such
+as the auto-brightness curves, `power_profile.xml`, a vendor HAL file, or a
+`resources.arsc` with more than one package.
+
+---
+
+## The boot guard
+
+A patched APK is read by zygote before anything else can react to it, so a value
+the framework rejects cannot be fixed from the page. The page therefore arms a
+counter every time it writes an APK (`apply.sh arm`):
+
+1. `webui-gen` goes up by one.
+2. The next boot's `post-fs-data.sh` runs `apply.sh boot-guard`. The first boot
+   after a patch records `webui-try = webui-gen` and lets the boot continue.
+3. `service.sh` reaches `boot_completed` and runs `apply.sh boot-confirm`, which
+   writes `webui-gen-ok = webui-gen`.
+4. If a boot never gets there, the *next* boot sees `webui-try == webui-gen`,
+   restores `<apk>.webui-orig` before zygote starts, moves the rejected values
+   to `webui.conf.failed` and appends `guard=restored` to `webui-boot.log`.
+
+The page then shows **Your last Apply was rolled back**; `webui.conf.failed`
+holds exactly what to try again, one value at a time. **Reset** clears the
+counters, so a deliberate Reset is never undone by the guard.
+
+---
+
+## After a rebuild or reinstall
+
+The module directory is replaced by the new zip, so the saved values are kept
+outside it: every `set` mirrors `webui.conf` to
+`/data/adb/treble-webui/<module-id>/webui.conf`, and `customize.sh` copies it
+back into the fresh install. The new APKs carry the build-time values, and the
+page notices that nothing is patched (`patched=0`) and re-applies the saved
+values on its next start — once per session, without a reload.
+
+So after an update: install the zip, open the WebUI once. **Reset** removes
+`webui.conf`, the mirror and the guard counters.
 
 ---
 
@@ -227,14 +295,25 @@ The helper can be run by hand for debugging:
 
 ```bash
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh get'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh conf'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh manifest'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh status'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh diag'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh verify'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh apks'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh backup'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh restore'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh arm'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh boot-guard'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh boot-confirm'
 su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh reload'
 ```
+
+`get` prints the effective values (saved first, then the build defaults); `conf`
+prints only what was saved; `manifest` prints `webroot/webui-manifest.json`.
+`arm` / `boot-guard` / `boot-confirm` are the boot guard described above —
+`boot-guard` and `boot-confirm` are what `post-fs-data.sh` and `service.sh`
+call, so running them by hand is only useful for diagnosis.
 
 ---
 
@@ -249,7 +328,10 @@ su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh reload'
   works — do not use the same trick on a user-installed app.
 - A reload (or reboot) is required: restarting SystemUI is not enough, because
   the overlay table is built during the package scan.
-- A dimension that is not in the APK cannot be written; the page names the
-  `config.env` key that would add it.
-- Reinstalling the module replaces `webui.conf` and the APKs; the saved values
-  are not migrated (the reinstall also reverts any patch).
+- A value the page cannot express (an array, a landscape-only resource, a
+  `@string/…` reference) is shown read-only; set it in `config.env` and rebuild.
+- Reinstalling the module replaces the APKs (and reverts the patch); the saved
+  values are kept in `/data/adb/treble-webui/<module-id>/` and re-applied when
+  the page is opened again.
+- The page patches the **default** configuration only, so values in
+  `values-land/` keep coming from the build.

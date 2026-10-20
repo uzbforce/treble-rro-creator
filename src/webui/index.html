@@ -527,6 +527,62 @@
   .diag-actions { display: flex; gap: 8px; margin-top: 10px; }
 
   /* ---------------------------------------------------------------------
+     All resources — rendered from webui-manifest.json
+     --------------------------------------------------------------------- */
+  .adv-hint {
+    margin: 0 0 10px; color: var(--muted);
+    font: 400 11.5px/1.5 var(--sans);
+  }
+  .adv-group { margin-top: 20px; }
+  .adv-group:first-child { margin-top: 0; }
+  .adv-group h3 {
+    margin: 0 0 4px;
+    font: 600 10px/1 var(--mono);
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .adv-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .adv-row[data-changed="true"] .adv-name { color: var(--accent-text); }
+  .adv-name {
+    flex: 1; min-width: 0;
+    font: 500 12px/1.4 var(--mono);
+    overflow-wrap: anywhere;
+  }
+  .adv-name small {
+    display: block; margin-top: 2px;
+    color: var(--muted); font: 400 10.5px/1.4 var(--sans);
+  }
+  .adv-input {
+    flex: none; display: flex; align-items: center; gap: 4px;
+    height: 34px; padding: 0 8px;
+    border: 1px solid var(--rule-strong); border-radius: 2px;
+  }
+  .adv-input:focus-within { border-color: var(--accent); }
+  .adv-input input {
+    width: 62px; padding: 0; border: 0; background: transparent;
+    color: var(--ink); outline: none;
+    font: 600 12px/1 var(--mono); text-align: right;
+    -moz-appearance: textfield; appearance: textfield;
+  }
+  .adv-input input.wide { width: 110px; text-align: left; }
+  .adv-input input::-webkit-outer-spin-button,
+  .adv-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .adv-input span {
+    font: 500 9.5px/1 var(--mono);
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .adv-ro {
+    flex: none; max-width: 46%; text-align: right;
+    font: 500 10.5px/1.4 var(--mono); color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------------------------------------------------------------------
      Buttons
      --------------------------------------------------------------------- */
   .btn {
@@ -806,6 +862,28 @@
       </div>
     </section>
 
+    <details class="diag" id="adv">
+      <summary>
+        <span>All resources</span>
+        <span class="summary-meta" id="allResMeta" aria-hidden="true">manifest</span>
+        <span class="chevron">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </span>
+      </summary>
+      <div class="diag-body">
+        <p class="adv-hint" id="allResHint">
+          Every other value this build writes, read from the module's
+          <code>webui-manifest.json</code>. Changing one patches it into the overlay APK
+          just like the sliders above. Values marked <em>rebuild</em> have no single value
+          (arrays, landscape-only, resource references).
+        </p>
+        <div id="allGroups"></div>
+      </div>
+    </details>
+
     <details class="diag" id="diag">
       <summary>
         <span>Diagnostics</span>
@@ -908,7 +986,14 @@
     pinned: "",           // last failed Apply/Reset output, kept above the log
     saved: {},            // values from webui.conf (what Apply stored)
     pending: [],          // saved values the framework has not picked up yet
-    notice: null          // banner text that survives a status refresh
+    notice: null,         // banner text that survives a status refresh
+    manifest: null,       // webui-manifest.json: what the build wrote
+    extra: {},            // "type/name" -> the value the page would write
+    extraBase: {},        // "type/name" -> the value the build wrote
+    extraNodes: {},       // "type/name" -> { row, input, unit }
+    patched: 0,           // APKs that still carry a patch (from status)
+    failed: false,        // the boot guard undid the last patch
+    autoDone: false       // the saved values were re-applied this session
   };
 
   function $(id) { return document.getElementById(id); }
@@ -1408,6 +1493,20 @@
       probeRoot();
     }
 
+    // patched = overlay APKs that still carry a patch; failed = the boot guard
+    // undid the last one because that boot never finished.
+    state.patched = parseInt(st.patched, 10) || 0;
+    state.failed = st.failed === "yes";
+    if (state.failed && !state.notice) {
+      state.notice = {
+        title: "Your last Apply was rolled back",
+        text: "The device did not finish booting with those values, so the build's APKs were restored.",
+        detail: "The rejected values are kept as webui.conf.failed next to the module." +
+                " Try them one at a time to find the one the framework rejects."
+      };
+      paintNotice();
+    }
+
     state.active = {
       RADIUS: intOrEmpty(st.radius),
       SB_HEIGHT: intOrEmpty(st.sb_height),
@@ -1716,19 +1815,46 @@
      and the framework expect them there.
      ------------------------------------------------------------------- */
 
-  // A UTF-8 ResStringPool. Resource names are ASCII, so one byte per code unit.
+  // UTF-8 bytes for a JS string (the pool stores UTF-8).
+  function utf8Bytes(s) {
+    var out = [], i, c, c2, cp;
+    for (i = 0; i < s.length; i++) {
+      c = s.charCodeAt(i);
+      if (c < 0x80) {
+        out.push(c);
+      } else if (c < 0x800) {
+        out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+      } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length &&
+                 (c2 = s.charCodeAt(i + 1)) >= 0xdc00 && c2 <= 0xdfff) {
+        cp = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+        out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f),
+                 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+        i++;
+      } else {
+        out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      }
+    }
+    return out;
+  }
+
+  // A length prefix in a UTF-8 pool: one byte under 0x80, two bytes above.
+  function poolLen(n) {
+    if (n > 0x7fff) throw new Error("a string in this table is too long to store");
+    return n > 0x7f ? [0x80 | (n >> 8), n & 0xff] : [n];
+  }
+
+  // A UTF-8 ResStringPool.
   function buildPool(strings) {
-    var i, k, s, body = [], offsets = [], stringsAt = 28 + strings.length * 4, pos = 0;
+    var i, k, s, bytes, body = [], offsets = [], stringsAt = 28 + strings.length * 4, pos = 0;
     for (i = 0; i < strings.length; i++) {
       s = String(strings[i]);
-      if (!/^[\x20-\x7e]*$/.test(s) || s.length >= 0x80) {
-        throw new Error("resource name cannot be stored in a string pool: " + s);
-      }
+      bytes = utf8Bytes(s);
       offsets.push(pos);
-      body.push(s.length, s.length);           // utf16 length, byte length
-      for (k = 0; k < s.length; k++) body.push(s.charCodeAt(k));
+      k = poolLen(s.length).concat(poolLen(bytes.length));   // utf16 length, byte length
+      body.push.apply(body, k);
+      body.push.apply(body, bytes);
       body.push(0);
-      pos += s.length + 3;
+      pos += k.length + bytes.length + 1;
     }
     while (body.length % 4) body.push(0);
     var total = stringsAt + body.length;
@@ -1775,13 +1901,21 @@
     return out;
   }
 
-  // addEntries(table, model, adds) -> a new resource table with `adds` in it.
-  // Each add is { type: "dimen", name: "foo", dataType: 5, data: n }.
-  function addEntries(b, arsc, adds) {
+  // addEntries(table, model, adds, extraStrings) -> a new resource table with
+  // `adds` in it. Each add is { type, name, dataType, data }. extraStrings are
+  // appended to the global value pool (a string value is an index into it).
+  function addEntries(b, arsc, adds, extraStrings) {
     var pkg = arsc.pkg;
     if (u16(b, 0) !== 0x0002) throw new Error("not a resource table");
     if (pkg.offset !== arsc.poolAt + arsc.poolSize) throw new Error("the package does not follow the value pool");
     if (pkg.offset + pkg.size !== arsc.size) throw new Error("the package does not end the table");
+
+    // A new string value grows the global pool. It is appended at the end, so
+    // every index the table already uses keeps its meaning.
+    var newPool = null;
+    if (extraStrings && extraStrings.length) {
+      newPool = buildPool(poolStrings(b, arsc.poolAt).concat(extraStrings));
+    }
 
     var keys = pkg.keys.slice(), types = pkg.types.slice();
     var keyChanged = false, typeChanged = false;
@@ -1842,9 +1976,17 @@
       ? buildPool(keys)
       : b.subarray(pkg.keyPoolAt, pkg.keyPoolAt + u32(b, pkg.keyPoolAt + 4));
 
-    var parts = [], size = 0;
+    var parts = [], size = 0, pkgAt;
     function put(bytes) { parts.push(bytes); size += bytes.length; }
-    put(b.subarray(0, pkg.offset + pkg.headerSize));
+    put(b.subarray(0, arsc.poolAt));                 // ResTable header
+    if (newPool) {
+      put(newPool);                                  // replaced value pool
+      pkgAt = size;
+    } else {
+      put(b.subarray(arsc.poolAt, pkg.offset));      // value pool + padding
+      pkgAt = pkg.offset;
+    }
+    put(b.subarray(pkg.offset, pkg.offset + pkg.headerSize));
     var typePoolAt = size;
     put(typePool);
     var keyPoolAt = size;
@@ -1860,10 +2002,10 @@
     var out = new Uint8Array(size), o = 0;
     for (c2 = 0; c2 < parts.length; c2++) { out.set(parts[c2], o); o += parts[c2].length; }
 
-    setU32(out, 4, size);                                     // table size
-    setU32(out, pkg.offset + 4, size - pkg.offset);           // package size
-    setU32(out, pkg.offset + 268, typePoolAt - pkg.offset);   // typeStrings
-    setU32(out, pkg.offset + 276, keyPoolAt - pkg.offset);    // keyStrings
+    setU32(out, 4, size);                              // table size
+    setU32(out, pkgAt + 4, size - pkgAt);              // package size
+    setU32(out, pkgAt + 268, typePoolAt - pkgAt);      // typeStrings
+    setU32(out, pkgAt + 276, keyPoolAt - pkgAt);       // keyStrings
     return out;
   }
 
@@ -1984,6 +2126,186 @@
     { key: "PAD_END", apk: "sui", res: ["dimen/status_bar_padding_end"] }
   ];
 
+  /* -------------------------------------------------------------------
+     All resources — the part of the page that is not hard-coded
+     build.sh writes webui-manifest.json from the resource XML it generated,
+     so this section lists exactly what this build ships. Anything that is not
+     one of the five slider resources is edited here, and Apply patches it into
+     resources.arsc with the same writer the sliders use.
+     ------------------------------------------------------------------- */
+  var EXTRA_INDEX = {};   // "type/name" -> manifest entry
+  var CORE_NAMES = {};    // resource name -> slider key (RADIUS, SB_HEIGHT, …)
+
+  function indexManifest(json) {
+    EXTRA_INDEX = {};
+    CORE_NAMES = {};
+    PATCH_TARGETS.forEach(function (t) {
+      t.res.forEach(function (res) {
+        CORE_NAMES[res.slice(res.indexOf("/") + 1)] = t.key;
+      });
+    });
+    ((json && json.resources) || []).forEach(function (item) {
+      EXTRA_INDEX[item.type + "/" + item.name] = item;
+    });
+  }
+
+  // "48dp" -> { num: "48", unit: "dp" }
+  function splitUnit(value) {
+    var m = /^(-?\d+(?:\.\d+)?)\s*(px|dp|dip)?$/i.exec(String(value == null ? "" : value).trim());
+    if (!m) return { num: String(value == null ? "" : value), unit: "" };
+    return { num: m[1], unit: /dp|dip/i.test(m[2] || "") ? "dp" : "px" };
+  }
+
+  function extraKey(item) { return item.type + "/" + item.name; }
+
+  function paintExtra(key) {
+    var row = state.extraNodes[key] && state.extraNodes[key].row;
+    if (!row) return;
+    row.dataset.changed = state.extra[key] !== state.extraBase[key] ? "true" : "false";
+  }
+
+  function saveExtra(key, value) {
+    state.extra[key] = value;
+    paintExtra(key);
+  }
+
+  function advancedRow(item) {
+    var key = extraKey(item);
+    var row = document.createElement("div");
+    row.className = "adv-row";
+
+    var label = document.createElement("div");
+    label.className = "adv-name";
+    label.textContent = item.res.replace(/^[a-z]+:/, "");
+    var sub = document.createElement("small");
+    sub.textContent = item.apk === "sui" ? "systemui" : "framework";
+    label.appendChild(sub);
+    row.appendChild(label);
+
+    if (item.ro) {
+      var ro = document.createElement("span");
+      ro.className = "adv-ro";
+      ro.textContent = item.value ? item.value + " · rebuild" : "array · rebuild";
+      row.appendChild(ro);
+      return row;
+    }
+
+    var control = document.createElement("div");
+    control.className = "adv-input";
+
+    if (item.type === "bool") {
+      control.style.border = "0";
+      control.style.padding = "0";
+      var sw = document.createElement("label");
+      sw.className = "switch";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = state.extra[key] === "true";
+      box.setAttribute("aria-label", item.name);
+      var track = document.createElement("span");
+      track.className = "track";
+      var thumb = document.createElement("span");
+      thumb.className = "thumb";
+      box.addEventListener("change", function () {
+        saveExtra(key, this.checked ? "true" : "false");
+      });
+      sw.appendChild(box); sw.appendChild(track); sw.appendChild(thumb);
+      control.appendChild(sw);
+      state.extraNodes[key] = { row: row, input: box };
+    } else if (item.type === "string") {
+      var text = document.createElement("input");
+      text.type = "text";
+      text.className = "wide";
+      text.value = state.extra[key];
+      text.setAttribute("aria-label", item.name);
+      text.addEventListener("input", function () { saveExtra(key, this.value); });
+      control.appendChild(text);
+      state.extraNodes[key] = { row: row, input: text };
+    } else {
+      var parts = splitUnit(state.extra[key]);
+      var num = document.createElement("input");
+      num.type = "number";
+      num.inputMode = "numeric";
+      num.value = parts.num;
+      num.setAttribute("aria-label", item.name);
+      var unit = document.createElement("span");
+      unit.textContent = item.type === "dimen" ? (parts.unit || "px") : item.type;
+      num.addEventListener("input", function () {
+        var u = item.type === "dimen" ? (unit.textContent || "px") : "";
+        saveExtra(key, String(this.value).trim() === "" ? "" : this.value + u);
+      });
+      control.appendChild(num);
+      if (item.type === "dimen") control.appendChild(unit);
+      state.extraNodes[key] = { row: row, input: num, unit: unit };
+    }
+
+    row.appendChild(control);
+    paintExtra(key);
+    return row;
+  }
+
+  function resetExtras() {
+    state.extra = {};
+    state.extraBase = {};
+    state.extraNodes = {};
+    if (!state.manifest) return;
+    state.manifest.resources.forEach(function (item) {
+      if (item.ro || CORE_NAMES[item.name]) return;
+      var key = extraKey(item);
+      var base = String(item.value == null ? "" : item.value);
+      state.extraBase[key] = base;
+      var saved = state.saved[key];
+      state.extra[key] = saved == null ? base : String(saved);
+    });
+  }
+
+  function buildAdvanced() {
+    var host = $("allGroups");
+    if (!host) return;
+    host.innerHTML = "";
+    var meta = $("allResMeta");
+    if (!state.manifest) {
+      if (meta) meta.textContent = "no manifest";
+      return;
+    }
+
+    var groups = [], byName = {}, editable = 0, ro = 0;
+    state.manifest.resources.forEach(function (item) {
+      if (CORE_NAMES[item.name]) return;       // set by the sliders above
+      var name = item.group || "Other";
+      if (!byName[name]) { byName[name] = { name: name, items: [] }; groups.push(byName[name]); }
+      byName[name].items.push(item);
+      if (item.ro) ro++; else editable++;
+    });
+
+    groups.forEach(function (g) {
+      var box = document.createElement("div");
+      box.className = "adv-group";
+      var head = document.createElement("h3");
+      head.textContent = g.name;
+      box.appendChild(head);
+      g.items.forEach(function (item) { box.appendChild(advancedRow(item)); });
+      host.appendChild(box);
+    });
+
+    if (meta) meta.textContent = editable + " editable" + (ro ? " · " + ro + " fixed" : "");
+  }
+
+  // The extra values that differ from what the build wrote — the only ones
+  // worth patching into the APK.
+  function changedExtras() {
+    var out = [];
+    Object.keys(state.extra).forEach(function (key) {
+      var item = EXTRA_INDEX[key];
+      if (!item || item.ro) return;
+      var value = state.extra[key];
+      if (value == null || value === "") return;
+      if (value === state.extraBase[key]) return;
+      out.push({ name: key, type: item.type, value: value, apk: item.apk });
+    });
+    return out;
+  }
+
   var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
   function fromB64(text) {
@@ -2022,6 +2344,42 @@
   // complex dimension: mantissa << 8 | (radix << 4) | unit, unit 0 = px.
   // A name the build does not carry is added to the table: config.env decides
   // what a *build* emits, not what the page can write.
+  // Encodes one value for a resource. A string is an index into the global
+  // value pool, so encodeValue() returns `str` when the value has to be added
+  // to that pool first (the caller then knows the index).
+  function encodeValue(type, raw, pool) {
+    var text = String(raw == null ? "" : raw).trim();
+    if (type === "bool") {
+      // aapt2 stores true as 0xFFFFFFFF, not 1; match it so the framework's
+      // own tools read the table the same way.
+      if (/^(true|1|on|yes)$/i.test(text)) return { dataType: 0x12, data: 0xffffffff };
+      if (/^(false|0|off|no)$/i.test(text)) return { dataType: 0x12, data: 0 };
+      return null;
+    }
+    if (type === "integer") {
+      if (!/^-?\d+$/.test(text)) return null;
+      return { dataType: 0x10, data: (parseInt(text, 10) & 0xffffffff) >>> 0 };
+    }
+    if (type === "dimen") {
+      var m = /^(-?\d+(?:\.\d+)?)\s*(px|dp|dip)?$/i.exec(text);
+      if (!m) return null;
+      var n = Math.round(parseFloat(m[1]));
+      if (n < -32768 || n > 32767) return null;      // a bar is 60-140 px; this is a typo guard
+      var unit = /dp|dip/i.test(m[2] || "") ? 1 : 0;
+      return { dataType: 0x05, data: (((n << 8) | unit) >>> 0) };
+    }
+    if (type === "string") {
+      var at = pool.indexOf(text);
+      if (at >= 0) return { dataType: 0x03, data: at >>> 0 };
+      return { dataType: 0x03, data: null, str: text };
+    }
+    return null;
+  }
+
+  // Writes {name: "type/name", type, value} into a package's default config.
+  // An existing value of the same type is rewritten in place (four bytes, two
+  // CRCs); anything else is added or replaced through addEntries(), which
+  // rebuilds the type chunk and, for a string, the global value pool.
   function patchApk(bytes, wanted) {
     var entry = zipEntry(bytes, "resources.arsc");
     if (!entry) throw new Error("this APK has no resources.arsc");
@@ -2031,33 +2389,56 @@
     var arsc = bytes.subarray(entry.offset, entry.offset + entry.size);
     var table = readArsc(arsc);
     if (!table) throw new Error("resources.arsc is not a single-package table this page can extend");
+    var pkg = table.pkg;
 
-    var out = { patched: [], added: [], missing: [], other: [], problem: "", bytes: null };
-    var adds = [], dimenType = table.pkg.types.indexOf("dimen") + 1, chunk = null, i;
-    for (i = 0; i < table.pkg.chunks.length; i++) {
-      var c = table.pkg.chunks[i];
-      if (c.type === 0x0201 && c.typeId === dimenType && c.isDefault) chunk = c;
+    var out = { patched: [], added: [], missing: [], other: [], bad: [], problem: "", bytes: null };
+    var chunkOf = {}, i, expect = {};
+    for (i = 0; i < pkg.chunks.length; i++) {
+      var c = pkg.chunks[i];
+      if (c.type === 0x0201 && c.isDefault && !chunkOf[c.typeId]) chunkOf[c.typeId] = c;
+    }
+
+    var pool = poolStrings(arsc, table.poolAt);
+    var extra = [], adds = [];
+
+    function findEntry(typeId, name) {
+      var chunk = chunkOf[typeId], j, e;
+      if (!chunk) return null;
+      for (j = 0; j < chunk.entries.length; j++) {
+        e = chunk.entries[j];
+        if (!e) continue;
+        if (pkg.keys[e.key] !== name) continue;
+        return e;
+      }
+      return null;
     }
 
     wanted.forEach(function (want) {
       var slash = want.name.indexOf("/");
-      var type = want.name.slice(0, slash), name = want.name.slice(slash + 1);
-      var value = (Math.min(want.px, 32767) << 8) >>> 0;
-      var hit = null, e, j;
-      for (j = 0; chunk && j < chunk.entries.length; j++) {
-        e = chunk.entries[j];
-        if (e && table.pkg.keys[e.key] === name) { hit = e; break; }
-      }
-      if (hit) {
-        if (hit.dataType !== 5) { out.other.push(want.name); return; }
+      var type = slash < 0 ? want.type : want.name.slice(0, slash);
+      var name = slash < 0 ? want.name : want.name.slice(slash + 1);
+      var typeId = pkg.types.indexOf(type) + 1;
+      var enc = encodeValue(type, want.value, pool);
+      if (!enc) { out.bad.push(want.name); return; }
+
+      var hit = typeId ? findEntry(typeId, name) : null;
+      if (hit && hit.complex) { out.other.push(want.name); return; }
+
+      if (hit && hit.dataType === enc.dataType && enc.data !== null) {
         // arsc is a view of the APK bytes, so this writes straight into it.
-        setU32(arsc, hit.dataAt, value);
-        hit.data = value;
+        setU32(arsc, hit.dataAt, enc.data);
+        hit.data = enc.data;
+        expect[want.name] = enc.data;
         out.patched.push(want.name);
         return;
       }
-      if (type !== "dimen") { out.other.push(want.name); return; }
-      adds.push({ type: type, name: name, dataType: 5, data: value });
+
+      if (enc.str != null) {
+        if (extra.indexOf(enc.str) < 0) extra.push(enc.str);
+        enc.data = (pool.length + extra.indexOf(enc.str)) >>> 0;
+      }
+      adds.push({ type: type, name: name, dataType: enc.dataType, data: enc.data });
+      expect[want.name] = enc.data;
       out.added.push(want.name);
     });
 
@@ -2072,7 +2453,7 @@
     var next = bytes;
     if (adds.length) {
       try {
-        next = rewriteZip(bytes, "resources.arsc", addEntries(arsc, table, adds));
+        next = rewriteZip(bytes, "resources.arsc", addEntries(arsc, table, adds, extra));
       } catch (e2) {
         // The table is not one this page can extend. Leave it alone and report
         // the values that needed a new entry instead of writing a broken APK.
@@ -2087,24 +2468,24 @@
     // here, not on the next boot.
     if (out.bytes) {
       var done = zipEntry(out.bytes, "resources.arsc");
-      var table2 = readArsc(out.bytes.subarray(done.offset, done.offset + done.size));
+      var raw2 = out.bytes.subarray(done.offset, done.offset + done.size);
+      var table2 = readArsc(raw2);
       if (!table2) throw new Error("the rewritten resources.arsc does not parse");
-      var seen = {};
+      var chunk2 = {};
       table2.pkg.chunks.forEach(function (c2) {
-        if (c2.type !== 0x0201 || !c2.isDefault) return;
-        if (table2.pkg.types[c2.typeId - 1] !== "dimen") return;
-        c2.entries.forEach(function (e3) {
-          if (e3) seen[table2.pkg.keys[e3.key]] = e3.data;
-        });
+        if (c2.type === 0x0201 && c2.isDefault && !chunk2[c2.typeId]) chunk2[c2.typeId] = c2;
       });
       out.patched.concat(out.added).forEach(function (full) {
-        var name = full.slice(full.indexOf("/") + 1);
-        wanted.forEach(function (want) {
-          if (want.name !== full) return;
-          if (seen[name] !== ((Math.min(want.px, 32767) << 8) >>> 0)) {
-            throw new Error(full + " did not keep the new value");
-          }
-        });
+        var slash = full.indexOf("/");
+        var type = full.slice(0, slash), name = full.slice(slash + 1);
+        var chunk = chunk2[table2.pkg.types.indexOf(type) + 1];
+        var found = null, j2, e2;
+        for (j2 = 0; chunk && j2 < chunk.entries.length; j2++) {
+          e2 = chunk.entries[j2];
+          if (e2 && !e2.complex && table2.pkg.keys[e2.key] === name) { found = e2; break; }
+        }
+        if (!found) throw new Error(full + " is missing after the rewrite");
+        if (found.data !== expect[full]) throw new Error(full + " did not keep the new value");
       });
     }
     return out;
@@ -2126,8 +2507,15 @@
       var px = parseInt(state.values[t.key], 10);
       if (isNaN(px) || px < 0) return;
       t.res.forEach(function (name) {
-        plan[t.apk].push({ name: name, px: Math.min(px, 32767), key: t.key });
+        plan[t.apk].push({
+          name: name, type: "dimen", value: Math.min(px, 32767) + "px", key: t.key
+        });
       });
+    });
+    // Everything edited in "All resources", but only where the value differs
+    // from what the build wrote - Apply should not rewrite 30 untouched values.
+    changedExtras().forEach(function (item) {
+      plan[item.apk].push({ name: item.name, type: item.type, value: item.value });
     });
     return plan;
   }
@@ -2136,7 +2524,7 @@
   // { files, patched, added, missing: [{key, name}], other: [{key, name}], problem }.
   function patchOverlays() {
     var plan = planPatches();
-    var result = { files: 0, patched: 0, added: 0, missing: [], other: [], problem: "" };
+    var result = { files: 0, patched: 0, added: 0, missing: [], other: [], bad: [], problem: "" };
 
     return run(["apks"], 15000).then(function (r) {
       if (r.errno !== 0) throw new Error(errorText(r));
@@ -2165,6 +2553,7 @@
               res.other.forEach(function (n) {
                 result.other.push({ key: keyOf(n, which), name: n });
               });
+              (res.bad || []).forEach(function (n) { result.bad.push(n); });
               if (res.problem) result.problem = res.problem;
               var payload = res.bytes || bytes;
               if (!res.patched.length && !res.added.length) return;
@@ -2229,8 +2618,11 @@
 
   function load(report) {
     setBusy(true);
-    return Promise.all([run(["get"]), run(["status"])]).then(function (results) {
+    return Promise.all([
+      run(["get"]), run(["status"]), run(["conf"], 15000), run(["manifest"], 15000)
+    ]).then(function (results) {
       var getRes = results[0], statusRes = results[1];
+      var confRes = results[2], manifestRes = results[3];
 
       if (getRes.errno === 127 || statusRes.errno === 127) {
         showBridgeProblem(getRes, statusRes);
@@ -2250,7 +2642,15 @@
 
       var values = parseKv(getRes.stdout);
       var status = parseKv(statusRes.stdout);
-      state.saved = values;
+      // `conf` is webui.conf alone, so a value the build already has is not
+      // mistaken for something the user saved.
+      state.saved = parseKv(confRes && confRes.stdout);
+      try {
+        var manifest = JSON.parse((manifestRes && manifestRes.stdout) || "");
+        state.manifest = manifest && manifest.resources ? manifest : null;
+      } catch (e) {
+        state.manifest = null;
+      }
       renderStatus(status);
       paintOverlayChip(status);
 
@@ -2278,9 +2678,24 @@
       paintDoze();
       paintPreview();
 
+      // Everything outside the five sliders comes from the manifest.
+      indexManifest(state.manifest);
+      resetExtras();
+      buildAdvanced();
+
       if (report && !state.noBridge) {
-        var found = Object.keys(values).length;
+        var found = Object.keys(state.saved).length;
         showSnack(found ? "Values loaded from the device" : "No saved values yet — using active ones");
+      }
+
+      // A rebuild or a reinstall puts the build-time APKs back, and
+      // customize.sh brings webui.conf along. Re-apply it once per session so
+      // the saved values are not silently lost.
+      if (!state.autoDone && !state.noBridge && state.patched === 0 &&
+          !state.failed && Object.keys(state.saved).length && state.manifest) {
+        state.autoDone = true;
+        setBusy(false);
+        return apply(false);
       }
       setBusy(false);
       return results;
@@ -2315,6 +2730,18 @@
 
   function hideBanner() { $("banner").hidden = true; }
 
+  function extraArgs() {
+    var args = [];
+    Object.keys(state.extra).forEach(function (key) {
+      var item = EXTRA_INDEX[key];
+      if (!item || item.ro) return;
+      var value = state.extra[key];
+      if (value == null || value === "") return;
+      args.push(key + "=" + value);
+    });
+    return args;
+  }
+
   function currentArgs() {
     var args = [];
     FIELDS.forEach(function (f) {
@@ -2325,7 +2752,9 @@
       }
     });
     args.push("DOZE_BLANK=" + ($("DOZE_BLANK").checked ? "true" : "false"));
-    return args;
+    // The saved values are the module's memory: they are restored after a
+    // reinstall and re-applied onto the new APKs.
+    return args.concat(extraArgs());
   }
 
   // The reason a write failed is the one thing worth keeping on screen: the
@@ -2409,6 +2838,11 @@
       return patchOverlays();
     }).then(function (r) {
       report = r;
+      // Arm the boot guard before anything can load these APKs: if the boot
+      // that follows never completes, apply.sh puts the build's APKs back.
+      if (report.patched || report.added) return run(["arm"], 10000);
+      return null;
+    }).then(function () {
       // The boolean is the only value left that can be fabricated - fabricate
       // rejects every dimension data type.
       return run(["apply"], 30000);
@@ -2416,11 +2850,16 @@
       var problems = [];
       if (boolRes.errno !== 0) problems.push(String(boolRes.stdout || "").trim() || errorText(boolRes));
       report.missing.forEach(function (m) {
-        problems.push("x " + m.key + ": " + m.name + " could not be added to this build" +
+        problems.push("x " + (m.key ? m.key + ": " : "") + m.name +
+                      " could not be added to this build" +
                       (report.problem ? " (" + report.problem + ")" : ""));
       });
       report.other.forEach(function (m) {
-        problems.push("x " + m.key + ": " + m.name + " is not a dimension in this build");
+        problems.push("x " + (m.key ? m.key + ": " : "") + m.name +
+                      " is an array or map in this build — it needs a rebuild");
+      });
+      report.bad.forEach(function (n) {
+        problems.push("x " + n + ": the value is not valid for its type");
       });
 
       if (problems.length) {
@@ -2429,9 +2868,9 @@
         // written here; a plain dimension can, so this only shows up on builds
         // this page cannot extend.
         pinOutput("$ apply (not everything applied)\n" + text +
-                  "\n\nA dimension that is missing from the overlay APK is added to" +
-                  "\nits resources.arsc by the page. This build's table is not one" +
-                  "\nthe page can extend: set the value in config.env and rebuild.");
+                  "\n\nA value that is missing from the overlay APK is added to its" +
+                  "\nresources.arsc by the page. This build's table is not one the page" +
+                  "\ncan extend: set the value in config.env and rebuild.");
         showApplyProblem(text, "Some values could not be written");
       }
 
@@ -2513,6 +2952,22 @@
     snack.classList.add("show");
     clearTimeout(snackTimer);
     snackTimer = setTimeout(function () { snack.classList.remove("show"); }, 2600);
+  }
+
+  /* -------------------------------------------------------------------
+     Test hook
+     The resource-table writer is exercised outside the page (tests/), so
+     those functions have to be reachable from there. Nothing else uses it.
+     ------------------------------------------------------------------- */
+  if (typeof window !== "undefined") {
+    window.__treble = {
+      patchApk: patchApk, readArsc: readArsc, readEntries: readEntries,
+      encodeValue: encodeValue, buildPool: buildPool, addEntries: addEntries,
+      zipEntry: zipEntry, poolStrings: poolStrings, crc32: crc32,
+      planPatches: planPatches, indexManifest: indexManifest,
+      resetExtras: resetExtras, changedExtras: changedExtras,
+      state: state, PATCH_TARGETS: PATCH_TARGETS
+    };
   }
 
   /* -------------------------------------------------------------------

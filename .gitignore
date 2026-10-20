@@ -5,6 +5,10 @@ out/
 *.apk.idsig
 *.zip
 
+# Test fixtures are the one place an APK is committed: the WebUI's
+# resource-table writer is tested against a real overlay APK (tests/run.sh).
+!tests/fixtures/*.apk
+
 # Auto-generated during the build
 AndroidManifest.xml
 module.prop

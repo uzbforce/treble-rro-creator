@@ -358,6 +358,75 @@ toolchain_missing() {
 }
 
 # ---------------------------------------------------------------------------
+# Device identity
+# ---------------------------------------------------------------------------
+# Turns the raw DEVICE_* values from config.env into the module id, the overlay
+# package names and the match condition. Called by build.sh right after
+# config.env is sourced, and by the standalone scripts (manifest.sh,
+# hardware-overlay.sh) so they agree with the build.
+#
+# Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER; everything
+# else is derived. A value containing "<" is a template placeholder.
+derive_overlay_identity() {
+    [ -z "${DEVICE_MANUFACTURER:-}" ] || [[ "$DEVICE_MANUFACTURER" == *"<"* ]] && DEVICE_MANUFACTURER="generic"
+    [ -z "${DEVICE_CODENAME:-}" ]     || [[ "$DEVICE_CODENAME" == *"<"* ]]     && DEVICE_CODENAME="generic"
+
+    # Clean manufacturer for Java package names (lowercase alphanumeric only)
+    SAFE_MANUFACTURER=$(printf '%s' "${DEVICE_MANUFACTURER}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
+
+    # Clean codename for package name: replace non-alphanumeric with dots
+    # e.g. "Infinix-X6852" → "infinix.x6852" (dots are valid Java package separators)
+    PACKAGE_SEGMENT=$(printf '%s' "${DEVICE_CODENAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/./g' | sed 's/\.\.*/./g' | sed 's/^\.//;s/\.$//')
+
+    # Module ids are shared by Magisk, KernelSU and APatch: they must match
+    # ^[a-zA-Z][a-zA-Z0-9._-]+$ (no spaces or slashes). Use the already-cleaned
+    # manufacturer/codename pieces for the generated default; an explicit
+    # OVERLAY_NAME in config.env is kept as-is.
+    DEFAULT_MANUFACTURER="${SAFE_MANUFACTURER:-generic}"
+    DEFAULT_CODENAME="${PACKAGE_SEGMENT:-generic}"
+    [ -z "${OVERLAY_NAME:-}" ]        || [[ "$OVERLAY_NAME" == *"<"* ]]        && OVERLAY_NAME="treble-overlay-${DEFAULT_MANUFACTURER}-${DEFAULT_CODENAME}"
+    [ -z "${OVERLAY_PACKAGE:-}" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
+    [ -z "${OVERLAY_PACKAGE_SYSTEMUI:-}" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
+    [[ "${DEVICE_PROP_VALUE:-}" == *"<"* ]] && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
+    # Only placeholders are replaced. An EMPTY DEVICE_PROP_NAME is meaningful: it
+    # builds an overlay with no match condition (always active), which is the safe
+    # default for framework overlays — see the Overlay Activation section of
+    # config.env for why ro.product.* conditions fail on GSI setups.
+    [[ "${DEVICE_PROP_NAME:-}" == *"<"* ]] && DEVICE_PROP_NAME="ro.product.device"
+
+    if [ -n "${DEVICE_PROP_NAME:-}" ]; then
+        OVERLAY_CONDITION="        android:requiredSystemPropertyName=\"${DEVICE_PROP_NAME}\"
+        android:requiredSystemPropertyValue=\"${DEVICE_PROP_VALUE}\" />"
+        CONDITION_DESC="${DEVICE_PROP_NAME} == \"${DEVICE_PROP_VALUE}\""
+    else
+        OVERLAY_CONDITION="        />"
+        CONDITION_DESC="none (always active)"
+    fi
+
+    [ -z "${ANDROID_VERSION:-}" ]     && ANDROID_VERSION="14"
+    [ -z "${COMPILE_SDK_VERSION:-}" ] && COMPILE_SDK_VERSION="34"
+    [ -z "${MIN_SDK_VERSION:-}" ]     && MIN_SDK_VERSION="34"
+    [ -z "${TARGET_SDK_VERSION:-}" ]  && TARGET_SDK_VERSION="34"
+    [ -z "${OVERLAY_VERSION:-}" ]     && OVERLAY_VERSION="1.0"
+    [ -z "${OVERLAY_VERSION_CODE:-}" ] && OVERLAY_VERSION_CODE="1"
+
+    [[ "${LIGHT_SENSOR_TYPE:-}" == *"<"* ]] && LIGHT_SENSOR_TYPE="android.sensor.light"
+    [[ "${DEVICE_MODEL:-}" == *"<"* ]] && DEVICE_MODEL="Generic Device"
+    # Status bar landscape height: only set fallback if explicitly a placeholder
+    # (otherwise leave empty so the status bar section skips it)
+    [[ "${STATUS_BAR_HEIGHT_LANDSCAPE:-}" == *"<"* ]] && STATUS_BAR_HEIGHT_LANDSCAPE=24
+
+    return 0
+}
+
+# Does this power_profile.xml contain actual data, or is it the empty template?
+power_profile_is_placeholder() {
+    local f="$1"
+    [ -f "$f" ] || return 0
+    ! grep -qE '<item[[:space:]>]' "$f"
+}
+
+# ---------------------------------------------------------------------------
 # Portable helpers
 # ---------------------------------------------------------------------------
 # Convert an MSYS path to a native Windows path (no-op elsewhere).
