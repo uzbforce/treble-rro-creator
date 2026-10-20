@@ -273,7 +273,13 @@ SAFE_MANUFACTURER=$(echo "${DEVICE_MANUFACTURER}" | tr '[:upper:]' '[:lower:]' |
 # e.g. "Infinix-X6852" → "infinix.x6852" (dots are valid Java package separators)
 PACKAGE_SEGMENT=$(echo "${DEVICE_CODENAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/./g' | sed 's/\.\.*/./g' | sed 's/^\.//;s/\.$//')
 
-[ -z "$OVERLAY_NAME" ]        || [[ "$OVERLAY_NAME" == *"<"* ]]        && OVERLAY_NAME="treble-overlay-${DEVICE_MANUFACTURER}-${DEVICE_CODENAME}"
+# Module ids are shared by Magisk, KernelSU and APatch: they must match
+# ^[a-zA-Z][a-zA-Z0-9._-]+$ (no spaces or slashes). Use the already-cleaned
+# manufacturer/codename pieces for the generated default; an explicit
+# OVERLAY_NAME in config.env is kept as-is.
+DEFAULT_MANUFACTURER="${SAFE_MANUFACTURER:-generic}"
+DEFAULT_CODENAME="${PACKAGE_SEGMENT:-generic}"
+[ -z "$OVERLAY_NAME" ]        || [[ "$OVERLAY_NAME" == *"<"* ]]        && OVERLAY_NAME="treble-overlay-${DEFAULT_MANUFACTURER}-${DEFAULT_CODENAME}"
 [ -z "$OVERLAY_PACKAGE" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
 [ -z "$OVERLAY_PACKAGE_SYSTEMUI" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
 [[ "$DEVICE_PROP_VALUE" == *"<"* ]] && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
@@ -768,9 +774,9 @@ if [ "$LINKED_SYSTEMUI" = "true" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build KSU/Magisk module
+# Build module zip (KernelSU / KSU Next / APatch / Magisk)
 # ---------------------------------------------------------------------------
-step "Building KSU/Magisk module"
+step "Building module zip"
 
 MODULE_TMP="$BUILD_REL/module_tmp"
 rm -rf "$MODULE_TMP"
@@ -784,6 +790,25 @@ fi
 
 # Copy module metadata
 cp "$BUILD_REL/module.prop" "${MODULE_TMP}/"
+
+# Module WebUI: a page in webroot/ lets the user edit values and apply them
+# without rebuilding. KernelSU/KSU Next/APatch show it directly; Magisk users
+# open it with a WebUI host (WebUI X, KsuWebUI, MMRL).
+if [ -d "$ROOT/src/webui" ]; then
+    rm -rf "${MODULE_TMP}/webroot"
+    cp -R "$ROOT/src/webui" "${MODULE_TMP}/webroot"
+    # Build-time values so the page can show what the module currently uses.
+    # Saved WebUI values in webui.conf take precedence at runtime.
+    {
+        printf 'RADIUS=%s\n'      "${ROUNDED_CORNER_RADIUS//[^0-9]/}"
+        printf 'SB_HEIGHT=%s\n'    "${STATUS_BAR_HEIGHT//[^0-9]/}"
+        printf 'PAD_CONTENT=%s\n'  "${STATUS_BAR_CONTENT_PADDING//[^0-9]/}"
+        printf 'PAD_START=%s\n'    "${STATUS_BAR_PADDING_START//[^0-9]/}"
+        printf 'PAD_END=%s\n'      "${STATUS_BAR_PADDING_END//[^0-9]/}"
+        printf 'DOZE_BLANK=%s\n'   "${CONFIG_DISPLAY_BLANKS_AFTER_DOZE:-false}"
+    } > "${MODULE_TMP}/webui-defaults.conf"
+    ok "webroot/: WebUI included (KSU / KSU Next / APatch / Magisk hosts)"
+fi
 
 # Use src/module/customize.sh when present, otherwise generate one.
 if [ -f "$MODULE_DIR/customize.sh" ]; then
@@ -802,12 +827,16 @@ else
 MODPATH=${MODPATH:-${0%/*}}
 [ -d "$MODPATH/system" ] || MODPATH="."
 ui_print "  Installing ${MODPATH##*/}..."
-set_perm_recursive $MODPATH/system/product/overlay 0 0 0644 u:object_r:system_file:s0
+set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
 ui_print "  ✓ Module installed successfully!"
 CUSTOMIZE_SIMPLE
     chmod +x "${MODULE_TMP}/customize.sh"
     ok "customize.sh generated (overlay-only)"
 fi
+
+# META-INF: Magisk's installer entry point. KernelSU and APatch source
+# customize.sh directly and ignore this directory, so one zip serves all three.
+generate_magisk_meta "${MODULE_TMP}"
 
 # sepolicy.rule
 if [ "$INCLUDE_VENDOR_HALS" = "true" ] && [ -f "$MODULE_DIR/sepolicy.rule" ]; then
@@ -829,6 +858,7 @@ fi
 if [ -f "$MODULE_DIR/service.sh" ]; then
     sed -e "s/@OVERLAY_PACKAGE@/${OVERLAY_PACKAGE}/g" \
         -e "s/@OVERLAY_PACKAGE_SYSTEMUI@/${OVERLAY_PACKAGE_SYSTEMUI}/g" \
+        -e "s/@MODULE_ID@/${OVERLAY_NAME}/g" \
         "$MODULE_DIR/service.sh" > "${MODULE_TMP}/service.sh"
     chmod +x "${MODULE_TMP}/service.sh"
     ok "service.sh: using src/module/service.sh (package: ${OVERLAY_PACKAGE})"
@@ -837,6 +867,7 @@ else
     # Substitute placeholders in the generated file
     sed -i -e "s/@OVERLAY_PACKAGE@/${OVERLAY_PACKAGE}/g" \
            -e "s/@OVERLAY_PACKAGE_SYSTEMUI@/${OVERLAY_PACKAGE_SYSTEMUI}/g" \
+           -e "s/@MODULE_ID@/${OVERLAY_NAME}/g" \
            "${MODULE_TMP}/service.sh"
     ok "service.sh auto-generated (package: ${OVERLAY_PACKAGE})"
 fi
@@ -907,9 +938,9 @@ fi
 # Package module
 # ---------------------------------------------------------------------------
 create_zip "$MODULE_TMP" "${ROOT}/out/${OVERLAY_NAME}-ksu.zip" \
-    || { err "Failed to package KSU module"; exit 1; }
+    || { err "Failed to package module zip"; exit 1; }
 rm -rf "$MODULE_TMP"
-ok "KSU module packaged: out/${OVERLAY_NAME}-ksu.zip"
+ok "Module packaged: out/${OVERLAY_NAME}-ksu.zip (KernelSU / KSU Next / APatch / Magisk)"
 
 # ---------------------------------------------------------------------------
 # Build Hardware Overlay Repo Structure (AOSP source-based)
@@ -1095,11 +1126,14 @@ sed -i "s/^description=.*/description=Test build of merged source overlays for H
 
 cat > "$TEST_BUILD_DIR/module/customize.sh" << 'CUSTOM_EOF'
 #!/sbin/sh
-MODPATH=${0%/*}
+# MODPATH is exported by the manager; fall back to the script location.
+MODPATH=${MODPATH:-${0%/*}}
 ui_print "  Installing Hardware Overlay TEST module..."
-set_perm_recursive $MODPATH/system/product/overlay 0 0 0644 u:object_r:system_file:s0
+set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
 ui_print "  ✓ TEST module installed."
 CUSTOM_EOF
+chmod +x "$TEST_BUILD_DIR/module/customize.sh"
+generate_magisk_meta "$TEST_BUILD_DIR/module"
 
 create_zip "$TEST_BUILD_DIR/module" "${ROOT}/out/${OVERLAY_NAME}-hardware-overlay-test.zip" \
     || { err "Failed to package hardware overlay TEST module"; exit 1; }
@@ -1119,7 +1153,7 @@ if [ "$LINKED_SYSTEMUI" = "true" ]; then
     echo "    out/apks/${OVERLAY_NAME}-systemui.apk  $(du -sh "out/apks/${OVERLAY_NAME}-systemui.apk" | cut -f1)"
 fi
 echo ""
-echo "    out/${OVERLAY_NAME}-ksu.zip              (Main KSU module)"
+echo "    out/${OVERLAY_NAME}-ksu.zip              (Main module: KSU / KSU Next / APatch / Magisk)"
 echo "    out/${OVERLAY_NAME}-hardware-overlay.zip (For Repo submission)"
 echo "    out/${OVERLAY_NAME}-hardware-overlay-test.zip (Test repo version locally)"
 echo ""

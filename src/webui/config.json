@@ -1,0 +1,5 @@
+{
+  "title": "Overlay",
+  "permissions": ["kernelsu.permission.SHELL"],
+  "historyFallback": false
+}

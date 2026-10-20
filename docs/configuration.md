@@ -167,7 +167,11 @@ do apply the framework value. It is written only when you set
 Practical guidance:
 
 - Content hugs the corners/edges → set `STATUS_BAR_PADDING_START` / `_END`
-  (and `STATUS_BAR_CONTENT_PADDING` to the same value).
+  (and `STATUS_BAR_CONTENT_PADDING` to the same value). The module WebUI
+  changes the same three values at runtime; it adds the resources to the
+  overlay APK when `config.env` left them commented out, so a rebuild is only
+  needed to bake a value in
+  ([webui.md](webui.md#what-the-page-can-change)).
 - How much: a corner of radius `R` intrudes `R - sqrt(R^2 - (R-y)^2)` at height
   `y`. For `R = 150` that is 60px at `y = 30` and 30px at `y = 60`, so 48px
   clears the icon band (`y = 30..89`). AOSP itself uses about `R/10`.

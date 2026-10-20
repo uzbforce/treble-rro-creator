@@ -21,7 +21,7 @@ GSIs use dynamic partitions. `/system/product/overlay/` does not persist across
 reboots, and a manually copied APK does not get the SELinux context the package
 manager expects.
 
-A KernelSU/Magisk module solves both:
+A KernelSU / KSU Next / APatch / Magisk module solves both:
 
 1. The module lives in `/data/adb/modules/<id>/`.
 2. At boot the root manager bind-mounts its `system/` tree over `/system/`, so
@@ -131,15 +131,20 @@ The module zip contains:
 module.prop                              module metadata (id, name, version)
 customize.sh                             install-time permissions/SELinux contexts
 service.sh                               runs after boot: reports overlay state, sets props
+webroot/index.html, apply.sh              shared WebUI (KSU/APatch/Magisk hosts)
+webui-defaults.conf                      build-time values shown by the WebUI
+META-INF/com/google/android/             Magisk installer entry point
 system/product/overlay/<name>.apk        the framework overlay
 system/product/overlay/<name>-systemui.apk
 [system/vendor/...]                      only with vendor HALs
 [sepolicy.rule]                          only with vendor HALs
 ```
 
-`customize.sh` and `service.sh` are generated from `config.env` and
-`src/vendor/` on every build. `sepolicy.rule` is copied only when vendor HALs
-are included and the file contains real `allow` rules.
+KernelSU, KSU Next and APatch source `customize.sh` directly. Magisk's app does
+the same internally; the `META-INF` pair is the standard entry point used by
+recovery and older Magisk installers. `customize.sh`, `service.sh` and
+`webroot/` are generated or copied on every build. `sepolicy.rule` is copied
+only when vendor HALs are included and the file contains real `allow` rules.
 
 To customize the post-boot script, copy `templates/service.sh.example` to
 `src/module/service.sh`; the build then packs your file instead of generating

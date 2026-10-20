@@ -1,6 +1,6 @@
 #!/sbin/sh
 # =============================================================================
-# Treble Overlay — Post-Boot Initialization Script
+# Treble Overlay — Post-Boot Initialization Script (Magisk / KernelSU / APatch)
 # =============================================================================
 # Runs at boot to enable overlays, set system properties, and start
 # vendor HAL services. Sections for vendor HALs are conditional —
@@ -126,6 +126,31 @@ setprop persist.dbg.allow_ims_off 0
 stop ril-daemon 2>/dev/null || true
 sleep 2
 start ril-daemon 2>/dev/null || true
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 8: WebUI overrides (fabricated overlays)
+# ═══════════════════════════════════════════════════════════════════════════
+# Values saved in the module page do not survive a reboot by themselves:
+# fabricated overlays live in the overlay manager's runtime state. Re-apply
+# them here and restart SystemUI once so the saved values are visible.
+# --boot waits for the overlay manager, retries until the saved values are
+# actually active, then restarts SystemUI. Restarting too early
+# reloads the static overlay's values, which looks like the reboot ignored
+# the saved values.
+MODPATH=${MODPATH:-${0%/*}}
+[ -d "$MODPATH/webroot" ] || MODPATH="/data/adb/modules/@MODULE_ID@"
+if [ -d "$MODPATH/webroot" ] && [ -f "$MODPATH/webui.conf" ]; then
+    out=$(sh "$MODPATH/webroot/apply.sh" apply --boot --restart 2>&1)
+    rc=$?
+    {
+        printf '%s\n' "--- boot apply (rc=$rc) ---"
+        printf '%s\n' "$out"
+    } > "$MODPATH/webui-boot.log" 2>/dev/null || true
+    printf '%s\n' "$out" | while IFS= read -r line; do
+        [ -n "$line" ] && log -t treble-overlay "webui: $line" 2>/dev/null
+    done
+    [ "$rc" -eq 0 ] || log -t treble-overlay "webui overrides NOT active - see webui-boot.log" 2>/dev/null || true
+fi
 
 # --- IMS overlays ---
 # Enable Samsung LSI IMS telephony overlay

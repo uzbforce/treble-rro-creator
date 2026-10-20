@@ -1,6 +1,6 @@
 # Treble Overlay Creator
 
-Build a **Magisk / KernelSU module** that adapts a GSI (Generic System Image) to
+Build a **Magisk / KernelSU / APatch module** that adapts a GSI (Generic System Image) to
 your phone's hardware: rounded corners, display cutout, brightness curve, UDFPS,
 AOD/doze, 5G/VoLTE — and optional vendor HALs for fingerprint or vibrator.
 
@@ -24,7 +24,7 @@ prints the exact command to run). Every later run goes straight to the build.
 | **Windows** | [Git for Windows](https://git-scm.com/download/win) + JDK 17 or newer (`winget install EclipseAdoptium.Temurin.17.JDK`) |
 | **Linux** | `bash`, `curl`, `unzip`, `zip` and JDK 17+. `./build.sh` can install the rest with your package manager, or use `./build.sh setup` |
 | **Termux** | Termux from **F-Droid** (not Google Play). See [docs/termux.md](docs/termux.md) |
-| **Phone** | A GSI-based ROM and a root manager (KernelSU, KSU Next or Magisk) |
+| **Phone** | A GSI-based ROM and a root manager (KernelSU, KSU Next, APatch or Magisk) |
 
 ---
 
@@ -121,17 +121,45 @@ Everything is written to `out/`:
 |---|---|
 | `out/apks/<name>.apk` | Framework overlay (signed) |
 | `out/apks/<name>-systemui.apk` | SystemUI overlay (signed, if used) |
-| `out/<name>-ksu.zip` | **Flashable module** — install this |
+| `out/<name>-ksu.zip` | **Module zip** — install this in any supported manager |
 | `out/<name>-hardware-overlay.zip` | Sources for the Hardware Overlay Repo |
 | `out/<name>-hardware-overlay-test.zip` | Test build of the repo version |
 
-Install `out/<name>-ksu.zip` in KernelSU / Magisk and reboot.
+Install `out/<name>-ksu.zip` in KernelSU, KSU Next, APatch or Magisk and reboot.
+The zip is a standard module: the same file works in all four managers (the
+`-ksu` suffix is historical; it is not KernelSU-only). It contains the normal
+`customize.sh` that KSU/APatch source and Magisk's `META-INF` installer, plus
+the shared `webroot/` page.
 
 > ⚠️ **KernelSU / KSU Next:** use **Magic Mount** (or Hybrid Mount with magic
 > mount). **Do not use OverlayFS** — it can bootloop the device.
 >
 > ⚠️ Do not copy APKs into `/system/product/overlay/` by hand. Dynamic
 > partitions do not keep them, and they miss the permissions the module sets.
+
+### Live editing (module WebUI)
+
+The module ships a page under `webroot/`. Open the module and tap **WebUI** to
+change the corner radius, status bar height/padding and a few toggles, then
+apply them **without rebuilding or reflashing**: the page writes the value into
+`resources.arsc` of the overlay APK that is already installed (a pristine copy
+is kept for **Reset**) and restarts the framework so it is read. A value the
+build did not ship — `config.env` leaves the optional padding keys commented
+out — is added to that table first, so a commented-out key no longer blocks the
+sliders. That is the only way to set a dimension at runtime —
+`cmd overlay fabricate` rejects the dimension type outright, so it is only used
+for the doze boolean.
+
+- **KernelSU / KSU Next / APatch:** built in — the module page has a WebUI
+  button.
+- **Magisk:** the official app has no WebUI. Open the same page with a WebUI
+  host such as **WebUI X** (MMRL / portable), **KsuWebUI** or **MMRL**. They
+  provide a root exec bridge that the page detects, so the page and helper are
+  shared by every manager.
+
+Only scalars can be edited there — arrays such as the auto-brightness curves
+and `power_profile.xml` still need a rebuild. Details and limits:
+[docs/webui.md](docs/webui.md).
 
 Both overlays are **static** RROs: Android enables them during boot, and
 `cmd overlay enable` cannot change them afterwards. Verify after reboot:
@@ -165,6 +193,7 @@ The status bar uses `status_bar_height_default` (Android 12L+), not the old
 │   ├── framework/res/          framework overlay resources (+ power_profile.xml)
 │   ├── systemui/res/          SystemUI overlay resources
 │   ├── module/                 optional overrides + sepolicy.rule
+│   ├── webui/                  shared WebUI page + apply.sh (packed as webroot/)
 │   └── vendor/                 optional extracted vendor HALs (git-ignored)
 ├── templates/                  reference scripts + clean templates
 ├── scripts/                    internals used by build.sh (not run directly)
@@ -213,6 +242,7 @@ the new one.
 | Guide | Contents |
 |---|---|
 | [docs/configuration.md](docs/configuration.md) | Every `config.env` option |
+| [docs/webui.md](docs/webui.md) | KernelSU WebUI: change values without rebuilding |
 | [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |
 | [docs/termux.md](docs/termux.md) | Building on the phone |
 | [docs/device-extraction.md](docs/device-extraction.md) | Extracting vendor HALs and `power_profile.xml` |
