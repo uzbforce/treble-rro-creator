@@ -1,0 +1,2569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2eee3">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121310">
+<title>Overlay — Treble RRO</title>
+<style>
+  /* ---------------------------------------------------------------------
+     Tokens — warm paper + signal orange, ink hairlines, mono annotations.
+     Two themes only; both are tuned by hand, not generated from a seed.
+     --------------------------------------------------------------------- */
+  :root {
+    color-scheme: light;
+
+    --paper: #f2eee3;
+    --panel: #f7f3e8;
+    --ink: #17180f;
+    --muted: #5f5f51;
+    --faint: #66655a;
+    --rule: #cfc8b7;
+    --rule-strong: #a9a18d;
+
+    --accent: #b93d0e;
+    --accent-press: #9d3109;
+    --accent-text: #9c340c;
+    --on-accent: #fff7ef;
+    --accent-soft: rgba(185, 61, 14, .10);
+    --bad-soft: rgba(163, 37, 27, .07);
+
+    --ok: #23624a;
+    --warn: #8a5a00;
+    --bad: #a3251b;
+
+    --track-base: #e3ddcd;
+    --tick: rgba(23, 24, 15, .18);
+    --grid: rgba(23, 24, 15, .055);
+
+    --console: #1a1b13;
+    --console-ink: #d6d3bf;
+    --console-rule: #34362a;
+
+    --shadow: 0 20px 44px -32px rgba(23, 24, 15, .55);
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, .55) inset;
+
+    --sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Cascadia Mono", monospace;
+    --ease: cubic-bezier(.2, .7, 0, 1);
+
+    /* WebUI hosts inject --safe-area-* when they draw edge-to-edge. Without
+       it the manager already pads the WebView (safeDrawing), so 0 is right. */
+    --safe-top: var(--safe-area-inset-top, 0px);
+    --safe-bottom: var(--safe-area-inset-bottom, 0px);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+
+      --paper: #121310;
+      --panel: #191a14;
+      --ink: #ece7d8;
+      --muted: #a5a294;
+      --faint: #8e8e80;
+      --rule: #33352a;
+      --rule-strong: #4b4d3e;
+
+      --accent: #ff7a45;
+      --accent-press: #ff8d5e;
+      --accent-text: #ff8a5b;
+      --on-accent: #1e1008;
+      --accent-soft: rgba(255, 122, 69, .14);
+      --bad-soft: rgba(255, 143, 128, .10);
+
+      --ok: #7fbf9f;
+      --warn: #e2b45f;
+      --bad: #ff8f80;
+
+      --track-base: #26281f;
+      --tick: rgba(236, 231, 216, .18);
+      --grid: rgba(236, 231, 216, .055);
+
+      --console: #0b0c08;
+      --console-ink: #c9cdb8;
+      --console-rule: #2a2c21;
+
+      --shadow: 0 24px 48px -30px rgba(0, 0, 0, .9);
+      --panel-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset;
+    }
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    background-color: var(--paper);
+    background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  body {
+    margin: 0 auto;
+    max-width: 640px;
+    padding: 0 18px calc(122px + var(--safe-bottom));
+    color: var(--ink);
+    font: 400 14.5px/1.45 var(--sans);
+    background: transparent;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection { background: var(--accent); color: var(--on-accent); }
+
+  /* ---------------------------------------------------------------------
+     Masthead
+     --------------------------------------------------------------------- */
+  .masthead { padding-top: calc(24px + var(--safe-top)); }
+
+  .masthead-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  }
+
+  .kicker {
+    margin: 0; min-width: 0;
+    display: flex; align-items: center; gap: 9px;
+    font: 500 10.5px/1 var(--mono);
+    letter-spacing: .15em; text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kicker-mark {
+    width: 22px; height: 2px; flex: none;
+    background: var(--accent);
+  }
+
+  .icon-button {
+    -webkit-appearance: none; appearance: none;
+    width: 44px; height: 44px; flex: none;
+    display: grid; place-items: center;
+    border: 1px solid var(--rule-strong); border-radius: 2px;
+    background: transparent; color: var(--ink);
+    transition: background .18s var(--ease), color .18s var(--ease);
+  }
+  .icon-button:active { background: var(--ink); color: var(--paper); }
+  .icon-button svg { width: 18px; height: 18px; }
+  .icon-button.spin svg { animation: spin .9s linear infinite; }
+
+  .title {
+    margin: 18px 0 0;
+    display: flex; align-items: flex-start; gap: 12px;
+    font-size: clamp(46px, 14vw, 66px);
+    line-height: .88; font-weight: 700;
+    letter-spacing: -.055em;
+  }
+  .title-tag {
+    margin-top: .45em;
+    padding: 4px 5px 3px;
+    border: 1px solid var(--rule-strong); border-radius: 1px;
+    font: 500 9.5px/1 var(--mono);
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .device {
+    margin: 12px 0 0;
+    font: 400 12px/1.4 var(--mono);
+    letter-spacing: .01em;
+    color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* Status strip */
+  .chips {
+    margin: 22px 0 0;
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    border: 1px solid var(--rule-strong); border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .chip {
+    display: flex; align-items: center; gap: 9px;
+    min-width: 0; padding: 11px 12px;
+    font: 500 10.5px/1 var(--mono);
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted);
+    border-left: 1px solid var(--rule);
+  }
+  .chip:first-child { border-left: 0; }
+
+  .chip .dot {
+    width: 6px; height: 6px; flex: none; border-radius: 1px;
+    background: var(--rule-strong);
+    transition: background .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  .chip[data-tone="ok"] .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(35, 98, 74, .12); }
+  .chip[data-tone="warn"] .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(138, 90, 0, .12); }
+  .chip[data-tone="bad"] .dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(163, 37, 27, .12); }
+  .chip[data-tone="ok"], .chip[data-tone="warn"], .chip[data-tone="bad"] { color: var(--ink); }
+
+  .chip .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Bridge warning */
+  .banner {
+    margin-top: 14px; padding: 14px 15px;
+    border: 1px solid var(--bad); border-left-width: 3px; border-radius: 2px;
+    background: var(--bad-soft);
+    font-size: 12.5px; color: var(--ink);
+  }
+  .banner strong {
+    display: block; margin-bottom: 4px;
+    font: 600 12px/1.3 var(--mono);
+    letter-spacing: .06em; text-transform: uppercase;
+    color: var(--bad);
+  }
+  .banner code {
+    display: block; margin-top: 10px; padding: 9px 10px;
+    border-radius: 2px; background: var(--console); color: var(--console-ink);
+    font: 11px/1.55 var(--mono);
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* ---------------------------------------------------------------------
+     Readout — the corner radius
+     --------------------------------------------------------------------- */
+  .readout {
+    position: relative;
+    margin-top: 28px; padding: 18px 18px 16px;
+    border: 1px solid var(--rule-strong); border-radius: 3px;
+    background: var(--panel);
+    box-shadow: var(--shadow), var(--panel-shadow);
+    overflow: hidden;
+  }
+  .readout::before,
+  .readout::after {
+    content: ""; position: absolute; width: 22px; height: 22px;
+    pointer-events: none;
+  }
+  .readout::before {
+    top: -1px; left: -1px;
+    border-top: 2px solid var(--accent); border-left: 2px solid var(--accent);
+  }
+  .readout::after {
+    right: -1px; bottom: -1px;
+    border-bottom: 2px solid var(--rule-strong); border-right: 2px solid var(--rule-strong);
+  }
+
+  .readout-grid {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px; align-items: center;
+  }
+
+  .eyebrow {
+    margin: 0;
+    display: flex; align-items: baseline; gap: 9px;
+    font: 500 10.5px/1 var(--mono);
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .eyebrow .idx { color: var(--accent-text); letter-spacing: .04em; }
+
+  .hero-value {
+    margin: 9px 0 0;
+    display: flex; align-items: baseline; gap: 7px;
+    font: 700 clamp(52px, 15vw, 68px)/.86 var(--sans);
+    letter-spacing: -.06em;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  .hero-value .unit {
+    font: 500 11px/1 var(--mono);
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .hero-note {
+    margin: 9px 0 0;
+    font-size: 11.5px; line-height: 1.4;
+    color: var(--muted);
+  }
+
+  /* Device preview */
+  .preview { display: grid; place-items: center; }
+
+  .phone {
+    --device-radius: 26px;
+    --bar-height: 14px;
+    --bar-inset: 8px;
+    --content-inset: 6px;
+    position: relative;
+    width: 90px; height: 158px;
+    display: flex; flex-direction: column;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--device-radius);
+    background: var(--paper);
+    box-shadow: 0 16px 26px -20px rgba(0, 0, 0, .55);
+    overflow: hidden;
+    transition: border-radius .22s var(--ease);
+  }
+  .phone::after {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 34%;
+    background: linear-gradient(180deg, transparent,
+      var(--accent-soft), transparent);
+    opacity: .7; pointer-events: none;
+  }
+
+  .device-bar {
+    height: var(--bar-height); flex: none;
+    margin: 0 var(--bar-inset);
+    display: flex; align-items: center; gap: 3px;
+    transition: height .22s var(--ease), margin .22s var(--ease);
+  }
+  .device-bar .pill {
+    height: 3px; flex: 1; margin-top: calc(var(--bar-height) * .34);
+    background: var(--rule-strong);
+  }
+  .device-bar .dot {
+    width: 3px; height: 3px; flex: none;
+    margin-top: calc(var(--bar-height) * .34);
+    background: var(--faint);
+  }
+
+  .device-body {
+    flex: 1; display: flex; flex-direction: column; gap: 5px;
+    padding: var(--content-inset); padding-top: 2px;
+    transition: padding .22s var(--ease);
+  }
+  .device-body i {
+    display: block; height: 4px; background: var(--rule);
+  }
+  .device-body i.strong {
+    width: 72%;
+    background: var(--accent);
+    opacity: .65;
+  }
+
+  /* Controls */
+  .readout-controls {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 18px; padding-top: 14px;
+    border-top: 1px solid var(--rule);
+  }
+  .readout-controls .range-wrap { flex: 1; }
+
+  .range-wrap { position: relative; min-width: 0; display: flex; align-items: center; }
+
+  .range {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 44px; margin: 0;
+    background: transparent; display: block;
+    touch-action: pan-y;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 1px;
+    background-image:
+      linear-gradient(to right, var(--accent) 0 var(--fill, 0%), transparent var(--fill, 0%)),
+      repeating-linear-gradient(to right, var(--tick) 0 1px, transparent 1px 10%),
+      linear-gradient(var(--track-base), var(--track-base));
+    transition: background-image .08s linear;
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 4px; height: 24px; margin-top: -9px;
+    border-radius: 1px;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent-soft);
+    transition: box-shadow .18s var(--ease), width .18s var(--ease);
+  }
+  .range:active::-webkit-slider-thumb {
+    width: 8px;
+    box-shadow: 0 0 0 5px var(--accent-soft);
+  }
+  .range:disabled { opacity: .4; }
+
+  .number {
+    display: flex; align-items: center; gap: 3px; flex: none;
+    height: 44px; padding: 0 9px 0 10px;
+    border: 1px solid var(--rule-strong); border-radius: 2px;
+    background: var(--paper);
+    transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  .number:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .number input {
+    width: 40px; padding: 0; border: 0; background: transparent;
+    color: var(--ink); outline: none;
+    font: 600 15px/1 var(--mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield; appearance: textfield;
+  }
+  .number input::-webkit-outer-spin-button,
+  .number input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .number span {
+    font: 500 9.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---------------------------------------------------------------------
+     Sections
+     --------------------------------------------------------------------- */
+  .card { margin-top: 30px; border-top: 1px solid var(--ink); padding-top: 11px; }
+
+  .card-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding-bottom: 10px;
+  }
+  .card h2 {
+    margin: 0; display: flex; align-items: baseline; gap: 9px;
+    font: 700 15px/1.2 var(--sans); letter-spacing: -.015em;
+  }
+  .idx {
+    font: 500 10px/1 var(--mono);
+    letter-spacing: .06em; color: var(--accent-text);
+  }
+  .card-head .meta {
+    font: 500 10px/1 var(--mono);
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .row { padding: 13px 0 14px; border-top: 1px solid var(--rule); }
+  .row:first-child { border-top: 0; }
+
+  .row-head { display: flex; align-items: baseline; gap: 12px; }
+  .row-label {
+    flex: 1; min-width: 0;
+    font: 500 14px/1.35 var(--sans); letter-spacing: -.005em;
+  }
+  .row-label small {
+    display: block; margin-top: 2px;
+    color: var(--muted);
+    font: 400 11.5px/1.4 var(--sans);
+    overflow-wrap: anywhere;
+  }
+  .active {
+    flex: none;
+    font: 500 10.5px/1 var(--mono);
+    letter-spacing: .02em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .active[data-diff="true"] { color: var(--bad); }
+  .active[data-diff="true"]::before { content: "\2260  "; }
+
+  .row-control { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+  /* Power */
+  .switch-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 0 14px;
+    border-top: 1px solid var(--rule);
+  }
+  .switch-row .row-label { font-size: 14px; }
+
+  /* 44px hit area, 26px visual lever */
+  .switch { position: relative; width: 46px; height: 44px; flex: none; }
+  .switch input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    margin: 0; opacity: 0; z-index: 1;
+  }
+  .switch .track {
+    position: absolute; left: 0; right: 0; top: 9px; height: 26px;
+    border: 1px solid var(--rule-strong); border-radius: 2px;
+    background: transparent;
+    transition: background .2s var(--ease), border-color .2s var(--ease);
+    pointer-events: none;
+  }
+  .switch .thumb {
+    position: absolute; top: 13px; left: 4px;
+    width: 16px; height: 16px; border-radius: 1px;
+    background: var(--rule-strong);
+    transition: transform .2s var(--ease), background .2s var(--ease);
+    pointer-events: none;
+  }
+  .switch input:checked + .track {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .switch input:checked + .track + .thumb {
+    transform: translateX(20px);
+    background: var(--on-accent);
+  }
+
+  /* ---------------------------------------------------------------------
+     Diagnostics
+     --------------------------------------------------------------------- */
+  .diag {
+    margin-top: 30px;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--rule);
+  }
+  .diag summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 10px;
+    padding: 15px 0;
+    font: 600 12.5px/1 var(--sans);
+    letter-spacing: .01em;
+  }
+  .diag summary::-webkit-details-marker { display: none; }
+  .summary-meta {
+    font: 500 9.5px/1 var(--mono);
+    letter-spacing: .11em; text-transform: uppercase;
+    color: var(--faint);
+    border: 1px solid var(--rule); border-radius: 1px;
+    padding: 4px 5px 3px;
+  }
+  .chevron {
+    margin-left: auto; width: 15px; height: 15px; color: var(--muted);
+    transition: transform .22s var(--ease);
+  }
+  .diag[open] .chevron { transform: rotate(180deg); }
+  .diag-body { padding: 0 0 18px; }
+
+  .log {
+    margin: 0; padding: 12px;
+    border: 1px solid var(--console-rule); border-radius: 2px;
+    background: var(--console); color: var(--console-ink);
+    font: 10.5px/1.65 var(--mono);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .diag-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* ---------------------------------------------------------------------
+     Buttons
+     --------------------------------------------------------------------- */
+  .btn {
+    -webkit-appearance: none; appearance: none;
+    height: 44px; padding: 0 16px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid transparent; border-radius: 2px;
+    background: transparent; color: var(--ink);
+    font: 600 12.5px/1 var(--sans); letter-spacing: .005em;
+    transition: background .18s var(--ease), color .18s var(--ease),
+                border-color .18s var(--ease), transform .12s var(--ease);
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .4; }
+  .btn svg { width: 14px; height: 14px; flex: none; }
+
+  .btn.solid {
+    background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  }
+  .btn.solid:active { background: var(--accent-press); border-color: var(--accent-press); }
+  .btn.outline { border-color: var(--rule-strong); }
+  .btn.quiet { color: var(--muted); padding: 0 10px; }
+  .btn.quiet.danger { color: var(--bad); }
+  .btn.small { height: 38px; padding: 0 12px; font-size: 11.5px; }
+
+  /* ---------------------------------------------------------------------
+     Dock
+     --------------------------------------------------------------------- */
+  .dock {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px calc(10px + var(--safe-bottom));
+    background: var(--paper);
+    border-top: 1px solid var(--rule-strong);
+  }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .dock {
+      background: rgba(242, 238, 227, .86);
+      -webkit-backdrop-filter: blur(16px) saturate(120%);
+      backdrop-filter: blur(16px) saturate(120%);
+    }
+    @media (prefers-color-scheme: dark) {
+      .dock { background: rgba(18, 19, 16, .86); }
+    }
+  }
+  .dock .btn.solid { flex: 1; min-width: 0; white-space: nowrap; }
+
+  .progress {
+    position: fixed; left: 0; right: 0; top: 0; height: 2px;
+    z-index: 40; overflow: hidden;
+  }
+  .progress[hidden] { display: none; }
+  .progress::after {
+    content: ""; display: block; height: 100%; width: 28%;
+    background: var(--accent);
+    animation: indeterminate 1.1s var(--ease) infinite;
+  }
+
+  /* ---------------------------------------------------------------------
+     Snackbar + reset sheet
+     --------------------------------------------------------------------- */
+  .snackbar {
+    position: fixed; left: 14px; right: 14px;
+    bottom: calc(78px + var(--safe-bottom));
+    z-index: 30;
+    padding: 12px 14px;
+    border-left: 3px solid var(--accent); border-radius: 2px;
+    background: var(--console); color: var(--console-ink);
+    font: 500 11.5px/1.5 var(--mono);
+    box-shadow: var(--shadow);
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity .2s var(--ease), transform .2s var(--ease);
+  }
+  .snackbar.show { opacity: 1; transform: none; }
+  .snackbar[data-tone="ok"] { border-left-color: var(--ok); }
+  .snackbar[data-tone="error"] {
+    border-left-color: var(--bad);
+    background: var(--bad); color: var(--paper);
+  }
+
+  dialog.sheet {
+    width: min(420px, calc(100% - 28px));
+    margin: auto auto calc(14px + var(--safe-bottom)); padding: 0;
+    border: 1px solid var(--rule-strong); border-radius: 3px;
+    background: var(--panel); color: var(--ink);
+    box-shadow: 0 32px 64px -32px rgba(0, 0, 0, .65);
+  }
+  dialog.sheet::backdrop { background: rgba(10, 10, 8, .55); }
+  .sheet-inner { padding: 22px; }
+  .sheet h2 {
+    margin: 0 0 8px;
+    font: 700 19px/1.2 var(--sans); letter-spacing: -.02em;
+  }
+  .sheet p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+  .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+  /* ---------------------------------------------------------------------
+     Fit + feel
+     --------------------------------------------------------------------- */
+  @media (max-width: 380px) {
+    body { padding-left: 15px; padding-right: 15px; }
+    .phone { width: 78px; height: 138px; }
+    .hero-value { font-size: clamp(46px, 15vw, 60px); }
+    .dock { gap: 4px; padding-left: 10px; padding-right: 10px; }
+    .dock .btn { padding: 0 10px; font-size: 12px; }
+    .dock .btn.quiet { padding: 0 6px; }
+    .dock .btn.solid svg { display: none; }
+    .number { padding: 0 7px; }
+    .number input { width: 36px; }
+  }
+
+  @media (max-width: 340px) {
+    .readout-grid { grid-template-columns: minmax(0, 1fr); }
+    .preview { display: none; }
+  }
+
+  @media (min-width: 560px) {
+    .dock {
+      left: 50%; right: auto; width: 640px; max-width: 100%;
+      transform: translateX(-50%);
+      padding-left: 18px; padding-right: 18px;
+      border-left: 1px solid var(--rule);
+      border-right: 1px solid var(--rule);
+    }
+    .dock .btn.quiet { margin-right: auto; }
+    .dock .btn.solid { flex: 0 0 250px; }
+    .snackbar { left: 50%; right: auto; width: 560px; transform: translate(-50%, 8px); }
+    .snackbar.show { transform: translate(-50%, 0); }
+  }
+
+  @media (min-width: 680px) {
+    body { padding-left: 0; padding-right: 0; }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .range:focus-visible { outline-offset: 4px; }
+
+  @media (hover: hover) {
+    .icon-button:hover { background: var(--ink); color: var(--paper); }
+    .btn.outline:hover { border-color: var(--ink); }
+    .btn.quiet:hover { background: var(--accent-soft); }
+    .btn.solid:hover { background: var(--accent-press); border-color: var(--accent-press); }
+    .diag summary:hover .chevron { color: var(--ink); }
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes scan {
+    0% { transform: translateY(-140%); }
+    100% { transform: translateY(330%); }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .masthead-row { animation: rise .45s var(--ease) both; }
+    .title { animation: rise .5s .04s var(--ease) both; }
+    .device { animation: rise .5s .08s var(--ease) both; }
+    .chips { animation: rise .5s .12s var(--ease) both; }
+    .readout { animation: rise .55s .16s var(--ease) both; }
+    .card { animation: rise .55s .2s var(--ease) both; }
+    .diag { animation: rise .55s .24s var(--ease) both; }
+    .phone::after { animation: scan 8s linear infinite; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+    .phone::after { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="progress" id="progress" hidden></div>
+
+  <header class="masthead">
+    <div class="masthead-row">
+      <p class="kicker"><span class="kicker-mark" aria-hidden="true"></span>Treble / runtime overlay</p>
+      <button class="icon-button" id="refreshBtn" type="button" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
+          <path d="M20 5v6h-6"></path>
+        </svg>
+      </button>
+    </div>
+
+    <h1 class="title">Overlay<span class="title-tag" aria-hidden="true">UI</span></h1>
+    <p class="device" id="deviceLine">Connecting to the device…</p>
+
+    <div class="chips">
+      <span class="chip" id="chipApi" data-tone="neutral">
+        <span class="dot" aria-hidden="true"></span><span class="label">Android —</span>
+      </span>
+      <span class="chip" id="chipOverlay" data-tone="neutral">
+        <span class="dot" aria-hidden="true"></span><span class="label">Checking overlays</span>
+      </span>
+    </div>
+
+    <div class="banner" id="banner" hidden>
+      <strong id="bannerTitle">Root shell unavailable</strong>
+      <span id="bannerText"></span>
+      <code id="bannerDetail"></code>
+    </div>
+  </header>
+
+  <main>
+    <section class="readout" aria-labelledby="heroLabel">
+      <div class="readout-grid">
+        <div>
+          <p class="eyebrow" id="heroLabel"><span class="idx">01</span>Corner radius</p>
+          <p class="hero-value"><span id="heroNum">—</span><span class="unit">px</span></p>
+          <p class="hero-note" id="heroNote">Rounded screen corners</p>
+        </div>
+        <div class="preview" aria-hidden="true">
+          <div class="phone" id="device">
+            <div class="device-bar"><span class="pill"></span><span class="dot"></span><span class="dot"></span></div>
+            <div class="device-body">
+              <i class="strong"></i><i></i><i style="width:84%"></i><i style="width:62%"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="readout-controls">
+        <div class="range-wrap">
+          <input class="range" type="range" id="s-RADIUS" min="0" max="240" step="1"
+                 aria-label="Corner radius">
+        </div>
+        <div class="number">
+          <input type="number" id="RADIUS" inputmode="numeric" min="0" max="240"
+                 aria-label="Corner radius in pixels">
+          <span>px</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="frameworkCard">
+      <div class="card-head">
+        <h2><span class="idx">02</span>Framework</h2>
+        <span class="meta">android</span>
+      </div>
+      <div id="rows-framework"></div>
+    </section>
+
+    <section class="card" id="systemuiCard">
+      <div class="card-head">
+        <h2><span class="idx">03</span>Status bar</h2>
+        <span class="meta">systemui</span>
+      </div>
+      <div id="rows-systemui"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="idx">04</span>Power</h2>
+        <span class="meta">doze</span>
+      </div>
+      <div class="switch-row">
+        <label class="row-label" for="DOZE_BLANK">
+          Blank after doze
+          <small>config_displayBlanksAfterDoze</small>
+        </label>
+        <span class="active" id="cur-DOZE_BLANK">—</span>
+        <label class="switch">
+          <input type="checkbox" id="DOZE_BLANK">
+          <span class="track"></span><span class="thumb"></span>
+        </label>
+      </div>
+    </section>
+
+    <details class="diag" id="diag">
+      <summary>
+        <span>Diagnostics</span>
+        <span class="summary-meta" aria-hidden="true">shell</span>
+        <span class="chevron">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </span>
+      </summary>
+      <div class="diag-body">
+        <pre class="log" id="log">Waiting for the device…</pre>
+        <div class="diag-actions">
+          <button class="btn outline small" id="statusBtn" type="button">Refresh status</button>
+          <button class="btn quiet small" id="diagBtn" type="button">Run diagnostics</button>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <div class="snackbar" id="snackbar" role="status" aria-live="polite"></div>
+
+  <div class="dock">
+    <button class="btn quiet danger" id="resetBtn" type="button">Reset</button>
+    <button class="btn outline" id="applyQuiet" type="button">Apply</button>
+    <button class="btn solid" id="applyRestart" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5"></path>
+      </svg>
+      Apply &amp; reload
+    </button>
+  </div>
+
+  <dialog class="sheet" id="resetDialog">
+    <div class="sheet-inner">
+      <h2>Reset overrides?</h2>
+      <p>Restores the overlay APKs this module shipped and discards the saved values. The framework restarts when something was actually applied; the build-time values come back with it.</p>
+      <div class="sheet-actions">
+        <button class="btn quiet" id="resetCancel" type="button" value="cancel">Cancel</button>
+        <button class="btn solid" id="resetConfirm" type="button" value="confirm">Reset</button>
+      </div>
+    </div>
+  </dialog>
+
+<script>
+(function () {
+  "use strict";
+
+  /* -------------------------------------------------------------------
+     Fields
+     ------------------------------------------------------------------- */
+  var FIELDS = [
+    { key: "RADIUS",      group: "hero",      label: "Corner radius",
+      hint: "Rounded screen corners",                     min: 0, max: 240, hero: true },
+    { key: "SB_HEIGHT",   group: "framework", label: "Status bar height",
+      hint: "Height of the bar above apps",               min: 0, max: 240 },
+    { key: "PAD_CONTENT", group: "framework", label: "Content padding",
+      hint: "Moves the clock and icons off the corners",  min: 0, max: 160 },
+    { key: "PAD_START",   group: "systemui",  label: "Padding start",
+      hint: "Space before the clock",                     min: 0, max: 160 },
+    { key: "PAD_END",     group: "systemui",  label: "Padding end",
+      hint: "Space after the status icons",               min: 0, max: 160 }
+  ];
+
+  var STATUS_KEY = {
+    RADIUS: "radius", SB_HEIGHT: "sb_height", PAD_CONTENT: "pad_content",
+    PAD_START: "pad_start", PAD_END: "pad_end", DOZE_BLANK: "doze_blank"
+  };
+
+  var API_NAMES = { 31: "12", 32: "12L", 33: "13", 34: "14", 35: "15", 36: "16", 37: "17" };
+
+  var el = {};
+  FIELDS.forEach(function (f) {
+    f.row = null;
+    f.range = null;
+    f.num = null;
+    f.active = null;
+  });
+
+  var state = {
+    fields: {},            // key -> { row, range, num, active }
+    values: {},            // what the page would apply
+    active: {},            // what the device resolves right now
+    sdk: "",
+    model: "",
+    total: 0,
+    enabled: 0,
+    noBridge: false,
+    uid: "",
+    notRoot: false,
+    useSu: false,
+    suBin: "",
+    blocked: false,
+    rootProbe: null,
+    rootTried: false,
+    rootError: "",
+    log: [],
+    pinned: "",           // last failed Apply/Reset output, kept above the log
+    saved: {},            // values from webui.conf (what Apply stored)
+    pending: [],          // saved values the framework has not picked up yet
+    notice: null          // banner text that survives a status refresh
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  /* -------------------------------------------------------------------
+     Shell bridge
+     KernelSU's native bridge does NOT take a JS function: it takes the
+     *name* of a global callback and evaluates it later (this is what the
+     official js/kernelsu library does). Other managers take a function, a
+     promise, or return the result synchronously. Probe once, then use the
+     convention that actually answers.
+     ------------------------------------------------------------------- */
+  function findBridge() {
+    // KernelSU / KSU Next / APatch expose `ksu` (APatch deliberately keeps the
+    // KernelSU name for compatibility). Magisk WebUI hosts use their own
+    // globals: MMRL / WebUI X expose `mmrl` or `$mmrl`; KsuWebUI exposes
+    // `ksu`; a few hosts use `webui`.
+    var names = ["ksu", "Ksu", "$ksu", "apatch", "APatch",
+                 "magisk", "Magisk", "$magisk",
+                 "mmrl", "$mmrl", "MMRL", "$MMRL",
+                 "webui", "$webui", "WebUI", "$WebUI"];
+    for (var i = 0; i < names.length; i++) {
+      var obj = window[names[i]];
+      if (obj && typeof obj.exec === "function") {
+        return { label: names[i], exec: obj.exec.bind(obj) };
+      }
+    }
+    return null;
+  }
+
+  var bridge = findBridge();
+  var bridgeMode = null;      // "name" | "name2" | "callback" | "twoArg" | "oneArg"
+  var bridgeProbe = null;
+  var CALLBACK_SEQ = 0;
+
+  function normalizeResult(value) {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      try { value = JSON.parse(value); } catch (e) { return { errno: 0, stdout: String(value), stderr: "" }; }
+    }
+    if (typeof value === "object") {
+      if (typeof value.stdout !== "undefined" || typeof value.errno !== "undefined") {
+        return {
+          errno: Number(typeof value.errno === "number" ? value.errno : 0),
+          stdout: String(value.stdout == null ? "" : value.stdout),
+          stderr: String(value.stderr == null ? "" : value.stderr)
+        };
+      }
+      // Some managers nest the result in `data`.
+      if (value.data && typeof value.data === "object") return normalizeResult(value.data);
+    }
+    return null;
+  }
+
+  function normalizeCallback(a, b, c) {
+    if (typeof a === "number") {
+      return { errno: a, stdout: String(b == null ? "" : b), stderr: String(c == null ? "" : c) };
+    }
+    if (typeof a === "string" && typeof b === "string") {
+      // Some forks use callback(stdout, stderr).
+      return { errno: 0, stdout: a, stderr: b };
+    }
+    var nested = normalizeResult(a);
+    if (nested) return nested;
+    if (typeof a === "string") return { errno: 0, stdout: a, stderr: "" };
+    return null;
+  }
+
+  // Runs one command with one calling convention. Resolves to null when that
+  // convention produced no reply (so the probe can try the next one).
+  function callBridge(mode, cmd, timeoutMs) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = null;
+      var callbackName = null;
+
+      function finish(result) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (callbackName) { try { delete window[callbackName]; } catch (e) {} }
+        resolve(result || null);
+      }
+
+      timer = setTimeout(function () { finish(null); }, timeoutMs || 15000);
+
+      var handler = function (a, b, c) { finish(normalizeCallback(a, b, c)); };
+
+      try {
+        var ret;
+        if (mode === "name" || mode === "name2") {
+          // KernelSU / APatch native: ksu.exec(cmd, options, callbackFunctionName)
+          // Some minimal hosts expose the two-argument form only.
+          callbackName = "__treble_webui_cb_" + Date.now().toString(36) + "_" + (++CALLBACK_SEQ);
+          window[callbackName] = handler;
+          ret = mode === "name"
+            ? bridge.exec(cmd, JSON.stringify({ cwd: "/" }), callbackName)
+            : bridge.exec(cmd, callbackName);
+        } else if (mode === "oneArg") {
+          // Old / minimal bridges: ksu.exec(cmd) returns stdout synchronously.
+          ret = bridge.exec(cmd);
+        } else if (mode === "twoArg") {
+          ret = bridge.exec(cmd, handler);
+        } else {
+          ret = bridge.exec(cmd, JSON.stringify({ cwd: "/" }), handler);
+        }
+
+        if (ret && typeof ret.then === "function") {
+          ret.then(function (r) {
+            finish(normalizeResult(r) || { errno: 0, stdout: String(r), stderr: "" });
+          }, function (e) {
+            finish({ errno: 1, stdout: "", stderr: String(e) });
+          });
+        } else if (ret !== undefined && ret !== null) {
+          var direct = normalizeResult(ret);
+          if (direct) finish(direct);
+        }
+        // Otherwise the callback above settles it.
+      } catch (e) {
+        finish({ errno: 1, stdout: "", stderr: String(e) });
+      }
+    });
+  }
+
+  var PROBE_CMD = "echo __treble_webui_probe__";
+
+  function probeBridge() {
+    var modes = ["name", "name2", "callback", "twoArg", "oneArg"];
+    var i = 0;
+    return new Promise(function (resolve) {
+      function next() {
+        if (i >= modes.length) { resolve(null); return; }
+        var mode = modes[i++];
+        // Sequential on purpose: calling the native bridge with a function in
+        // the options slot can throw inside the manager. The first working
+        // convention wins and is cached for the rest of the session.
+        callBridge(mode, PROBE_CMD, 1500).then(function (r) {
+          if (r && typeof r.errno === "number" &&
+              String(r.stdout).indexOf("__treble_webui_probe__") !== -1) {
+            resolve(mode);
+          } else {
+            next();
+          }
+        });
+      }
+      next();
+    }).then(function (mode) {
+      bridgeMode = mode;
+      if (mode) addLog("bridge", { errno: 0, stdout: "protocol: " + mode, stderr: "" });
+      return mode;
+    });
+  }
+
+  function ensureBridge() {
+    if (!bridge) return Promise.resolve(null);
+    if (bridgeMode) return Promise.resolve(bridgeMode);
+    if (!bridgeProbe) bridgeProbe = probeBridge();
+    return bridgeProbe;
+  }
+
+  function exec(cmd, timeoutMs) {
+    return ensureBridge().then(function (mode) {
+      if (!bridge) {
+        return { errno: 127, stdout: "",
+                 stderr: "No WebUI shell bridge found. Open this page from KernelSU / " +
+                         "KSU Next / APatch, or from a Magisk WebUI host (WebUI X, " +
+                         "KsuWebUI, MMRL)." };
+      }
+      if (!mode) {
+        return { errno: 127, stdout: "",
+                 stderr: "window." + bridge.label + ".exec exists, but none of the known " +
+                         "calling conventions answered (callback name, two-argument " +
+                         "callback, callback function, promise or return value)." };
+      }
+      return callBridge(mode, cmd, timeoutMs).then(function (r) {
+        return r || { errno: -1, stdout: "",
+                      stderr: "The WebUI bridge did not answer within " +
+                              Math.round((timeoutMs || 15000) / 1000) + " s (protocol: " +
+                              mode + ")." };
+      });
+    });
+  }
+
+  // KernelSU's moduleInfo() is the only reliable way to pick *this* module
+  // when several modules ship a webroot/apply.sh. It returns JSON in current
+  // KernelSU (id + moduleDir), a bare module id in older builds, and is absent
+  // in APatch / most Magisk WebUI hosts — hence the glob fallback below.
+  var scriptPath = null;
+  function moduleScript() {
+    if (scriptPath !== null) return scriptPath;
+    scriptPath = "";
+    // Some hosts (APatch, Magisk WebUI hosts) open the page directly from
+    // /data/adb/modules/<id>/webroot/index.html without a moduleInfo() API.
+    // Use that path when present so multiple installed modules cannot pick
+    // each other's helper with the glob fallback.
+    try {
+      var here = String(window.location.href).match(
+        /\/data\/adb\/modules\/([A-Za-z0-9._-]+)\/webroot(?:\/|$)/);
+      if (here) {
+        scriptPath = "/data/adb/modules/" + here[1] + "/webroot/apply.sh";
+        return scriptPath;
+      }
+    } catch (e) { /* fall through to moduleInfo()/glob */ }
+    try {
+      var api = bridge ? window[bridge.label] : null;
+      if (!api || typeof api.moduleInfo !== "function") return scriptPath;
+      var raw = api.moduleInfo();
+      var id = "";
+      var dir = "";
+      if (typeof raw === "string" && raw.charAt(0) === "{") {
+        var info = JSON.parse(raw);
+        id = String(info.id || "");
+        dir = String(info.moduleDir || "");
+      } else if (typeof raw === "string") {
+        id = raw.trim();
+      } else if (raw && typeof raw === "object") {
+        id = String(raw.id || "");
+        dir = String(raw.moduleDir || "");
+      }
+      if (id && /^[A-Za-z0-9._-]+$/.test(id)) {
+        scriptPath = "/data/adb/modules/" + id + "/webroot/apply.sh";
+      } else if (/^\/data\/adb\/modules\/[A-Za-z0-9._-]+$/.test(dir)) {
+        scriptPath = dir + "/webroot/apply.sh";
+      }
+    } catch (e) { /* fall back to the glob */ }
+    return scriptPath;
+  }
+
+  function buildFind() {
+    var exact = moduleScript();
+    var parts = [];
+    parts.push(exact ? "M=" + quote(exact) : "M=");
+    parts.push('[ -f "$M" ] || M=$(ls -d /data/adb/modules/treble-overlay-*/webroot/apply.sh 2>/dev/null | head -n 1)');
+    parts.push('[ -f "$M" ] || M=$(ls -d /data/adb/modules/*/webroot/apply.sh 2>/dev/null | head -n 1)');
+    parts.push('[ -f "$M" ] || { echo "MODULE_NOT_FOUND" >&2; exit 127; }');
+    parts.push('sh "$M"');
+    return parts.join("; ");
+  }
+
+  function quote(arg) {
+    return "'" + String(arg).replace(/'/g, "'\"'\"'") + "'";
+  }
+
+  function run(args, timeoutMs) {
+    var cmd = buildFind();
+    if (args && args.length) {
+      cmd += " " + args.map(quote).join(" ");
+    }
+    if (state.useSu) {
+      // The host shell is not root; re-enter through su. The whole command is
+      // passed as one argument so the bridge cannot split it.
+      cmd = (state.suBin || "su") + " -c " +
+            quote("PATH=/sbin:/system/sbin:/system/bin:/system/xbin:$PATH; " + cmd);
+    }
+    return exec(cmd, timeoutMs).then(function (r) {
+      addLog(cmd, r);
+      return r;
+    });
+  }
+
+  /* -------------------------------------------------------------------
+     Build the field rows
+     ------------------------------------------------------------------- */
+  function bindField(f) {
+    f.range.addEventListener("input", function () {
+      f.num.value = f.range.value;
+      state.values[f.key] = f.range.value;
+      paintField(f);
+      paintPreview();
+    });
+
+    f.num.addEventListener("input", function () {
+      var v = clamp(parseInt(f.num.value, 10), f.min, f.max);
+      if (!isNaN(v)) {
+        f.range.value = String(v);
+        state.values[f.key] = String(v);
+      }
+      paintField(f);
+      paintPreview();
+    });
+
+    f.num.addEventListener("blur", function () {
+      var v = clamp(parseInt(f.num.value, 10), f.min, f.max);
+      if (isNaN(v)) {
+        // Empty / non-numeric: restore the last valid value instead of
+        // leaving a field that Apply would silently skip.
+        v = parseInt(state.values[f.key], 10);
+        if (isNaN(v)) v = parseInt(state.active[f.key], 10);
+        if (isNaN(v)) v = f.min;
+      }
+      f.num.value = String(v);
+      f.range.value = String(v);
+      state.values[f.key] = String(v);
+      paintField(f);
+      paintPreview();
+    });
+  }
+
+  function buildFields() {
+    FIELDS.forEach(function (f) {
+      // The radius controls already exist in the hero.
+      if (f.hero) {
+        f.range = $("s-" + f.key);
+        f.num = $(f.key);
+        f.active = null;
+        state.fields[f.key] = f;
+        bindField(f);
+        return;
+      }
+
+      var card = $("rows-" + f.group);
+      var row = document.createElement("div");
+      row.className = "row";
+
+      var head = document.createElement("div");
+      head.className = "row-head";
+
+      var label = document.createElement("label");
+      label.className = "row-label";
+      label.setAttribute("for", f.key);
+      label.innerHTML = '<span></span><small></small>';
+      label.firstChild.textContent = f.label;
+      label.lastChild.textContent = f.hint;
+
+      var active = document.createElement("span");
+      active.className = "active";
+      active.id = "active-" + f.key;
+      active.textContent = "—";
+
+      head.appendChild(label);
+      head.appendChild(active);
+
+      var control = document.createElement("div");
+      control.className = "row-control";
+
+      var wrap = document.createElement("div");
+      wrap.className = "range-wrap";
+      var range = document.createElement("input");
+      range.className = "range";
+      range.type = "range";
+      range.id = "s-" + f.key;
+      range.min = f.min;
+      range.max = f.max;
+      range.step = 1;
+      range.setAttribute("aria-label", f.label);
+      wrap.appendChild(range);
+
+      var number = document.createElement("div");
+      number.className = "number";
+      var num = document.createElement("input");
+      num.type = "number";
+      num.id = f.key;
+      num.inputMode = "numeric";
+      num.min = f.min;
+      num.max = f.max;
+      num.setAttribute("aria-label", f.label + " in pixels");
+      var unit = document.createElement("span");
+      unit.textContent = "px";
+      number.appendChild(num);
+      number.appendChild(unit);
+
+      control.appendChild(wrap);
+      control.appendChild(number);
+
+      row.appendChild(head);
+      row.appendChild(control);
+      card.appendChild(row);
+
+      f.row = row;
+      f.range = range;
+      f.num = num;
+      f.active = active;
+      state.fields[f.key] = f;
+      bindField(f);
+    });
+
+    $("DOZE_BLANK").addEventListener("change", function () {
+      state.values.DOZE_BLANK = this.checked ? "true" : "false";
+      paintDoze();
+    });
+  }
+
+  function clamp(value, min, max) {
+    if (isNaN(value)) return NaN;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function paintField(f) {
+    var value = parseInt(f.num.value, 10);
+    var max = Number(f.range.max) || 1;
+    var pct = isNaN(value) ? 0 : Math.max(0, Math.min(100, (value / max) * 100));
+    f.range.style.setProperty("--fill", pct + "%");
+
+    if (!f.active) return;
+    var active = state.active[f.key];
+    f.active.textContent = active === "" || active == null
+      ? "active —"
+      : "active " + active + "px";
+    f.active.dataset.diff = (active !== "" && active != null && !isNaN(value) &&
+                             String(active) !== String(value)) ? "true" : "false";
+  }
+
+  function paintDoze() {
+    var active = state.active.DOZE_BLANK;
+    var now = $("cur-DOZE_BLANK");
+    var pending = $("DOZE_BLANK").checked ? "true" : "false";
+    if (active === "true" || active === "false") {
+      now.textContent = "active " + (active === "true" ? "on" : "off");
+      now.dataset.diff = active !== pending ? "true" : "false";
+    } else {
+      now.textContent = "active —";
+      now.dataset.diff = "false";
+    }
+  }
+
+  function paintPreview() {
+    var radius = parseInt(state.values.RADIUS, 10);
+    var sb = parseInt(state.values.SB_HEIGHT, 10);
+    var start = parseInt(state.values.PAD_START, 10);
+    var pad = parseInt(state.values.PAD_CONTENT, 10);
+    if (isNaN(radius)) radius = 26;
+    if (isNaN(sb)) sb = 14;
+    if (isNaN(start)) start = 8;
+    if (isNaN(pad)) pad = 6;
+
+    var device = $("device");
+    device.style.setProperty("--device-radius", Math.round(clamp(radius * 0.22, 8, 40)) + "px");
+    device.style.setProperty("--bar-height", Math.round(clamp(sb * 0.09, 10, 24)) + "px");
+    device.style.setProperty("--bar-inset", Math.round(clamp(start * 0.10, 6, 18)) + "px");
+    device.style.setProperty("--content-inset", Math.round(clamp(pad * 0.10, 6, 16)) + "px");
+
+    $("heroNum").textContent = isNaN(parseInt(state.values.RADIUS, 10))
+      ? "—" : parseInt(state.values.RADIUS, 10);
+    var heroActive = state.active.RADIUS;
+    $("heroNote").textContent = heroActive !== "" && heroActive != null
+      ? "Active on the device: " + heroActive + " px"
+      : "Rounded screen corners";
+  }
+
+  /* -------------------------------------------------------------------
+     Status
+     ------------------------------------------------------------------- */
+  function parseKv(text) {
+    var map = {};
+    String(text || "").split(/\r?\n/).forEach(function (line) {
+      var i = line.indexOf("=");
+      if (i < 1) return;
+      map[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    });
+    return map;
+  }
+
+  function renderStatus(st) {
+    if (st.cmd === "unavailable") {
+      // The bridge answered, but the overlay service did not. Applying would
+      // fail, so explain it here instead of letting the user press Apply.
+      state.noBridge = true;
+      $("banner").hidden = false;
+      $("bannerTitle").textContent = "Overlay service unavailable";
+      $("bannerText").textContent = "The WebUI bridge works, but 'cmd overlay' did not answer. Check root access and that this is an Android 12+ device.";
+      $("bannerDetail").textContent = "cmd overlay list: failed";
+      setChip($("chipOverlay"), "Overlay service down", "bad");
+    }
+
+    if (st.sdk && st.sdk !== "?") {
+      state.sdk = st.sdk;
+      var name = API_NAMES[st.sdk] || st.sdk;
+      setChip($("chipApi"), "Android " + name, "ok");
+    } else {
+      setChip($("chipApi"), "Android unknown", "bad");
+    }
+
+    state.model = st.model || "";
+    $("deviceLine").textContent = state.model
+      ? state.model + " · Treble overlay"
+      : "Treble hardware overlay";
+
+    var total = parseInt(st.overlay_total, 10) || 0;
+    var enabled = parseInt(st.overlay_enabled, 10) || 0;
+    state.total = total;
+    state.enabled = enabled;
+
+    // A non-root bridge can still list overlays, so the rest of the page looks
+    // healthy while every write and every fabricate is rejected. Say it.
+    var uid = st.uid == null ? "" : String(st.uid).trim();
+    state.uid = uid;
+    state.notRoot = uid !== "" && uid !== "0" && !state.useSu;
+    state.blocked = state.notRoot;
+    if (state.notRoot) {
+      $("banner").hidden = false;
+      $("bannerTitle").textContent = "Running without root";
+      $("bannerText").textContent =
+        "The WebUI host ran apply.sh as uid " + uid + ". Overlays can only be " +
+        "created and saved by root, so Apply cannot work yet.";
+      $("bannerDetail").textContent = rootDetail(uid);
+      setChip($("chipOverlay"), "Root required", "bad");
+      probeRoot();
+    }
+
+    state.active = {
+      RADIUS: intOrEmpty(st.radius),
+      SB_HEIGHT: intOrEmpty(st.sb_height),
+      PAD_CONTENT: intOrEmpty(st.pad_content),
+      PAD_START: intOrEmpty(st.pad_start),
+      PAD_END: intOrEmpty(st.pad_end),
+      DOZE_BLANK: (st.doze_blank === "true" || st.doze_blank === "false") ? st.doze_blank : ""
+    };
+  }
+
+  // What the chip says: dimensions live in a patched APK and only change after
+  // the framework reloads, so compare the saved values with what the device
+  // resolves right now instead of counting overlay packages.
+  var LIVE_KEY = {
+    RADIUS: "radius", SB_HEIGHT: "sb_height", PAD_CONTENT: "pad_content",
+    PAD_START: "pad_start", PAD_END: "pad_end", DOZE_BLANK: "doze_blank"
+  };
+
+  function paintOverlayChip(st) {
+    if (state.noBridge) return;
+    if (!st || st.conf !== "yes") {
+      // Nothing saved yet: the module is showing its build-time values.
+      setChip($("chipOverlay"), "No overrides applied", "neutral");
+      return;
+    }
+    var pending = [];
+    Object.keys(LIVE_KEY).forEach(function (key) {
+      var saved = String((state.saved && state.saved[key]) || "").trim();
+      var live = String((state.active && state.active[key]) || "").trim();
+      if (!saved || !live) return;
+      if (saved !== live) pending.push(key);
+    });
+    state.pending = pending;
+    if (!pending.length) {
+      setChip($("chipOverlay"), "Overrides live", "ok");
+    } else {
+      setChip($("chipOverlay"), pending.length + " pending · reload", "warn");
+    }
+  }
+
+  function rootDetail(uid) {
+    var d = "uid=" + uid + " · bridge=" + (bridge ? bridge.label : "none");
+    if (state.rootTried) {
+      d += "\nThe su probe did not return uid 0" + (state.rootError ? " (" + state.rootError + ")" : "");
+      d += "\nOpen this page from KernelSU / APatch, or enable root mode in the WebUI host.";
+    } else {
+      d += "\ntrying su -c 'id -u'…";
+    }
+    return d;
+  }
+
+  // One attempt to re-enter through su. Some WebUI hosts (WebUI X in non-root
+  // mode) execute module scripts as the app user even though the app holds root.
+  // su is not always on PATH there, so try the known install locations too.
+  function probeRoot() {
+    if (state.rootProbe) return state.rootProbe;
+    if (!bridge) return Promise.resolve(null);
+    var probe = "for s in su /system/bin/su /system/xbin/su /sbin/su " +
+                "/data/adb/ksu/bin/su /data/adb/magisk/su; do " +
+                "out=$(\"$s\" -c 'id -u' 2>/dev/null); " +
+                "[ \"$out\" = 0 ] && { echo \"ROOT:$s\"; break; }; done";
+    state.rootProbe = exec(probe, 6000).then(function (r) {
+      state.rootTried = true;
+      var found = r && Number(r.errno) === 0 &&
+                  /ROOT:(\S+)/.exec(String(r.stdout || ""));
+      if (found) {
+        state.useSu = true;
+        state.suBin = found[1];
+        state.notRoot = false;
+        state.blocked = false;
+        state.rootError = "";
+        hideBanner();
+        showSnack("Root shell acquired", "ok");
+        return load(false);
+      }
+      var raw = r ? String(r.stderr || r.stdout || "").trim() : "";
+      state.rootError = raw || (r ? "exit " + r.errno : "no answer");
+      var detail = $("bannerDetail");
+      if (detail && state.notRoot) detail.textContent = rootDetail(state.uid);
+      return null;
+    });
+    return state.rootProbe;
+  }
+
+  function intOrEmpty(v) {
+    return /^-?\d+$/.test(String(v == null ? "" : v)) ? String(parseInt(v, 10)) : "";
+  }
+
+  function plural(n, word) { return n === 1 ? word : word + "s"; }
+
+  function setChip(chip, text, tone) {
+    chip.dataset.tone = tone || "neutral";
+    chip.querySelector(".label").textContent = text;
+  }
+
+  /* -------------------------------------------------------------------
+     Overlay APK patcher
+
+     `cmd overlay fabricate` accepts data types 16..31 only (int, colour,
+     bool), so a dimension cannot be registered that way - the framework
+     answers "dataType is out of range of [16, 31] (too low)". A dimension
+     has to live in resources.arsc of an overlay APK, and this module already
+     ships one per target. The page therefore rewrites the matching entry in
+     the APK that is mounted at /product/overlay.
+
+     A value the build did not emit (config.env leaves the optional padding
+     keys commented out) has no entry to rewrite, so the page appends one: the
+     type, the type spec, the key and the value are written into the table, and
+     the archive is rebuilt with the new resources.arsc. config.env only
+     decides what a build ships; it no longer decides what the page can write.
+
+     An existing value is patched in place: aapt2 stores resources.arsc
+     uncompressed, so the byte offsets in the zip do not move and only the CRC
+     in the two headers has to be refreshed. A new entry grows the table, so
+     the zip is written again (entries realigned to 4 bytes, signing block
+     kept as it was). The result is the APK a rebuild would produce, without
+     aapt2 and without reflashing.
+     ------------------------------------------------------------------- */
+
+  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
+  function u32(b, o) {
+    return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  }
+  function setU32(b, o, v) {
+    b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff;
+    b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff;
+  }
+  function ascii(b, a, z) {
+    var s = "", i;
+    for (i = a; i < z && i < b.length; i++) s += String.fromCharCode(b[i]);
+    return s;
+  }
+
+  var CRC_TABLE = null;
+  function crc32(b, from, to) {
+    if (!CRC_TABLE) {
+      CRC_TABLE = [];
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        CRC_TABLE[n] = c >>> 0;
+      }
+    }
+    var crc = -1;
+    for (var i = from; i < to; i++) crc = CRC_TABLE[(crc ^ b[i]) & 0xff] ^ (crc >>> 8);
+    return (crc ^ -1) >>> 0;
+  }
+
+  // Where a file starts inside the APK, and where the two headers keep its CRC.
+  function zipEntry(bytes, name) {
+    var eocd = -1, i;
+    for (i = bytes.length - 22; i >= 0; i--) {
+      if (u32(bytes, i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("not a zip file");
+    var count = u16(bytes, eocd + 10);
+    var p = u32(bytes, eocd + 16);
+    for (i = 0; i < count; i++) {
+      if (u32(bytes, p) !== 0x02014b50) throw new Error("damaged zip directory");
+      var nlen = u16(bytes, p + 28), elen = u16(bytes, p + 30), clen = u16(bytes, p + 32);
+      if (ascii(bytes, p + 46, p + 46 + nlen) === name) {
+        return {
+          method: u16(bytes, p + 10),
+          size: u32(bytes, p + 24),
+          local: u32(bytes, p + 42),
+          central: p,
+          offset: u32(bytes, p + 42) + 30 + u16(bytes, u32(bytes, p + 42) + 26) +
+                  u16(bytes, u32(bytes, p + 42) + 28)
+        };
+      }
+      p += 46 + nlen + elen + clen;
+    }
+    return null;
+  }
+
+  // A ResStringPool chunk -> its strings.
+  function poolStrings(b, base) {
+    var headerSize = u16(b, base + 2);
+    var count = u32(b, base + 8);
+    var utf8 = (u32(b, base + 16) & 0x100) !== 0;
+    var start = u32(b, base + 20);
+    var out = [], i, p, len, n;
+    for (i = 0; i < count; i++) {
+      p = base + start + u32(b, base + headerSize + i * 4);
+      if (utf8) {
+        len = b[p++];
+        if (len & 0x80) len = ((len & 0x7f) << 8) | b[p++];
+        n = b[p++];
+        if (n & 0x80) n = ((n & 0x7f) << 8) | b[p++];
+        out.push(ascii(b, p, p + n));
+      } else {
+        len = u16(b, p); p += 2;
+        if (len & 0x8000) { len = ((len & 0x7fff) << 16) | u16(b, p); p += 2; }
+        var s = "";
+        for (n = 0; n < len; n++) s += String.fromCharCode(u16(b, p + n * 2));
+        out.push(s);
+      }
+    }
+    return out;
+  }
+
+  function setU16(b, o, v) { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; }
+
+  // One ResTable_type chunk: its entry ids, keys and values. `dataAt` is the
+  // offset of the value's 4 data bytes inside the table, so an existing value
+  // can be rewritten without moving anything.
+  function readEntries(b, c) {
+    var out = [], i, idx = 0, off, e, size, flags, key, dataType, data;
+    var sparse = (c.flags & 0x01) !== 0, off16 = (c.flags & 0x02) !== 0;
+    for (i = 0; i < c.count; i++) {
+      if (sparse) {
+        idx = u16(b, c.offset + c.headerSize + i * 4);
+        off = u16(b, c.offset + c.headerSize + i * 4 + 2) * 4;
+      } else if (off16) {
+        idx = i;
+        off = u16(b, c.offset + c.headerSize + i * 2);
+        if (off === 0xffff) continue;
+        off *= 4;
+      } else {
+        idx = i;
+        off = u32(b, c.offset + c.headerSize + i * 4);
+        if (off === 0xffffffff) continue;
+      }
+      e = c.offset + c.entriesAt + off;
+      size = u16(b, e);
+      flags = u16(b, e + 2);
+      if (flags & 0x0001) { out.push({ index: idx, complex: true }); continue; }
+      if (flags & 0x0008) {
+        // Compact entry (Android 14+): key packed into `size`, the value type in
+        // the flags and the data right after the key.
+        key = size;
+        dataType = (flags >> 8) & 0xff;
+        data = u32(b, e + 4);
+        out.push({ index: idx, complex: false, key: key, dataType: dataType,
+                   data: data, dataAt: e + 4 });
+      } else {
+        key = u32(b, e + 4);
+        data = u32(b, e + size + 4);
+        dataType = b[e + size + 3];
+        out.push({ index: idx, complex: false, key: key, dataType: dataType,
+                   data: data, dataAt: e + size + 4 });
+      }
+    }
+    return out;
+  }
+
+  function isDefaultConfig(b, at, size) {
+    var i;
+    for (i = at + 4; i < at + size; i++) if (b[i]) return false;
+    return true;
+  }
+
+  function readPackage(b, p) {
+    var size = u32(b, p + 4), headerSize = u16(b, p + 2);
+    if (headerSize < 288) return null;        // no type/key string pool offsets
+    var pkg = {
+      offset: p, size: size, headerSize: headerSize,
+      typePoolAt: p + u32(b, p + 268),
+      keyPoolAt: p + u32(b, p + 276),
+      chunks: []
+    };
+    pkg.types = poolStrings(b, pkg.typePoolAt);
+    pkg.keys = poolStrings(b, pkg.keyPoolAt);
+    var q = p + headerSize, end = p + size;
+    while (q + 8 <= end) {
+      var t = u16(b, q), ths = u16(b, q + 2), tsz = u32(b, q + 4);
+      if (!tsz) break;
+      var c = { type: t, offset: q, headerSize: ths, size: tsz };
+      if (t === 0x0201) {                      // ResTable_type
+        c.typeId = b[q + 8]; c.flags = b[q + 9];
+        c.count = u32(b, q + 12); c.entriesAt = u32(b, q + 16);
+        c.configSize = u32(b, q + 20);
+        c.config = b.subarray(q + 20, q + 20 + c.configSize);
+        c.isDefault = isDefaultConfig(b, q + 20, c.configSize);
+        c.entries = readEntries(b, c);
+      } else if (t === 0x0202) {               // ResTable_typeSpec
+        c.typeId = b[q + 8]; c.count = u32(b, q + 12);
+      }
+      pkg.chunks.push(c);
+      q += tsz;
+    }
+    return pkg;
+  }
+
+  // A toolkit overlay is one package of a few resources, so anything else is
+  // reported as "cannot be rewritten" instead of guessed at.
+  function readArsc(b) {
+    if (u16(b, 0) !== 0x0002) return null;
+    var total = u32(b, 4), p = u16(b, 2);
+    var q = p + u32(b, p + 4), packages = [];
+    while (q < total) {
+      var t = u16(b, q), s = u32(b, q + 4);
+      if (!s) break;
+      if (t === 0x0200) packages.push(q);
+      q += s;
+    }
+    if (packages.length !== 1) return null;
+    var pkg = readPackage(b, packages[0]);
+    if (!pkg) return null;
+    return { size: total, pkg: pkg, poolAt: p, poolSize: u32(b, p + 4) };
+  }
+
+  /* ---- writing a resource table --------------------------------------
+     Only the chunks that change are rewritten; every other chunk is copied
+     byte for byte. The two string pools always come first, because both aapt2
+     and the framework expect them there.
+     ------------------------------------------------------------------- */
+
+  // A UTF-8 ResStringPool. Resource names are ASCII, so one byte per code unit.
+  function buildPool(strings) {
+    var i, k, s, body = [], offsets = [], stringsAt = 28 + strings.length * 4, pos = 0;
+    for (i = 0; i < strings.length; i++) {
+      s = String(strings[i]);
+      if (!/^[\x20-\x7e]*$/.test(s) || s.length >= 0x80) {
+        throw new Error("resource name cannot be stored in a string pool: " + s);
+      }
+      offsets.push(pos);
+      body.push(s.length, s.length);           // utf16 length, byte length
+      for (k = 0; k < s.length; k++) body.push(s.charCodeAt(k));
+      body.push(0);
+      pos += s.length + 3;
+    }
+    while (body.length % 4) body.push(0);
+    var total = stringsAt + body.length;
+    var out = new Uint8Array(total);
+    setU16(out, 0, 0x0001); setU16(out, 2, 28); setU32(out, 4, total);
+    setU32(out, 8, strings.length); setU32(out, 12, 0); setU32(out, 16, 0x100);
+    setU32(out, 20, stringsAt); setU32(out, 24, 0);
+    for (i = 0; i < offsets.length; i++) setU32(out, 28 + i * 4, offsets[i]);
+    out.set(body, stringsAt);
+    return out;
+  }
+
+  function buildTypeSpec(typeId, count) {
+    var total = 16 + count * 4;
+    var out = new Uint8Array(total);
+    setU16(out, 0, 0x0202); setU16(out, 2, 16); setU32(out, 4, total);
+    out[8] = typeId; out[9] = 0;
+    setU16(out, 10, 0); setU32(out, 12, count);
+    return out;
+  }
+
+  // entries[i] is { key, dataType, data } or null for a hole in the type.
+  function buildTypeChunk(typeId, headerSize, config, entries) {
+    var i, n = entries.length, offsets = new Uint8Array(n * 4), body = [], at = 0;
+    for (i = 0; i < n; i++) {
+      if (!entries[i]) { setU32(offsets, i * 4, 0xffffffff); continue; }
+      setU32(offsets, i * 4, at);
+      body.push(entries[i].key, entries[i].dataType, entries[i].data);
+      at += 16;
+    }
+    var entriesAt = headerSize + n * 4;
+    var out = new Uint8Array(entriesAt + at);
+    setU16(out, 0, 0x0201); setU16(out, 2, headerSize); setU32(out, 4, entriesAt + at);
+    out[8] = typeId; out[9] = 0; out[10] = 0; out[11] = 0;
+    setU32(out, 12, n); setU32(out, 16, entriesAt);
+    out.set(config, 20);
+    out.set(offsets, headerSize);
+    for (i = 0; i < body.length / 3; i++) {
+      var p = entriesAt + i * 16;
+      setU16(out, p, 8); setU16(out, p + 2, 0); setU32(out, p + 4, body[i * 3]);
+      setU16(out, p + 8, 8); out[p + 10] = 0; out[p + 11] = body[i * 3 + 1];
+      setU32(out, p + 12, body[i * 3 + 2]);
+    }
+    return out;
+  }
+
+  // addEntries(table, model, adds) -> a new resource table with `adds` in it.
+  // Each add is { type: "dimen", name: "foo", dataType: 5, data: n }.
+  function addEntries(b, arsc, adds) {
+    var pkg = arsc.pkg;
+    if (u16(b, 0) !== 0x0002) throw new Error("not a resource table");
+    if (pkg.offset !== arsc.poolAt + arsc.poolSize) throw new Error("the package does not follow the value pool");
+    if (pkg.offset + pkg.size !== arsc.size) throw new Error("the package does not end the table");
+
+    var keys = pkg.keys.slice(), types = pkg.types.slice();
+    var keyChanged = false, typeChanged = false;
+    var replace = {}, tail = [];
+
+    var groups = [], byType = {};
+    adds.forEach(function (a) {
+      if (!byType[a.type]) { byType[a.type] = { name: a.type, items: [] }; groups.push(byType[a.type]); }
+      byType[a.type].items.push(a);
+    });
+
+    groups.forEach(function (g) {
+      var typeId = types.indexOf(g.name) + 1;
+      if (typeId === 0) { types.push(g.name); typeId = types.length; typeChanged = true; }
+
+      var chunk = null, spec = null, i, c;
+      for (i = 0; i < pkg.chunks.length; i++) {
+        c = pkg.chunks[i];
+        if (c.typeId !== typeId) continue;
+        if (c.type === 0x0201 && c.isDefault) chunk = c;
+        if (c.type === 0x0202) spec = c;
+      }
+
+      var entries = [], headerSize = 84, config;
+      if (chunk) {
+        headerSize = chunk.headerSize;
+        if (headerSize !== 20 + chunk.configSize) throw new Error("unusual type chunk header");
+        config = chunk.config;
+        chunk.entries.forEach(function (e) {
+          if (e.complex) throw new Error("'" + g.name + "' holds an array or a map");
+          while (entries.length < e.index) entries.push(null);
+          entries[e.index] = { key: e.key, dataType: e.dataType, data: e.data };
+        });
+      } else {
+        config = new Uint8Array(64);             // the default configuration
+        setU32(config, 0, 64);
+      }
+
+      g.items.forEach(function (a) {
+        var ki = keys.indexOf(a.name);
+        if (ki < 0) { keys.push(a.name); ki = keys.length - 1; keyChanged = true; }
+        var at = -1, j;
+        for (j = 0; j < entries.length; j++) if (entries[j] && entries[j].key === ki) at = j;
+        if (at >= 0) entries[at] = { key: ki, dataType: a.dataType, data: a.data };
+        else entries.push({ key: ki, dataType: a.dataType, data: a.data });
+      });
+
+      var specBytes = buildTypeSpec(typeId, entries.length);
+      var typeBytes = buildTypeChunk(typeId, headerSize, config, entries);
+      if (spec) replace[spec.offset] = specBytes; else tail.push(specBytes);
+      if (chunk) replace[chunk.offset] = typeBytes; else tail.push(typeBytes);
+    });
+
+    var typePool = typeChanged
+      ? buildPool(types)
+      : b.subarray(pkg.typePoolAt, pkg.typePoolAt + u32(b, pkg.typePoolAt + 4));
+    var keyPool = keyChanged
+      ? buildPool(keys)
+      : b.subarray(pkg.keyPoolAt, pkg.keyPoolAt + u32(b, pkg.keyPoolAt + 4));
+
+    var parts = [], size = 0;
+    function put(bytes) { parts.push(bytes); size += bytes.length; }
+    put(b.subarray(0, pkg.offset + pkg.headerSize));
+    var typePoolAt = size;
+    put(typePool);
+    var keyPoolAt = size;
+    put(keyPool);
+    var c2, ch;
+    for (c2 = 0; c2 < pkg.chunks.length; c2++) {
+      ch = pkg.chunks[c2];
+      if (ch.type === 0x0001) continue;          // the pools are written above
+      put(replace[ch.offset] || b.subarray(ch.offset, ch.offset + ch.size));
+    }
+    for (c2 = 0; c2 < tail.length; c2++) put(tail[c2]);
+
+    var out = new Uint8Array(size), o = 0;
+    for (c2 = 0; c2 < parts.length; c2++) { out.set(parts[c2], o); o += parts[c2].length; }
+
+    setU32(out, 4, size);                                     // table size
+    setU32(out, pkg.offset + 4, size - pkg.offset);           // package size
+    setU32(out, pkg.offset + 268, typePoolAt - pkg.offset);   // typeStrings
+    setU32(out, pkg.offset + 276, keyPoolAt - pkg.offset);    // keyStrings
+    return out;
+  }
+
+  /* ---- zip ------------------------------------------------------------ */
+
+  // Every entry of the archive, from the central directory.
+  function zipList(b) {
+    var eocd = -1, i, p, n, list = [], e;
+    for (i = b.length - 22; i >= 0; i--) if (u32(b, i) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error("not a zip (no end of central directory)");
+    p = u32(b, eocd + 16); n = u16(b, eocd + 10);
+    for (i = 0; i < n; i++) {
+      if (u32(b, p) !== 0x02014b50) throw new Error("damaged zip directory");
+      var nameLen = u16(b, p + 28), extraLen = u16(b, p + 30), commentLen = u16(b, p + 32);
+      var local = u32(b, p + 42);
+      e = {
+        name: ascii(b, p + 46, p + 46 + nameLen),
+        made: u16(b, p + 4), need: u16(b, p + 6), flags: u16(b, p + 8),
+        method: u16(b, p + 10), time: u16(b, p + 12), date: u16(b, p + 14),
+        crc: u32(b, p + 16), csize: u32(b, p + 20), size: u32(b, p + 24),
+        attr: u32(b, p + 38),
+        offset: local + 30 + u16(b, local + 26) + u16(b, local + 28)
+      };
+      list.push(e);
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return list;
+  }
+
+  // The APK signing block (v2/v3) sits between the last entry and the central
+  // directory. It only goes stale here, it does not disappear.
+  function signingBlock(b) {
+    var eocd = -1, i;
+    for (i = b.length - 22; i >= 0; i--) if (u32(b, i) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) return null;
+    var cdAt = u32(b, eocd + 16);
+    if (cdAt < 32 || ascii(b, cdAt - 16, cdAt) !== "APK Sig Block 42") return null;
+    var size = u32(b, cdAt - 24) + 8;
+    if (size <= 0 || size > cdAt) return null;
+    return b.subarray(cdAt - size, cdAt);
+  }
+
+  // Replace one stored entry and write the archive again. Entry data is padded
+  // to a 4-byte edge: the framework maps resources.arsc and a system APK is
+  // expected to be aligned.
+  function rewriteZip(b, name, data) {
+    var list = zipList(b), parts = [], at = 0, cd = [], i;
+    function put(bytes) { parts.push(bytes); at += bytes.length; }
+
+    for (i = 0; i < list.length; i++) {
+      var e = list[i];
+      var isNew = e.name === name;
+      if (!isNew && e.method !== 0 && e.method !== 8) throw new Error("unsupported zip method " + e.method);
+      var body = isNew ? data : b.subarray(e.offset, e.offset + e.csize);
+      var size = isNew ? data.length : e.size;
+      var csize = isNew ? data.length : e.csize;
+      var sum = isNew ? crc32(data, 0, data.length) : e.crc;
+      var flags = e.flags & ~0x0008;
+      var extraLen = (4 - ((at + 30 + e.name.length) % 4)) % 4;
+      if (extraLen) extraLen += 4;             // an extra field is 4 bytes of header
+      var hdr = new Uint8Array(30);
+      setU32(hdr, 0, 0x04034b50); setU16(hdr, 4, e.need || 20); setU16(hdr, 6, flags);
+      setU16(hdr, 8, e.method); setU16(hdr, 10, e.time); setU16(hdr, 12, e.date);
+      setU32(hdr, 14, sum); setU32(hdr, 18, csize); setU32(hdr, 22, size);
+      setU16(hdr, 26, e.name.length); setU16(hdr, 28, extraLen);
+      var nameBytes = new Uint8Array(e.name.length), pad = new Uint8Array(extraLen), k;
+      for (k = 0; k < e.name.length; k++) nameBytes[k] = e.name.charCodeAt(k) & 0xff;
+      if (extraLen) { setU16(pad, 0, 0xd935); setU16(pad, 2, extraLen - 4); }
+      cd.push({ e: e, flags: flags, crc: sum, csize: csize, size: size, offset: at });
+      put(hdr); put(nameBytes); put(pad); put(body);
+    }
+
+    var block = signingBlock(b);
+    if (block) put(block);
+
+    var cdAt = at, c, rec, nm, k2;
+    for (i = 0; i < cd.length; i++) {
+      c = cd[i];
+      rec = new Uint8Array(46);
+      setU32(rec, 0, 0x02014b50);
+      setU16(rec, 4, c.e.made || 20); setU16(rec, 6, c.e.need || 20);
+      setU16(rec, 8, c.flags); setU16(rec, 10, c.e.method);
+      setU16(rec, 12, c.e.time); setU16(rec, 14, c.e.date);
+      setU32(rec, 16, c.crc); setU32(rec, 20, c.csize); setU32(rec, 24, c.size);
+      setU16(rec, 28, c.e.name.length); setU16(rec, 30, 0); setU16(rec, 32, 0);
+      setU16(rec, 34, 0); setU16(rec, 36, 0); setU32(rec, 38, c.e.attr);
+      setU32(rec, 42, c.offset);
+      nm = new Uint8Array(c.e.name.length);
+      for (k2 = 0; k2 < c.e.name.length; k2++) nm[k2] = c.e.name.charCodeAt(k2) & 0xff;
+      put(rec); put(nm);
+    }
+
+    var eocd = new Uint8Array(22);
+    setU32(eocd, 0, 0x06054b50);
+    setU16(eocd, 8, cd.length); setU16(eocd, 10, cd.length);
+    setU32(eocd, 12, at - cdAt); setU32(eocd, 16, cdAt);
+    put(eocd);
+
+    var out = new Uint8Array(at), o = 0;
+    for (i = 0; i < parts.length; i++) { out.set(parts[i], o); o += parts[i].length; }
+    return out;
+  }
+
+  // Every resource of this module mirrors a name emitted by scripts/resources.sh
+  // with the same px value, so the patcher and a rebuild agree.
+  var PATCH_TARGETS = [
+    { key: "RADIUS", apk: "fw", res: [
+      "dimen/rounded_corner_radius", "dimen/rounded_corner_radius_top",
+      "dimen/rounded_corner_radius_bottom",
+      "dimen/secondary_rounded_corner_radius",
+      "dimen/secondary_rounded_corner_radius_top",
+      "dimen/secondary_rounded_corner_radius_bottom"] },
+    { key: "SB_HEIGHT", apk: "fw", res: [
+      "dimen/status_bar_height_default", "dimen/status_bar_height",
+      "dimen/status_bar_height_portrait", "dimen/quick_qs_offset_height"] },
+    { key: "PAD_CONTENT", apk: "fw", res: ["dimen/rounded_corner_content_padding"] },
+    { key: "PAD_START", apk: "sui", res: ["dimen/status_bar_padding_start"] },
+    { key: "PAD_END", apk: "sui", res: ["dimen/status_bar_padding_end"] }
+  ];
+
+  var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  function fromB64(text) {
+    var s = String(text || "").replace(/[^A-Za-z0-9+/]/g, "");
+    var out = new Uint8Array(Math.floor(s.length * 3 / 4));
+    var o = 0, acc = 0, bits = 0, i, v;
+    for (i = 0; i < s.length; i++) {
+      v = B64_CHARS.indexOf(s.charAt(i));
+      if (v < 0) continue;
+      acc = (acc << 6) | v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out[o++] = (acc >>> bits) & 0xff;
+      }
+    }
+    return out.subarray(0, o);
+  }
+
+  function toB64(bytes) {
+    var out = "", i, a, b, c;
+    for (i = 0; i < bytes.length; i += 3) {
+      a = bytes[i];
+      b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+      c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+      out += B64_CHARS.charAt(a >> 2) +
+             B64_CHARS.charAt(((a & 3) << 4) | (b >> 4)) +
+             (i + 1 < bytes.length ? B64_CHARS.charAt(((b & 15) << 2) | (c >> 6)) : "=") +
+             (i + 2 < bytes.length ? B64_CHARS.charAt(c & 63) : "=");
+    }
+    return out;
+  }
+
+  // patchApk(bytes, wanted) -> { patched, added, missing, other, problem, bytes }
+  // `wanted` is [{ name: "dimen/foo", px: 96 }]. The value is a TypedValue
+  // complex dimension: mantissa << 8 | (radix << 4) | unit, unit 0 = px.
+  // A name the build does not carry is added to the table: config.env decides
+  // what a *build* emits, not what the page can write.
+  function patchApk(bytes, wanted) {
+    var entry = zipEntry(bytes, "resources.arsc");
+    if (!entry) throw new Error("this APK has no resources.arsc");
+    if (entry.method !== 0) {
+      throw new Error("resources.arsc is compressed in this APK (aapt2 stores it, so this build is odd)");
+    }
+    var arsc = bytes.subarray(entry.offset, entry.offset + entry.size);
+    var table = readArsc(arsc);
+    if (!table) throw new Error("resources.arsc is not a single-package table this page can extend");
+
+    var out = { patched: [], added: [], missing: [], other: [], problem: "", bytes: null };
+    var adds = [], dimenType = table.pkg.types.indexOf("dimen") + 1, chunk = null, i;
+    for (i = 0; i < table.pkg.chunks.length; i++) {
+      var c = table.pkg.chunks[i];
+      if (c.type === 0x0201 && c.typeId === dimenType && c.isDefault) chunk = c;
+    }
+
+    wanted.forEach(function (want) {
+      var slash = want.name.indexOf("/");
+      var type = want.name.slice(0, slash), name = want.name.slice(slash + 1);
+      var value = (Math.min(want.px, 32767) << 8) >>> 0;
+      var hit = null, e, j;
+      for (j = 0; chunk && j < chunk.entries.length; j++) {
+        e = chunk.entries[j];
+        if (e && table.pkg.keys[e.key] === name) { hit = e; break; }
+      }
+      if (hit) {
+        if (hit.dataType !== 5) { out.other.push(want.name); return; }
+        // arsc is a view of the APK bytes, so this writes straight into it.
+        setU32(arsc, hit.dataAt, value);
+        hit.data = value;
+        out.patched.push(want.name);
+        return;
+      }
+      if (type !== "dimen") { out.other.push(want.name); return; }
+      adds.push({ type: type, name: name, dataType: 5, data: value });
+      out.added.push(want.name);
+    });
+
+    if (out.patched.length) {
+      // The CRC in both zip headers has to match the bytes; the signing block
+      // stays stale, which the framework ignores for a preinstalled overlay.
+      var crc = crc32(bytes, entry.offset, entry.offset + entry.size);
+      setU32(bytes, entry.local + 14, crc);
+      setU32(bytes, entry.central + 16, crc);
+    }
+
+    var next = bytes;
+    if (adds.length) {
+      try {
+        next = rewriteZip(bytes, "resources.arsc", addEntries(arsc, table, adds));
+      } catch (e2) {
+        // The table is not one this page can extend. Leave it alone and report
+        // the values that needed a new entry instead of writing a broken APK.
+        out.added.forEach(function (n) { out.missing.push(n); });
+        out.added = [];
+        out.problem = String(e2 && e2.message || e2);
+      }
+    }
+    out.bytes = next === bytes && !out.patched.length ? null : next;
+
+    // Read the values back: a patch that does not parse is worth catching
+    // here, not on the next boot.
+    if (out.bytes) {
+      var done = zipEntry(out.bytes, "resources.arsc");
+      var table2 = readArsc(out.bytes.subarray(done.offset, done.offset + done.size));
+      if (!table2) throw new Error("the rewritten resources.arsc does not parse");
+      var seen = {};
+      table2.pkg.chunks.forEach(function (c2) {
+        if (c2.type !== 0x0201 || !c2.isDefault) return;
+        if (table2.pkg.types[c2.typeId - 1] !== "dimen") return;
+        c2.entries.forEach(function (e3) {
+          if (e3) seen[table2.pkg.keys[e3.key]] = e3.data;
+        });
+      });
+      out.patched.concat(out.added).forEach(function (full) {
+        var name = full.slice(full.indexOf("/") + 1);
+        wanted.forEach(function (want) {
+          if (want.name !== full) return;
+          if (seen[name] !== ((Math.min(want.px, 32767) << 8) >>> 0)) {
+            throw new Error(full + " did not keep the new value");
+          }
+        });
+      });
+    }
+    return out;
+  }
+
+  // A command that is not apply.sh. Reading a 12 KB APK produces a base64 blob
+  // that would bury the log, so it stays out of it unless it fails.
+  function raw(cmd, timeoutMs) {
+    var full = state.useSu ? ((state.suBin || "su") + " -c " + quote(cmd)) : cmd;
+    return exec(full, timeoutMs).then(function (r) {
+      if (r && r.errno !== 0) addLog(full, r);
+      return r;
+    });
+  }
+
+  function planPatches() {
+    var plan = { fw: [], sui: [] };
+    PATCH_TARGETS.forEach(function (t) {
+      var px = parseInt(state.values[t.key], 10);
+      if (isNaN(px) || px < 0) return;
+      t.res.forEach(function (name) {
+        plan[t.apk].push({ name: name, px: Math.min(px, 32767), key: t.key });
+      });
+    });
+    return plan;
+  }
+
+  // Writes the values into the two shipped APKs. Returns
+  // { files, patched, added, missing: [{key, name}], other: [{key, name}], problem }.
+  function patchOverlays() {
+    var plan = planPatches();
+    var result = { files: 0, patched: 0, added: 0, missing: [], other: [], problem: "" };
+
+    return run(["apks"], 15000).then(function (r) {
+      if (r.errno !== 0) throw new Error(errorText(r));
+      var info = parseKv(r.stdout);
+      if (info.write !== "yes") {
+        throw new Error("cannot write to the overlay directory (uid " + (info.uid || "?") + ")");
+      }
+      var paths = { fw: info.fw, sui: info.sui };
+      var order = ["fw", "sui"].filter(function (w) { return plan[w].length && paths[w]; });
+
+      return order.reduce(function (chain, which) {
+        return chain.then(function () {
+          return raw("base64 " + quote(paths[which]) + " | tr -d '\\n'", 20000)
+            .then(function (read) {
+              if (read.errno !== 0 || !read.stdout) {
+                throw new Error("cannot read " + paths[which] + ": " + errorText(read));
+              }
+              var bytes = fromB64(read.stdout);
+              if (bytes.length < 1000) {
+                throw new Error("read " + bytes.length + " bytes from " + paths[which]);
+              }
+              var res = patchApk(bytes, plan[which]);
+              res.missing.forEach(function (n) {
+                result.missing.push({ key: keyOf(n, which), name: n });
+              });
+              res.other.forEach(function (n) {
+                result.other.push({ key: keyOf(n, which), name: n });
+              });
+              if (res.problem) result.problem = res.problem;
+              var payload = res.bytes || bytes;
+              if (!res.patched.length && !res.added.length) return;
+              return writeApk(paths[which], toB64(payload), payload.length).then(function () {
+                result.files++;
+                result.patched += res.patched.length;
+                result.added += res.added.length;
+              });
+            });
+        });
+      }, Promise.resolve()).then(function () { return result; });
+    });
+  }
+
+  function keyOf(resource, which) {
+    var key = "";
+    PATCH_TARGETS.forEach(function (t) {
+      if (t.apk === which && t.res.indexOf(resource) !== -1) key = t.key;
+    });
+    return key;
+  }
+
+  // Write next to the APK, check the length, then copy over the real file.
+  // cat into the existing inode keeps its SELinux label, which the module
+  // mount relies on.
+  function writeApk(path, b64, size) {
+    var tmp = path + ".webui-new";
+    var cmd = "printf %s " + quote(b64) + " | base64 -d > " + quote(tmp) +
+              " && [ \"$(wc -c < " + quote(tmp) + " | tr -d ' ')\" = " + size + " ]" +
+              " && cat " + quote(tmp) + " > " + quote(path) +
+              " && rm -f " + quote(tmp) + " && echo WROTE";
+    return raw(cmd, 30000).then(function (r) {
+      if (r.errno !== 0 || String(r.stdout).indexOf("WROTE") === -1) {
+        throw new Error("cannot write " + path + ": " + errorText(r));
+      }
+    });
+  }
+
+  // apply.sh reload restarts zygote; that kills the app hosting this page, so
+  // the reply never arrives. Send it and stop caring about the answer.
+  function reloadFramework() {
+    showSnack("Restarting the framework…", "ok");
+    return sleep(500).then(function () {
+      return run(["reload"], 8000);
+    }).then(function () {}, function () {});
+  }
+
+  /* -------------------------------------------------------------------
+     Load / apply / reset
+     ------------------------------------------------------------------- */
+  function setBusy(busy) {
+    ["refreshBtn", "applyQuiet", "applyRestart", "resetBtn", "statusBtn", "diagBtn"]
+      .forEach(function (id) {
+        var retry = id === "refreshBtn";
+        var blocked = state.blocked && id !== "refreshBtn" &&
+                      id !== "statusBtn" && id !== "diagBtn";
+        $(id).disabled = busy || blocked || (state.noBridge && !retry);
+      });
+    $("progress").hidden = !busy;
+    $("refreshBtn").classList.toggle("spin", busy);
+  }
+
+  function load(report) {
+    setBusy(true);
+    return Promise.all([run(["get"]), run(["status"])]).then(function (results) {
+      var getRes = results[0], statusRes = results[1];
+
+      if (getRes.errno === 127 || statusRes.errno === 127) {
+        showBridgeProblem(getRes, statusRes);
+        setBusy(false);
+        return;
+      }
+      if (getRes.errno !== 0 || statusRes.errno !== 0) {
+        showBridgeProblem(getRes, statusRes);
+        setBusy(false);
+        return;
+      }
+      // Refresh status dismisses a stale Apply warning; a load() triggered by
+      // Apply itself must not, or the reason it partly failed disappears.
+      if (report) state.notice = null;
+      if (state.notice) paintNotice(); else hideBanner();
+      state.noBridge = false;
+
+      var values = parseKv(getRes.stdout);
+      var status = parseKv(statusRes.stdout);
+      state.saved = values;
+      renderStatus(status);
+      paintOverlayChip(status);
+
+      FIELDS.forEach(function (f) {
+        var v = values[f.key];
+        if (!/^\d+$/.test(String(v || ""))) v = state.active[f.key];
+        if (/^-?\d+$/.test(String(v || ""))) {
+          v = String(parseInt(v, 10));
+          f.num.value = v;
+          f.range.value = v;
+          state.values[f.key] = v;
+        } else {
+          f.num.value = "";
+          state.values[f.key] = "";
+        }
+        paintField(f);
+      });
+
+      if (values.DOZE_BLANK === "true" || values.DOZE_BLANK === "false") {
+        $("DOZE_BLANK").checked = values.DOZE_BLANK === "true";
+      } else if (state.active.DOZE_BLANK) {
+        $("DOZE_BLANK").checked = state.active.DOZE_BLANK === "true";
+      }
+      state.values.DOZE_BLANK = $("DOZE_BLANK").checked ? "true" : "false";
+      paintDoze();
+      paintPreview();
+
+      if (report && !state.noBridge) {
+        var found = Object.keys(values).length;
+        showSnack(found ? "Values loaded from the device" : "No saved values yet — using active ones");
+      }
+      setBusy(false);
+      return results;
+    }).catch(function (e) {
+      showBridgeProblem({ stderr: String(e) }, { stderr: "" });
+      setBusy(false);
+    });
+  }
+
+  function showBridgeProblem(a, b) {
+    var reason = (a && (a.stderr || a.stdout)) || (b && (b.stderr || b.stdout)) || "Unknown error.";
+    state.noBridge = true;
+    $("banner").hidden = false;
+    $("bannerTitle").textContent = String(reason).indexOf("MODULE_NOT_FOUND") !== -1
+      ? "Module helper not found"
+      : (!bridge ? "WebUI bridge not found" : "The device did not answer");
+    $("bannerText").textContent = !bridge
+      ? "Open this page from KernelSU, KSU Next or APatch, or from a WebUI host such as WebUI X / KsuWebUI / MMRL (Magisk). A browser cannot run root commands."
+      : "The page is connected, but the shell call failed. The exact error is below.";
+    $("bannerDetail").textContent = reason +
+      (!bridge
+        ? "\nNo root shell bridge: open the module WebUI from KernelSU, KSU Next, " +
+          "APatch, or a Magisk WebUI host."
+        : "\nbridge: window." + bridge.label + ".exec");
+    setChip($("chipApi"), "Android unknown", "bad");
+    setChip($("chipOverlay"), "Shell unavailable", "bad");
+    $("deviceLine").textContent = "Not connected";
+    addLog("bridge check", { errno: -1, stdout: "", stderr: reason });
+    ["applyQuiet", "applyRestart", "resetBtn", "statusBtn", "diagBtn"]
+      .forEach(function (id) { $(id).disabled = true; });
+  }
+
+  function hideBanner() { $("banner").hidden = true; }
+
+  function currentArgs() {
+    var args = [];
+    FIELDS.forEach(function (f) {
+      var v = parseInt(f.num.value, 10);
+      if (!isNaN(v)) {
+        v = clamp(v, f.min, f.max);
+        args.push(f.key + "=" + v);
+      }
+    });
+    args.push("DOZE_BLANK=" + ($("DOZE_BLANK").checked ? "true" : "false"));
+    return args;
+  }
+
+  // The reason a write failed is the one thing worth keeping on screen: the
+  // log pane only holds the last few commands, so a status refresh used to
+  // erase the only evidence of why Apply did nothing.
+  function pinOutput(text) {
+    state.pinned = String(text || "").trim();
+    paintLog();
+  }
+
+  function paintLog() {
+    var parts = [];
+    if (state.pinned) parts.push(state.pinned);
+    if (state.log.length) parts.push(state.log.join("\n\n"));
+    $("log").textContent = parts.join("\n\n") || "(no output)";
+  }
+
+  // First line that explains a failure: the helper prefixes its errors with
+  // "x ", and anything else is a shell/bridge message.
+  function firstProblem(text) {
+    var lines = String(text || "").split(/\r?\n/);
+    var i, s;
+    for (i = 0; i < lines.length; i++) {
+      s = lines[i].trim();
+      if (s.indexOf("x ") === 0) return clip(s.slice(2).trim());
+    }
+    for (i = 0; i < lines.length; i++) {
+      s = lines[i].trim();
+      if (s && s.charAt(0) !== "$" && s.charAt(0) !== "[") return clip(s);
+    }
+    return "";
+  }
+
+  function clip(s) {
+    s = String(s);
+    return s.length > 140 ? s.slice(0, 137) + "…" : s;
+  }
+
+  // Surface the failure in the header too, so it is visible without scrolling
+  // to the log at the bottom of the page. The banner is kept in state.notice
+  // so a status refresh (or the load() at the end of Apply) cannot wipe the
+  // only explanation on screen.
+  function showApplyProblem(text, title) {
+    var first = firstProblem(text);
+    var needsRoot = /not running as root|must be root|needs root|cannot write|Permission denied|Operation not permitted/i.test(String(text || ""));
+    var detail = "uid=" + (state.uid || "?") + " · bridge=" + (bridge ? bridge.label : "none");
+    if (needsRoot) {
+      detail += "\nThe WebUI host ran the helper without root access.";
+      detail += "\nOpen this page from KernelSU / KSU Next / APatch, or enable root mode in the host.";
+    }
+    state.notice = {
+      title: title || (needsRoot ? "Overlays need root" : "Apply failed"),
+      text: first || "The helper exited without printing a reason.",
+      detail: detail
+    };
+    paintNotice();
+  }
+
+  function paintNotice() {
+    if (!state.notice) { hideBanner(); return; }
+    $("banner").hidden = false;
+    $("bannerTitle").textContent = state.notice.title;
+    $("bannerText").textContent = state.notice.text;
+    $("bannerDetail").textContent = state.notice.detail;
+  }
+
+  function apply(restart) {
+    var args = currentArgs();
+    setBusy(true);
+    state.pinned = "";
+    state.notice = null;
+    paintLog();
+    showSnack(restart ? "Patching the overlays…" : "Applying…");
+
+    var report = null;
+    return run(["set"].concat(args), 30000).then(function (setRes) {
+      if (setRes.errno !== 0) throw new Error(errorText(setRes));
+      return run(["backup"], 20000);
+    }).then(function (backupRes) {
+      if (backupRes.errno !== 0) throw new Error(errorText(backupRes));
+      return patchOverlays();
+    }).then(function (r) {
+      report = r;
+      // The boolean is the only value left that can be fabricated - fabricate
+      // rejects every dimension data type.
+      return run(["apply"], 30000);
+    }).then(function (boolRes) {
+      var problems = [];
+      if (boolRes.errno !== 0) problems.push(String(boolRes.stdout || "").trim() || errorText(boolRes));
+      report.missing.forEach(function (m) {
+        problems.push("x " + m.key + ": " + m.name + " could not be added to this build" +
+                      (report.problem ? " (" + report.problem + ")" : ""));
+      });
+      report.other.forEach(function (m) {
+        problems.push("x " + m.key + ": " + m.name + " is not a dimension in this build");
+      });
+
+      if (problems.length) {
+        var text = problems.join("\n");
+        // A name that has to be invented for an array/map table cannot be
+        // written here; a plain dimension can, so this only shows up on builds
+        // this page cannot extend.
+        pinOutput("$ apply (not everything applied)\n" + text +
+                  "\n\nA dimension that is missing from the overlay APK is added to" +
+                  "\nits resources.arsc by the page. This build's table is not one" +
+                  "\nthe page can extend: set the value in config.env and rebuild.");
+        showApplyProblem(text, "Some values could not be written");
+      }
+
+      if (restart) return reloadFramework();
+
+      var done = report.patched;
+      showSnack(problems.length
+        ? "Saved · " + report.missing.length + " could not be written"
+        : (done ? "Applied " + done + " " + plural(done, "resource") +
+                  (report.added ? " (" + report.added + " added)" : "") + " · reload to load"
+                : "Saved"),
+        problems.length ? "error" : "ok");
+      return sleep(300).then(function () { return load(false); });
+    }).catch(function (e) {
+      var msg = String(e && e.message || e);
+      var first = firstProblem(msg);
+      pinOutput("$ apply (failed)\n" + msg);
+      showApplyProblem(msg);
+      showSnack(first ? "Apply failed: " + first : "Could not apply", "error");
+      $("diag").open = true;
+    }).then(function () { setBusy(false); });
+  }
+
+  function reset() {
+    setBusy(true);
+    state.pinned = "";
+    state.notice = null;
+    paintLog();
+    return run(["reset"], 40000).then(function (r) {
+      if (r.errno !== 0) throw new Error(errorText(r));
+      var nothing = /no saved overrides/i.test(r.stdout || "");
+      showSnack(nothing ? "Nothing was applied" : "Overrides removed", "ok");
+      // reset puts the build-time APKs back, but the framework still has the
+      // patched values in memory: only a framework reload shows the undo.
+      if (/reload=needed/.test(r.stdout || "")) return reloadFramework();
+      return sleep(200).then(function () { return load(false); });
+    }).catch(function (e) {
+      var msg = String(e && e.message || e);
+      pinOutput("$ apply.sh reset (failed)\n" + msg);
+      showApplyProblem(msg);
+      showSnack(firstProblem(msg) ? "Reset failed: " + firstProblem(msg) : "Reset failed", "error");
+      $("diag").open = true;
+    }).then(function () { setBusy(false); });
+  }
+
+  function errorText(r) {
+    if (!r) return "No reply.";
+    var out = [r.stdout, r.stderr].filter(Boolean).join("\n").trim();
+    return out || ("Command failed (exit " + r.errno + ")");
+  }
+
+  function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  /* -------------------------------------------------------------------
+     Log
+     ------------------------------------------------------------------- */
+  function displayCommand(cmd) {
+    var s = String(cmd);
+    var i = s.indexOf('sh "$M"');
+    return i >= 0 ? "apply.sh" + s.slice(i + 7) : s;
+  }
+
+  function addLog(cmd, r) {
+    var shown = displayCommand(cmd).replace(/'([^']*)'/g, "$1");
+    var text = "$ " + shown + "\n";
+    if (r && r.stdout) text += r.stdout.replace(/\s+$/, "") + "\n";
+    if (r && r.stderr) text += r.stderr.replace(/\s+$/, "") + "\n";
+    if (r && typeof r.errno === "number" && r.errno !== 0) text += "[exit " + r.errno + "]";
+    state.log.push(text.trim());
+    if (state.log.length > 6) state.log.shift();
+    paintLog();
+  }
+
+  var snackTimer = null;
+  function showSnack(text, tone) {
+    var snack = $("snackbar");
+    snack.textContent = text;
+    snack.dataset.tone = tone || "neutral";
+    snack.classList.add("show");
+    clearTimeout(snackTimer);
+    snackTimer = setTimeout(function () { snack.classList.remove("show"); }, 2600);
+  }
+
+  /* -------------------------------------------------------------------
+     Wiring
+     ------------------------------------------------------------------- */
+  buildFields();
+
+  var dialog = $("resetDialog");
+  $("refreshBtn").addEventListener("click", function () {
+    // The manager may inject the bridge after the first load, and a failed
+    // probe is worth retrying when the user asks for it.
+    if (!bridge) bridge = findBridge();
+    if (bridge) { bridgeProbe = null; bridgeMode = null; scriptPath = null; }
+    load(true);
+  });
+  $("applyQuiet").addEventListener("click", function () { apply(false); });
+  $("applyRestart").addEventListener("click", function () { apply(true); });
+  $("statusBtn").addEventListener("click", function () { load(true); });
+  $("diagBtn").addEventListener("click", function () {
+    setBusy(true);
+    run(["diag"], 30000).then(function (r) {
+      if (r.errno !== 0) showSnack("Diagnostics failed — see log", "error");
+    }).then(function () { setBusy(false); });
+  });
+
+  $("resetBtn").addEventListener("click", function () {
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else reset();
+  });
+  $("resetCancel").addEventListener("click", function () { dialog.close(); });
+  $("resetConfirm").addEventListener("click", function () {
+    dialog.close();
+    reset();
+  });
+
+  if (bridge) {
+    load(true);
+  } else {
+    // Some managers inject the interface only after the document has loaded.
+    var tries = 0;
+    (function waitForBridge() {
+      bridge = findBridge();
+      if (bridge) { load(true); return; }
+      if (++tries < 12) { setTimeout(waitForBridge, 250); return; }
+      setBusy(false);        showBridgeProblem({ errno: 127,
+          stderr: "No WebUI shell bridge found. Open this page from KernelSU / " +
+                  "KSU Next / APatch, or from a Magisk WebUI host (WebUI X, " +
+                  "KsuWebUI, MMRL)." }, {});
+    })();
+  }
+})();
+</script>
+</body>
+</html>

@@ -333,6 +333,101 @@ on `PhoneStatusBarView`, or the icons' own padding).
 For the right side remember the privacy dot reserves `20dp` unless you lower
 `STATUS_BAR_DOT_MIN_PADDING` or set `HAS_PRIVACY_DOT=false`.
 
+### The page says "Running without root" / "Root required"
+
+Writing the overlay APKs and `webui.conf` needs root, and so does the fabricated
+boolean: `cmd overlay fabricate` refuses every call from a non-root uid.
+Some WebUI hosts run module pages as the app user (WebUI X in non-root mode is
+the usual one), so the
+page looks connected and can still list overlays while every write fails.
+
+`apply.sh status` reports the uid it runs as, and the page reacts:
+
+- it prints the banner and tries `su -c 'id -u'` once;
+- if that returns 0, every later command goes through `su -c` and Apply works;
+- if it fails, Apply/Reset are disabled and the banner names the uid and the
+  host. Open the page from KernelSU / KSU Next / APatch, or switch the host to
+  root mode, then press Refresh.
+
+The module ships `webroot/config.json` with
+`"permissions": ["kernelsu.permission.SHELL"]`, so WebUI X grants the shell
+interface without asking. Root mode itself is a host setting and cannot be
+enabled from the page.
+
+To confirm on the device:
+
+```bash
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh status | head -3'
+# uid=0 means the page's bridge is root; anything else explains the failures.
+```
+
+### Apply says a value "could not be added to this build"
+
+The page adds a missing dimension to the overlay APK's `resources.arsc` itself,
+so `config.env` does not need `STATUS_BAR_PADDING_START` and friends for the
+sliders to work — a commented-out key is an ordinary case, not an error. What
+still fails is a table the page cannot extend, and the message names the reason:
+
+```
+x PAD_START: dimen/status_bar_padding_start could not be added to this build (…)
+```
+
+- `resources.arsc is not a single-package table this page can extend` — the
+  overlay was built against more than one package (a from-scratch `aapt2 link`
+  with `--shared-lib` or a merged APK). Use the build in `out/apks/`.
+- `'dimen' holds an array or a map` — the `dimen` type of that APK contains a
+  complex entry, which a single value cannot express.
+- `did not keep the new value` — the write was verified and rejected; nothing
+  was saved, so the APK is unchanged.
+
+Values that need a rebuild in every case: resource *arrays*, `power_profile.xml`
+and vendor HAL files. The banner keeps the failure list, and the same text sits
+at the top of **Diagnostics**, until the next Apply or **Refresh status**.
+
+If the sliders work but nothing changes on screen after a reload, the APK is
+not the problem — check `cmd overlay list --user 0 | grep xiaomi` for the
+module's package. A static overlay whose manifest property does not match
+(`android:requiredSystemPropertyName`) is skipped by the framework and its
+package disappears, which looks exactly like a rejected edit. `apply.sh diag`
+prints the overlay list it can see.
+
+### The values were applied but nothing changed
+
+A dimension lives in the overlay APK, and a static overlay is only read when the
+framework scans packages. Patching writes the file; the reload (**Apply &
+reload**, or a reboot) is what makes it visible. Two checks:
+
+```bash
+su -c 'cmd overlay lookup android android:dimen/rounded_corner_radius'  # what the device uses now
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh verify'   # saved vs live
+```
+
+- **`active …` under a slider is red** — the framework still has the previous
+  value; nothing has been reloaded since the patch. The chip says
+  `N pending · reload` in that state; `Overrides live` means the scan happened
+  and every saved value matches.
+- **`? <resource> could not be read`** — `cmd overlay lookup` returned nothing,
+  so the value cannot be checked; that is a failure, not a pass.
+- **`! <resource> is Npx, wanted Mpx`** — the APK on disk and the running
+  framework disagree; reload, then run `verify` again.
+- Nothing changes even after a reload: check that the static overlay is still
+  enabled (`cmd overlay list --user 0 | grep treble-overlay`) and that
+  `apply.sh diag` marks the APK as `patched:`. If it says `build:`, the write
+  never happened — the banner and log of that Apply say why.
+
+### A patched APK has to be reverted by hand
+
+`Reset` restores `<apk>.webui-orig` and deletes `webui.conf`. The same from a
+shell, for when the page cannot be opened:
+
+```bash
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh restore'
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh reload'
+```
+
+`apply.sh diag` marks each APK as `build:` (untouched) or `patched:` (a backup
+exists). Reflashing the module reverts everything as well.
+
 ---
 
 ## A feature is not working

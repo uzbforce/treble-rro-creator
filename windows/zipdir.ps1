@@ -50,7 +50,7 @@ try {
             $rel = $f.FullName.Substring($src.Length + 1).Replace('\', '/')
             $entry = $zip.CreateEntry($rel, [System.IO.Compression.CompressionLevel]::Optimal)
             $entry.LastWriteTime = $f.LastWriteTime
-            if ($f.Extension -eq '.sh') {
+            if ($f.Extension -eq '.sh' -or $f.Name -eq 'update-binary') {
                 $entry.ExternalAttributes = 0x81ED -shl 16   # 0100755
             } else {
                 $entry.ExternalAttributes = 0x81A4 -shl 16   # 0100644

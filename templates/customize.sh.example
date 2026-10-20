@@ -1,6 +1,6 @@
 #!/sbin/sh
 # =============================================================================
-# Treble Overlay — KSU/Magisk Module Install Script
+# Treble Overlay — Module Install Script (KernelSU / KSU Next / APatch / Magisk)
 # =============================================================================
 # Runs during module installation to set correct permissions and
 # SELinux contexts for all files in the module.
@@ -11,13 +11,15 @@
 # extra vendor HALs depending on what's in system/vendor/.
 # =============================================================================
 
-MODPATH=${0%/*}
+MODPATH=${MODPATH:-${0%/*}}
+[ -d "$MODPATH/system" ] || MODPATH="."
 
 ui_print "  Installing ${MODPATH##*/}..."
 
 # ── Overlay APKs ──────────────────────────────────────────────────────────
-# Set permissions for overlay APKs in /system/product/overlay/
-set_perm_recursive $MODPATH/system/product/overlay 0 0 0644 u:object_r:system_file:s0
+# Set permissions for overlay APKs in /system/product/overlay/.
+# set_perm_recursive takes DIR_PERMS then FILE_PERMS, then the context.
+set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
 
 # ── Fingerprint HAL (optional) ────────────────────────────────────────────
 # v2.3 AOSP wrapper for Goodix ET715 UDFPS sensor (if included)
