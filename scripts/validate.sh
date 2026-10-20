@@ -256,6 +256,57 @@ _validate_overlay() {
 }
 
 # ---------------------------------------------------------------------------
+# Overlay-repo submission (out/<name>-hardware-overlay.zip)
+# ---------------------------------------------------------------------------
+# The overlay repo compares android:requiredSystemPropertyValue with plain
+# string equality and rejects duplicate priorities, so a value that looks fine
+# here can make the submitted overlay inert or fail their tests/tests.sh.
+_validate_submission() {
+    local prop value prio file count
+    prop="${HW_OVERLAY_MATCH_PROP:-ro.product.vendor.device}"
+    value="${HW_OVERLAY_MATCH_VALUE:-${DEVICE_CODENAME:-}}"
+
+    case "$value" in
+        +*|-*|\**|*\**)
+            _v_warn "HW_OVERLAY_MATCH_VALUE=\"${value}\" looks like a glob, but the overlay repo compares it with exact string equality — the submitted overlay would never activate"
+            ;;
+    esac
+    if [ -n "${HW_OVERLAY_MATCH_PROP:-}" ] && [ -z "$value" ]; then
+        _v_warn "HW_OVERLAY_MATCH_PROP is set but no value — set HW_OVERLAY_MATCH_VALUE (adb shell getprop ${prop})"
+    fi
+    if [ -z "${HW_OVERLAY_MATCH_PROP+x}" ] && [ -n "${HW_OVERLAY_MATCH_VALUE:-}" ]; then
+        _v_note "HW_OVERLAY_MATCH_VALUE is set without HW_OVERLAY_MATCH_PROP — the default property ro.product.vendor.device is used"
+    fi
+    case "$prop" in
+        ro.vendor.product.*)
+            _v_warn "HW_OVERLAY_MATCH_PROP=\"${prop}\" is deprecated in the overlay repo — ro.product.vendor.device is preferred"
+            ;;
+    esac
+
+    # Priority collisions: the repo's tests/tests.sh fails on a duplicate.
+    prio="${HW_OVERLAY_PRIORITY:-}"
+    if [ -n "$prio" ]; then
+        file="${ROOT:-.}/scripts/data/treble-overlay-priorities.txt"
+        if [ -f "$file" ]; then
+            count=$(grep -cx "$prio" "$file" 2>/dev/null || true)
+            if [ "${count:-0}" -gt 0 ]; then
+                _v_warn "HW_OVERLAY_PRIORITY=${prio} is already used by another overlay in the overlay repo — tests/tests.sh will reject it"
+            fi
+        fi
+    fi
+
+    # The repo's tests reject config_automatic_brightness_available=true with no
+    # curve to go with it.
+    if [ "${HAS_AUTO_BRIGHTNESS:-false}" = "true" ] && [ -z "${AUTO_BRIGHTNESS_LEVELS:-}" ]; then
+        _v_warn "HAS_AUTO_BRIGHTNESS=true without AUTO_BRIGHTNESS_LEVELS — the overlay repo's tests reject auto-brightness with no curve"
+    fi
+
+    # Resources on the repo's blacklist are dropped from the submission
+    # automatically; build.sh prints which ones, so nothing to check here.
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Typos: a key no script reads
 # ---------------------------------------------------------------------------
 _validate_unknown_keys() {
@@ -285,6 +336,7 @@ validate_config() {
     _validate_udfps
     _validate_brightness
     _validate_overlay
+    _validate_submission
     _validate_unknown_keys
 
     if [ "$VALIDATE_WARNINGS" -eq 0 ]; then

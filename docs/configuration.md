@@ -341,16 +341,34 @@ what `aapt2 link` resolves, which is how `resource not found` errors start.
 
 ---
 
-## Hardware Overlay Repo (optional)
+## Overlay repo submission (optional)
 
-Only affects `out/<name>-hardware-overlay.zip`, not the flashable module.
+Only affects `out/<name>-hardware-overlay.zip`, the source tree you submit as a
+pull request to
+[Doze-off/vendor_hardware_overlay](https://github.com/Doze-off/vendor_hardware_overlay)
+(base branch `pie`) so GSI builds ship the overlay themselves; upstream
+[TrebleDroid/vendor_hardware_overlay](https://github.com/TrebleDroid/vendor_hardware_overlay)
+takes the same tree. It does not change the flashable module.
+Walkthrough: [submission.md](submission.md).
 
-| Key | Example | Meaning |
+| Key | Default | Meaning |
 |---|---|---|
-| `HW_OVERLAY_MATCH_PROP` | `ro.vendor.build.fingerprint` | Property used by the repo version. |
-| `HW_OVERLAY_MATCH_VALUE` | `+*samsung/r3q*` | Glob value for that property. |
+| `HW_OVERLAY_MATCH_PROP` | `ro.product.vendor.device` | Property the preinstalled overlay matches on. Empty = always active. |
+| `HW_OVERLAY_MATCH_VALUE` | `DEVICE_CODENAME` | Exact value of that property (no globs). |
+| `HW_OVERLAY_PRIORITY` | a free number | `android:priority` for the framework overlay. |
+| `HW_OVERLAY_PRIORITY_SYSTEMUI` | `OVERLAY_PRIORITY_SYSTEMUI` | Priority for the SystemUI overlay. |
 
-Useful when the repo needs broader matching than `ro.product.device`.
+`android:requiredSystemPropertyValue` is compared with plain string equality
+(`FrameworkParsingPackageUtils#checkRequiredSystemProperties`), so `*` and `+`
+are not wildcards: an overlay carrying `+*samsung/r3q*` never activates. Use the
+literal value from `adb shell getprop ro.product.vendor.device`.
+
+The repo's `tests/tests.sh` rejects a priority that another overlay already
+uses, which is why the submission does not reuse `OVERLAY_PRIORITY` (628 is
+taken). Nothing runs that script for you on the Doze-off fork (its Actions tab
+has no runs), so run it in your clone before opening the pull request. The default is the first free number at or after a device-specific
+start in `scripts/data/treble-overlay-priorities.txt` (a snapshot of the repo);
+take the number the test script suggests if it differs.
 
 ---
 

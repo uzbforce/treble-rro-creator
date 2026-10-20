@@ -178,9 +178,9 @@ sources:
 ```
 
 Extract it and copy the manufacturer folder into a clone of the
-[Treble Hardware Overlay Repo](https://github.com/Doze-off/vendor_hardware_overlay)
-to submit a pull request. That makes the overlay part of GSIs by default instead
-of requiring a module.
+[Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay)
+(base branch `pie`), then open the pull request from there. That makes the
+overlay part of the GSI builds instead of requiring a module.
 
 `out/<name>-hardware-overlay-test.zip` builds the same sources into a module so
 you can verify the repo version works before submitting it.

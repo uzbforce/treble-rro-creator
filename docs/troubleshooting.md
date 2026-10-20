@@ -436,7 +436,7 @@ su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh verify'   # saved 
 - **`! <resource> is Npx, wanted Mpx`** — the APK on disk and the running
   framework disagree; reload, then run `verify` again.
 - Nothing changes even after a reload: check that the static overlay is still
-  enabled (`cmd overlay list --user 0 | grep treble-overlay`) and that
+  enabled (`cmd overlay list --user 0 | grep me.phh.treble.overlay`) and that
   `apply.sh diag` marks the APK as `patched:`. If it says `build:`, the write
   never happened — the banner and log of that Apply say why.
 

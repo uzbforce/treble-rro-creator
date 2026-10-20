@@ -9,8 +9,10 @@
 #
 # 1. shell syntax of every shipped script (bash -n / sh -n, no execution)
 # 2. the WebUI resource-table writer against tests/fixtures/*.apk
-# 3. the WebUI manifest, built from resource XML that tests/gen-res.sh
-#    generates into a temp directory (so a fresh clone needs no build first)
+# 3. the WebUI manifest and the overlay-repo submission tree (Doze-off
+#    vendor_hardware_overlay), built from
+#    resource XML that tests/gen-res.sh generates into a temp directory (so a
+#    fresh clone needs no build first)
 # 4. every relative link and #anchor in the docs
 # =============================================================================
 
@@ -36,7 +38,7 @@ done
 
 step "node tests"
 if command -v node >/dev/null 2>&1; then
-    node --test tests/arsc.test.js tests/manifest.test.js || status=1
+    node --test tests/arsc.test.js tests/manifest.test.js tests/hw-overlay.test.js || status=1
 else
     echo "node is not installed — skipping the resource-table tests"
     status=1

@@ -38,6 +38,7 @@ source "$ROOT/scripts/resources.sh"
 source "$ROOT/scripts/module.sh"
 source "$ROOT/scripts/manifest.sh"
 source "$ROOT/scripts/validate.sh"
+source "$ROOT/scripts/hardware-overlay.sh"
 
 # Never die silently: an unexpected `set -e` abort says where and why.
 trap 'err "Unexpected failure at line ${LINENO}: ${BASH_COMMAND}"; err "Re-run with: bash -x ./build.sh  and report the last lines"' ERR
@@ -108,13 +109,6 @@ strip_xml_comments() {
             print line
         }
     ' "$@"
-}
-
-# Does this power_profile.xml contain actual data, or is it the empty template?
-power_profile_is_placeholder() {
-    local f="$1"
-    [ -f "$f" ] || return 0
-    ! grep -qE '<item[[:space:]>]' "$f"
 }
 
 audit_framework_resources() {
@@ -265,54 +259,9 @@ fi
 source "$CONFIG_FILE"
 
 # ── Auto-generate identity strings ─────────────────────────────────────────
-# Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER
-[ -z "$DEVICE_MANUFACTURER" ] || [[ "$DEVICE_MANUFACTURER" == *"<"* ]] && DEVICE_MANUFACTURER="generic"
-[ -z "$DEVICE_CODENAME" ]     || [[ "$DEVICE_CODENAME" == *"<"* ]]     && DEVICE_CODENAME="generic"
-
-# Clean manufacturer for Java package names (lowercase alphanumeric only)
-SAFE_MANUFACTURER=$(echo "${DEVICE_MANUFACTURER}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')
-
-# Clean codename for package name: replace non-alphanumeric with dots
-# e.g. "Infinix-X6852" → "infinix.x6852" (dots are valid Java package separators)
-PACKAGE_SEGMENT=$(echo "${DEVICE_CODENAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/./g' | sed 's/\.\.*/./g' | sed 's/^\.//;s/\.$//')
-
-# Module ids are shared by Magisk, KernelSU and APatch: they must match
-# ^[a-zA-Z][a-zA-Z0-9._-]+$ (no spaces or slashes). Use the already-cleaned
-# manufacturer/codename pieces for the generated default; an explicit
-# OVERLAY_NAME in config.env is kept as-is.
-DEFAULT_MANUFACTURER="${SAFE_MANUFACTURER:-generic}"
-DEFAULT_CODENAME="${PACKAGE_SEGMENT:-generic}"
-[ -z "$OVERLAY_NAME" ]        || [[ "$OVERLAY_NAME" == *"<"* ]]        && OVERLAY_NAME="treble-overlay-${DEFAULT_MANUFACTURER}-${DEFAULT_CODENAME}"
-[ -z "$OVERLAY_PACKAGE" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
-[ -z "$OVERLAY_PACKAGE_SYSTEMUI" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
-[[ "$DEVICE_PROP_VALUE" == *"<"* ]] && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
-# Only placeholders are replaced. An EMPTY DEVICE_PROP_NAME is meaningful: it
-# builds an overlay with no match condition (always active), which is the safe
-# default for framework overlays — see the Overlay Activation section of
-# config.env for why ro.product.* conditions fail on GSI setups.
-[[ "$DEVICE_PROP_NAME" == *"<"* ]] && DEVICE_PROP_NAME="ro.product.device"
-
-if [ -n "$DEVICE_PROP_NAME" ]; then
-    OVERLAY_CONDITION="        android:requiredSystemPropertyName=\"${DEVICE_PROP_NAME}\"
-        android:requiredSystemPropertyValue=\"${DEVICE_PROP_VALUE}\" />"
-    CONDITION_DESC="${DEVICE_PROP_NAME} == \"${DEVICE_PROP_VALUE}\""
-else
-    OVERLAY_CONDITION="        />"
-    CONDITION_DESC="none (always active)"
-fi
-
-[ -z "$ANDROID_VERSION" ]     && ANDROID_VERSION="14"
-[ -z "$COMPILE_SDK_VERSION" ] && COMPILE_SDK_VERSION="34"
-[ -z "$MIN_SDK_VERSION" ]     && MIN_SDK_VERSION="34"
-[ -z "$TARGET_SDK_VERSION" ]  && TARGET_SDK_VERSION="34"
-[ -z "$OVERLAY_VERSION" ]     && OVERLAY_VERSION="1.0"
-[ -z "$OVERLAY_VERSION_CODE" ] && OVERLAY_VERSION_CODE="1"
-
-[[ "${LIGHT_SENSOR_TYPE}" == *"<"* ]] && LIGHT_SENSOR_TYPE="android.sensor.light"
-[[ "${DEVICE_MODEL}" == *"<"* ]] && DEVICE_MODEL="Generic Device"
-# Status bar landscape height: only set fallback if explicitly a placeholder
-# (otherwise leave empty so the status bar section skips it)
-[[ "${STATUS_BAR_HEIGHT_LANDSCAPE}" == *"<"* ]] && STATUS_BAR_HEIGHT_LANDSCAPE=24
+# Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER. The derivation
+# lives in scripts/common.sh so the standalone helpers agree with the build.
+derive_overlay_identity
 
 # Validate required values
 [ -z "$DEVICE_CODENAME" ] && { err "DEVICE_CODENAME not set in config.env"; exit 1; }
@@ -998,120 +947,13 @@ ok "Module packaged: out/${OVERLAY_NAME}-ksu.zip (KernelSU / KSU Next / APatch /
 # ---------------------------------------------------------------------------
 step "Building Hardware Overlay Repo structure"
 
+# The submission tree (manifests, Android.mk, resources minus the repo's
+# blacklist, notes) is written by scripts/hardware-overlay.sh, which is also
+# runnable on its own: ./scripts/hardware-overlay.sh plan|write <dir>
 HW_OVERLAY_DIR="build/hardware_overlay"
-rm -rf "$HW_OVERLAY_DIR"
-mkdir -p "$HW_OVERLAY_DIR"
-
-# Allow overriding props for the hardware overlay repo specifically
-HW_MATCH_PROP="${HW_OVERLAY_MATCH_PROP:-$DEVICE_PROP_NAME}"
-HW_MATCH_VALUE="${HW_OVERLAY_MATCH_VALUE:-$DEVICE_PROP_VALUE}"
-
-# Empty match property → no condition in the AOSP-source manifest either.
-if [ -n "$HW_MATCH_PROP" ]; then
-    HW_CONDITION="        android:requiredSystemPropertyName=\"${HW_MATCH_PROP}\"
-        android:requiredSystemPropertyValue=\"${HW_MATCH_VALUE}\"
-"
-else
-    HW_CONDITION=""
-fi
-
-# copy_overlay_resources <src_res_dir> <dst_res_dir>
-# Copies the effective resource tree 1:1 instead of merging values files into
-# one config.xml. The main build compiles this same tree, so the AOSP build sees
-# exactly the same resources (and the same duplicate-name errors, if any).
-copy_overlay_resources() {
-    local src="$1" dst="$2" entry base f
-    rm -rf "$dst"
-    mkdir -p "$dst"
-    for entry in "$src"/*; do
-        [ -e "$entry" ] || continue
-        base=$(basename "$entry")
-        if [ -f "$entry" ]; then
-            cp "$entry" "$dst/"
-            continue
-        fi
-        case "$base" in
-            values*|drawable*)
-                cp -R "$entry" "$dst/$base"
-                ;;
-            xml)
-                mkdir -p "$dst/xml"
-                for f in "$entry"/*; do
-                    [ -f "$f" ] || continue
-                    if [ "$(basename "$f")" = "power_profile.xml" ] && power_profile_is_placeholder "$f"; then
-                        info "Hardware overlay repo: empty power_profile.xml skipped"
-                        continue
-                    fi
-                    cp "$f" "$dst/xml/"
-                done
-                ;;
-            *)
-                cp -R "$entry" "$dst/$base"
-                ;;
-        esac
-    done
-}
-
-# 1. Framework Overlay
-FW_HW_DIR="${HW_OVERLAY_DIR}/${DEVICE_MANUFACTURER}/${DEVICE_CODENAME}"
-mkdir -p "$FW_HW_DIR"
-copy_overlay_resources "$RES_DIR" "$FW_HW_DIR/res"
-
-cat > "$FW_HW_DIR/Android.mk" << ANDROIDMK
-LOCAL_PATH := \$(call my-dir)
-include \$(CLEAR_VARS)
-LOCAL_MODULE_TAGS := optional
-LOCAL_PACKAGE_NAME := ${OVERLAY_NAME}
-LOCAL_MODULE_PATH := \$(TARGET_OUT_PRODUCT)/overlay
-LOCAL_IS_RUNTIME_RESOURCE_OVERLAY := true
-LOCAL_PRIVATE_PLATFORM_APIS := true
-include \$(BUILD_PACKAGE)
-ANDROIDMK
-
-cat > "$FW_HW_DIR/AndroidManifest.xml" << MANIFEST
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="${OVERLAY_PACKAGE}"
-    android:versionCode="${OVERLAY_VERSION_CODE}"
-    android:versionName="${OVERLAY_VERSION}">
-    <overlay android:targetPackage="android"
-${HW_CONDITION}        android:priority="${OVERLAY_PRIORITY}"
-        android:isStatic="true" />
-</manifest>
-MANIFEST
-
-ok "Hardware Overlay (Framework) generated: ${FW_HW_DIR}"
-
-# 2. SystemUI Overlay (if exists)
-if [ "$LINKED_SYSTEMUI" = "true" ]; then
-    SYSUI_HW_DIR="${HW_OVERLAY_DIR}/${DEVICE_MANUFACTURER}/${DEVICE_CODENAME}-SystemUI"
-    mkdir -p "$SYSUI_HW_DIR"
-    copy_overlay_resources "$SYSUI_RES_DIR" "$SYSUI_HW_DIR/res"
-    cat > "$SYSUI_HW_DIR/Android.mk" << ANDROIDMK
-LOCAL_PATH := \$(call my-dir)
-include \$(CLEAR_VARS)
-LOCAL_MODULE_TAGS := optional
-LOCAL_PACKAGE_NAME := ${OVERLAY_NAME}-systemui
-LOCAL_MODULE_PATH := \$(TARGET_OUT_PRODUCT)/overlay
-LOCAL_IS_RUNTIME_RESOURCE_OVERLAY := true
-LOCAL_PRIVATE_PLATFORM_APIS := true
-include \$(BUILD_PACKAGE)
-ANDROIDMK
-
-    cat > "$SYSUI_HW_DIR/AndroidManifest.xml" << MANIFEST
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="${OVERLAY_PACKAGE_SYSTEMUI}"
-    android:versionCode="1"
-    android:versionName="1.0">
-    <overlay android:targetPackage="com.android.systemui"
-${HW_CONDITION}        android:priority="${OVERLAY_PRIORITY_SYSTEMUI}"
-        android:isStatic="true" />
-</manifest>
-MANIFEST
-
-    ok "Hardware Overlay (SystemUI) generated: ${SYSUI_HW_DIR}"
-fi
+write_hardware_overlay "$HW_OVERLAY_DIR" || { err "Failed to generate the hardware overlay tree"; exit 1; }
+FW_HW_DIR="$HW_FW_DIR"
+SYSUI_HW_DIR="${HW_SYSUI_DIR:-}"
 
 # Package it
 create_zip "$HW_OVERLAY_DIR" "${ROOT}/out/${OVERLAY_NAME}-hardware-overlay.zip" \
@@ -1205,8 +1047,12 @@ if [ "$LINKED_SYSTEMUI" = "true" ]; then
 fi
 echo ""
 echo "    out/${OVERLAY_NAME}-ksu.zip              (Main module: KSU / KSU Next / APatch / Magisk)"
-echo "    out/${OVERLAY_NAME}-hardware-overlay.zip (For Repo submission)"
+echo "    out/${OVERLAY_NAME}-hardware-overlay.zip (Submit to the overlay repo — no module needed)"
 echo "    out/${OVERLAY_NAME}-hardware-overlay-test.zip (Test repo version locally)"
+echo ""
+echo -e "  ${BOLD}Getting it built into the GSI:${NC}"
+echo "    docs/submission.md  —  the zip's _submission/HOW-TO-SUBMIT.md has the steps"
+echo "    for your device (folders, overlay.mk lines, match value, priority)."
 echo ""
 echo -e "  ${RED}${BOLD}⚠ IMPORTANT (KernelSU / KSU Next Users):${NC}"
 echo "    - You MUST install a mount system like 'Magic Mount' for overlays to activate."

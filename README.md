@@ -135,10 +135,21 @@ Everything is written to `out/`:
 | `out/apks/<name>.apk` | Framework overlay (signed) |
 | `out/apks/<name>-systemui.apk` | SystemUI overlay (signed, if used) |
 | `out/<name>-ksu.zip` | **Module zip** — install this in any supported manager |
-| `out/<name>-hardware-overlay.zip` | Sources for the Hardware Overlay Repo |
+| `out/<name>-hardware-overlay.zip` | Sources to submit to the Doze-off overlay repo |
 | `out/<name>-hardware-overlay-test.zip` | Test build of the repo version |
 
 Install `out/<name>-ksu.zip` in KernelSU, KSU Next, APatch or Magisk and reboot.
+
+### Getting it built into the GSI (no module)
+
+`out/<name>-hardware-overlay.zip` is the source tree the
+[Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay)
+compiles into the GSI builds: submit it as a pull request (base branch `pie`)
+and the device gets the overlay with no module to install or update. The zip
+contains the exact folders, the `overlay.mk` lines and a `HOW-TO-SUBMIT.md`
+filled in for your device; read **[docs/submission.md](docs/submission.md)**
+first — the wiki's `+*brand/model*` match pattern never matches anything, and
+this project writes the exact value instead.
 The zip is a standard module: the same file works in all four managers (the
 `-ksu` suffix is historical; it is not KernelSU-only). It contains the normal
 `customize.sh` that KSU/APatch source and Magisk's `META-INF` installer, plus
@@ -261,6 +272,7 @@ the new one.
 
 | Guide | Contents |
 |---|---|
+| [docs/submission.md](docs/submission.md) | Getting the overlay built into the GSI (Doze-off repo PR) |
 | [docs/configuration.md](docs/configuration.md) | Every `config.env` option |
 | [docs/webui.md](docs/webui.md) | KernelSU WebUI: change values without rebuilding |
 | [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |
