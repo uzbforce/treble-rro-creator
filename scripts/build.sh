@@ -31,10 +31,13 @@ SYSUI_RES_DIR="${SYSTEMUI_RES#"$ROOT"/}"
 MODULE_SRC_REL="${MODULE_DIR#"$ROOT"/}"
 VENDOR_SRC_REL="${VENDOR_DIR#"$ROOT"/}"
 BUILD_REL="${BUILD_DIR#"$ROOT"/}"
+: "${DRY_RUN:=false}"
 
 # Generators used by the build steps below.
 source "$ROOT/scripts/resources.sh"
 source "$ROOT/scripts/module.sh"
+source "$ROOT/scripts/manifest.sh"
+source "$ROOT/scripts/validate.sh"
 
 # Never die silently: an unexpected `set -e` abort says where and why.
 trap 'err "Unexpected failure at line ${LINENO}: ${BASH_COMMAND}"; err "Re-run with: bash -x ./build.sh  and report the last lines"' ERR
@@ -348,10 +351,37 @@ echo -e "  ${BOLD}Builder:${NC}"
 echo -e "    Android:         ${ANDROID_VERSION} (API ${COMPILE_SDK_VERSION})"
 echo ""
 
+# ---------------------------------------------------------------------------
+# Preflight: placeholders, inconsistent values, keys nothing reads
+# ---------------------------------------------------------------------------
+step "Checking config.env"
+validate_config
+echo ""
+
+# ---------------------------------------------------------------------------
+# Dry run — print what config.env produces and stop before any tool is needed
+# ---------------------------------------------------------------------------
+if [ "$DRY_RUN" = "true" ]; then
+    step "Resource plan (dry run)"
+    mkdir -p "$RES_DIR/values" "$RES_DIR/values-land" "$SYSUI_RES_DIR/values"
+    generate_resource_xml
+    generate_systemui_resource_xml
+    echo ""
+    print_resource_plan
+    echo ""
+    info "Dry run: nothing was compiled, signed or packaged."
+    echo ""
+    exit 0
+fi
+
 # Check mode — validate and exit
 if [ "$CHECK_MODE" = "true" ]; then
     echo ""
-    echo -e "  ${GREEN}✓${NC} Config validation passed"
+    if [ "${VALIDATE_WARNINGS:-0}" -eq 0 ]; then
+        echo -e "  ${GREEN}✓${NC} Config validation passed"
+    else
+        echo -e "  ${YELLOW}⚠${NC} ${VALIDATE_WARNINGS} config warning(s) — see the list above"
+    fi
     echo -e "  ${YELLOW}→${NC} Run without --check to build"
     echo ""
     exit 0
@@ -807,7 +837,11 @@ if [ -d "$ROOT/src/webui" ]; then
         printf 'PAD_END=%s\n'      "${STATUS_BAR_PADDING_END//[^0-9]/}"
         printf 'DOZE_BLANK=%s\n'   "${CONFIG_DISPLAY_BLANKS_AFTER_DOZE:-false}"
     } > "${MODULE_TMP}/webui-defaults.conf"
+    # The page renders its editor from this list, so what it can edit comes
+    # from the same resource XML the build compiles - not a second table.
+    WEBUI_RES_COUNT=$(write_webui_manifest "${MODULE_TMP}/webroot/webui-manifest.json")
     ok "webroot/: WebUI included (KSU / KSU Next / APatch / Magisk hosts)"
+    info "webroot/webui-manifest.json: ${WEBUI_RES_COUNT} resource(s) editable from the page"
 fi
 
 # Use src/module/customize.sh when present, otherwise generate one.
@@ -828,6 +862,14 @@ MODPATH=${MODPATH:-${0%/*}}
 [ -d "$MODPATH/system" ] || MODPATH="."
 ui_print "  Installing ${MODPATH##*/}..."
 set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
+
+# Values saved in the WebUI live outside the module directory (an update
+# replaces this one), so bring them back. The page re-applies them onto the new
+# APKs the next time it is opened.
+if [ -f "$MODPATH/webroot/apply.sh" ]; then
+    sh "$MODPATH/webroot/apply.sh" restore-conf >/dev/null 2>&1 || true
+fi
+
 ui_print "  ✓ Module installed successfully!"
 CUSTOMIZE_SIMPLE
     chmod +x "${MODULE_TMP}/customize.sh"
@@ -877,12 +919,21 @@ if [ -f "$MODULE_DIR/post-fs-data.sh" ]; then
     cp "$MODULE_DIR/post-fs-data.sh" "${MODULE_TMP}/post-fs-data.sh" \
         && chmod +x "${MODULE_TMP}/post-fs-data.sh"
     ok "post-fs-data.sh: using src/module/post-fs-data.sh"
-elif [ -n "$DEVICE_PROP_NAME" ] && [[ "$DEVICE_PROP_NAME" == persist.* ]]; then
-    generate_post_fs_data_sh "${MODULE_TMP}"
+else
+    MATCH_PROP_YES=no
+    if [ -n "$DEVICE_PROP_NAME" ] && [[ "$DEVICE_PROP_NAME" == persist.* ]]; then
+        MATCH_PROP_YES=yes
+    fi
+    generate_post_fs_data_sh "${MODULE_TMP}" "$MATCH_PROP_YES"
     sed -i -e "s|@MATCH_PROP@|${DEVICE_PROP_NAME}|g" \
            -e "s|@MATCH_VALUE@|${DEVICE_PROP_VALUE}|g" \
+           -e "s|@MODULE_ID@|${OVERLAY_NAME}|g" \
            "${MODULE_TMP}/post-fs-data.sh"
-    ok "post-fs-data.sh sets ${DEVICE_PROP_NAME}=${DEVICE_PROP_VALUE} before zygote"
+    if [ "$MATCH_PROP_YES" = "yes" ]; then
+        ok "post-fs-data.sh sets ${DEVICE_PROP_NAME}=${DEVICE_PROP_VALUE} before zygote"
+    else
+        ok "post-fs-data.sh: WebUI boot guard only (no persist.* match property)"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

@@ -391,6 +391,31 @@ module's package. A static overlay whose manifest property does not match
 package disappears, which looks exactly like a rejected edit. `apply.sh diag`
 prints the overlay list it can see.
 
+### The page says "Your last Apply was rolled back"
+
+The boot guard restored the build-time APKs: the boot after that patch never
+reached `boot_completed`, so `post-fs-data.sh` put the APKs back before zygote
+read them (see [webui.md](webui.md#the-boot-guard)).
+
+```bash
+su -c 'tail -n 20 /data/adb/modules/treble-overlay-*/webui-boot.log'    # ends with guard=restored
+su -c 'cat /data/adb/modules/treble-overlay-*/webui.conf.failed'        # the rejected values
+```
+
+Apply those values one at a time to find the one the framework refuses. A status
+bar height with no room for the cutout and a padding value on a ROM that sizes
+the bar differently are the usual suspects.
+
+### All resources is empty ("no manifest")
+
+The module was built before `webroot/webui-manifest.json` existed, so there is
+nothing to render there; the five sliders keep working. Rebuild and reinstall to
+get the full list. To check the file on the device:
+
+```bash
+su -c 'sh /data/adb/modules/treble-overlay-*/webroot/apply.sh manifest | head -5'
+```
+
 ### The values were applied but nothing changed
 
 A dimension lives in the overlay APK, and a static overlay is only read when the

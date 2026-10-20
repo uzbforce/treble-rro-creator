@@ -1,0 +1,24 @@
+name: check
+
+# The build itself needs the Android SDK (aapt2, apksigner, framework-res.apk),
+# which this workflow deliberately does not install: these checks cover the
+# parts that break silently — the WebUI's binary resource-table writer, the
+# manifest it renders from, script syntax and documentation anchors.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run the checks
+        run: bash tests/run.sh

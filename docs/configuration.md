@@ -17,6 +17,39 @@ Values are plain shell assignments: `KEY=value` or `KEY="value"`.
 
 ---
 
+## Checking values before a build
+
+`build.sh` runs a preflight over `config.env` before it generates anything and
+prints what it finds. `./build.sh check` runs only that preflight:
+
+- placeholders still in place (`000`, `<codename>`) that would silently produce
+  a 0 px value;
+- `STATUS_BAR_CONTENT_PADDING`, `_PADDING_START` and `_PADDING_END` disagreeing,
+  or a padding wider than the corner radius;
+- a status bar height outside 48–400 px, or a landscape bar taller than the
+  portrait one;
+- brightness arrays whose lengths do not line up (`LEVELS` + 1, and
+  `SCREEN_BRIGHTNESS_NITS` against `SCREEN_BRIGHTNESS_BACKLIGHT`);
+- a half-filled UDFPS triple, or `UDFPS_*` set while `HAS_UDFPS=false`;
+- `PEAK_REFRESH_RATE` below `DEFAULT_REFRESH_RATE`;
+- a `CONFIG_*` key that no build script reads (a typo).
+
+They are warnings, so the build continues — a value that looks odd can still be
+deliberate. Values that cannot compile at all (a radius of `abc`) are errors in
+[`scripts/resources.sh`](../scripts/resources.sh) and stop the build.
+
+To see exactly what `config.env` produces without compiling anything:
+
+```bash
+./build.sh --dry-run
+```
+
+That prints every resource — type, name, value and which overlay APK it lands
+in — grouped the same way the module WebUI groups them. It needs no aapt2, no
+Java and no signing keys, so it is the quickest way to check a change.
+
+---
+
 ## Identity
 
 | Key | Example | Meaning |
