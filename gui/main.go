@@ -58,6 +58,9 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 		app.runner.Cancel()
+		if app.adbRunner != nil {
+			app.adbRunner.Cancel()
+		}
 	}()
 
 	log.Printf("ui: %s", url)

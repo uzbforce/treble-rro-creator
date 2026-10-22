@@ -2,7 +2,7 @@
 rem ---------------------------------------------------------------------------
 rem run-bash.cmd - run build.sh under Git Bash
 rem ---------------------------------------------------------------------------
-rem Usage:  windows\run-bash.cmd <script.sh> [args...]
+rem Usage:  stuff\windows\run-bash.cmd <script.sh> [args...]
 rem
 rem Kept in one place so the Windows launchers cannot drift apart.
 rem ---------------------------------------------------------------------------
@@ -10,12 +10,12 @@ setlocal EnableExtensions
 
 set "SCRIPT=%~1"
 if "%SCRIPT%"=="" (
-    echo Usage: windows\run-bash.cmd ^<script.sh^> [args...]
+    echo Usage: stuff\windows\run-bash.cmd ^<script.sh^> [args...]
     exit /b 1
 )
 
-rem Project root = parent of this file's directory
-set "ROOT=%~dp0.."
+rem Project root = two levels above this file (stuff/windows/): the clone root
+set "ROOT=%~dp0..\.."
 set "BASH="
 
 rem 1) Standard Git for Windows install locations

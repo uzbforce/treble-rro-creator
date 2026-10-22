@@ -25,6 +25,11 @@ func openUI(url, title string, debug, forceBrowser bool) error {
 	w.SetTitle(title)
 	w.SetSize(1120, 780, webview.HintNone)
 	w.Navigate(url)
+
+	// WebView2 creates the window with the default icon; the app's mark is set
+	// from its own goroutine while Run() pumps messages (see icon_windows.go).
+	go setWindowIcon(title)
+
 	w.Run()
 	return nil
 }

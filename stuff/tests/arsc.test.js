@@ -2,7 +2,7 @@
    most fragile code in the project. These tests run the shipped page code
    (not a copy) against the APKs this build produced.
 
-   Run: node --test tests/ */
+   Run: node --test stuff/tests/ */
 "use strict";
 
 const test = require("node:test");

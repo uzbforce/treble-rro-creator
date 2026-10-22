@@ -2,14 +2,14 @@
 # =============================================================================
 # Treble Overlay — shared helpers
 # =============================================================================
-# Sourced by build.sh and by the modules in scripts/. Never run directly.
+# Sourced by build.sh and by the modules in stuff/scripts/. Never run directly.
 #
 # The entry point sets ROOT (the project directory) and then sources this file,
 # so every helper below can assume it exists and that the current directory is
 # the project root.
 # =============================================================================
 
-: "${ROOT:?scripts/common.sh must be sourced by build.sh (ROOT is not set)}"
+: "${ROOT:?stuff/scripts/common.sh must be sourced by build.sh (ROOT is not set)}"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -17,14 +17,17 @@
 # Absolute paths are used for file tests and for zip destinations. Arguments
 # handed to native tools (aapt2/zipalign) must stay RELATIVE: MSYS on Windows
 # does not reliably convert a /c/... path for a native .exe.
-TOOLS_DIR="$ROOT/tools"
-BUILD_DIR="$ROOT/build"
+# Everything that is not the thing you build lives under stuff/, so the root
+# only holds the two entry points, config.env and the folders you open.
+STUFF_DIR="$ROOT/stuff"
+TOOLS_DIR="$STUFF_DIR/tools"
+BUILD_DIR="$STUFF_DIR/build"
 OUT_DIR="$ROOT/out"
-KEYS_DIR="$ROOT/keys"
-BACKUP_DIR="$ROOT/backups"
-TEMPLATES_DIR="$ROOT/templates"
+KEYS_DIR="$STUFF_DIR/keys"
+BACKUP_DIR="$STUFF_DIR/backups"
+TEMPLATES_DIR="$STUFF_DIR/templates"
 # Not "the old version of your files": the no-git fallback for
-# restore_from_release(). Kept identical to the committed files by tests/run.sh.
+# restore_from_release(). Kept identical to the committed files by stuff/tests/run.sh.
 RECOVERIES_DIR="$TEMPLATES_DIR/recoveries"
 
 SRC_DIR="$ROOT/src"
@@ -43,8 +46,8 @@ CONFIG_EXAMPLE="$ROOT/config.env.example"
 # ---------------------------------------------------------------------------
 # "Start over" must never hand back a copy that froze at some old commit. The
 # committed blob IS the template for a tracked file, so ask git for it; the
-# copy in templates/recoveries/ is only the fallback for a checkout with no .git
-# (a fork downloaded as a zip). tests/run.sh fails if the two ever drift.
+# copy in stuff/templates/recoveries/ is only the fallback for a checkout with no .git
+# (a fork downloaded as a zip). stuff/tests/run.sh fails if the two ever drift.
 #
 #   restore_from_release <path relative to ROOT> [fallback copy]
 #
@@ -141,7 +144,7 @@ confirm() {
 # WSL safety
 # ---------------------------------------------------------------------------
 # A checkout on a Windows drive that is built from inside WSL would put Linux
-# binaries into the same tools/ folder the Windows build reads, and would hand
+# binaries into the same stuff/tools/ folder the Windows build reads, and would hand
 # Windows a build tree it cannot use. Refuse with instructions instead of
 # producing a half-broken toolchain. (This is the "VS Code opened the folder
 # with WSL" case.)
@@ -158,7 +161,7 @@ wsl_guard() {
     echo "    Project:  $ROOT"
     echo "    Shell:    WSL (Linux)"
     echo ""
-    echo "  The Linux toolchain would be installed into the same tools/ folder the"
+    echo "  The Linux toolchain would be installed into the same stuff/tools/ folder the"
     echo "  Windows build uses, so both platforms would then see the wrong binaries."
     echo ""
     echo -e "  ${BOLD}Use one of these instead:${NC}"
@@ -231,14 +234,29 @@ migrate_layout() {
         moved=true
     done
 
-    # YOUR BACKUPS -> backups
+    # YOUR BACKUPS -> stuff/backups
     if [ -d "$ROOT/YOUR BACKUPS" ] && [ ! -d "$BACKUP_DIR" ]; then
         mv "$ROOT/YOUR BACKUPS" "$BACKUP_DIR"
-        info "Moved legacy ./YOUR BACKUPS → backups"
+        info "Moved legacy ./YOUR BACKUPS → stuff/backups"
         moved=true
     fi
 
-    $moved && info "Layout upgraded — build files now live in src/"
+    # Everything that is not src/, docs/ or an entry point now lives in stuff/.
+    # A git pull moves these itself; this covers an upgrade from a zip, which
+    # would otherwise leave a second copy in the way at the root.
+    mkdir -p "$STUFF_DIR"
+    for f in keys templates windows tests scripts tools build backups; do
+        [ -d "$ROOT/$f" ] || continue
+        if [ -d "$STUFF_DIR/$f" ]; then
+            warn "Legacy ./$f exists but stuff/$f is the one in use — remove the old copy"
+            continue
+        fi
+        mv "$ROOT/$f" "$STUFF_DIR/$f"
+        info "Moved legacy ./$f → stuff/$f"
+        moved=true
+    done
+
+    $moved && info "Layout upgraded — internals live in stuff/, the entry points stay at the root"
     return 0
 }
 
@@ -247,7 +265,7 @@ migrate_layout() {
 # ---------------------------------------------------------------------------
 # Windows cannot execute Linux binaries. If this checkout is also opened from
 # WSL/Kali (a copy on the same drive), a Linux `aapt2` can land in the same
-# tools/ folder the Windows build puts on PATH, shadow `aapt2.exe`, and fail
+# stuff/tools/ folder the Windows build puts on PATH, shadow `aapt2.exe`, and fail
 # much later with "Exec format error". Classify by magic bytes so it is caught
 # up front.
 classify_binary() {
@@ -313,7 +331,7 @@ tool_candidates() {
     return 0
 }
 
-# Is this tool usable HERE (PATH, tools/, .exe/.bat on Windows)?
+# Is this tool usable HERE (PATH, stuff/tools/, .exe/.bat on Windows)?
 tool_ready() {
     local name="$1" cand
     while IFS= read -r cand; do
@@ -477,9 +495,9 @@ create_zip() {
         ( cd "$src" && zip -r "$dest" . >/dev/null ) || return 1
     elif command -v 7z >/dev/null 2>&1; then
         ( cd "$src" && 7z a -tzip "$dest" . >/dev/null ) || return 1
-    elif command -v powershell >/dev/null 2>&1 && [ -f "$ROOT/windows/zipdir.ps1" ]; then
+    elif command -v powershell >/dev/null 2>&1 && [ -f "$STUFF_DIR/windows/zipdir.ps1" ]; then
         powershell -NoProfile -ExecutionPolicy Bypass \
-            -File "$(to_win_path "$ROOT/windows/zipdir.ps1")" \
+            -File "$(to_win_path "$STUFF_DIR/windows/zipdir.ps1")" \
             -Source "$(to_win_path "$(cd "$src" && pwd)")" \
             -Dest "$(to_win_path "$dest")" >/dev/null || return 1
     else
@@ -488,7 +506,7 @@ create_zip() {
     fi
 }
 
-# Make the local toolchain visible. Windows tools are .exe files in tools/;
+# Make the local toolchain visible. Windows tools are .exe files in stuff/tools/;
 # on Linux the build-tools zipalign needs the bundled libc++ from lib64/.
 tools_on_path() {
     case ":$PATH:" in

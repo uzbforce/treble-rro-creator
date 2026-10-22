@@ -65,6 +65,7 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/run", a.guard("POST", a.handleRun))
 	mux.HandleFunc(base+"/api/cancel", a.guard("POST", a.handleCancel))
 	mux.HandleFunc(base+"/api/log", a.guard("GET", a.handleLog))
+	mux.HandleFunc(base+"/api/adb/log", a.guard("GET", a.handleAdbLog))
 	mux.HandleFunc(base+"/api/open", a.guard("POST", a.handleOpen))
 	mux.HandleFunc(base+"/api/docs", a.guard("GET", a.handleDocs))
 	mux.HandleFunc(base+"/api/doc", a.guard("GET", a.handleDoc))
@@ -75,6 +76,17 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/adb/detect", a.guard("POST", a.handleAdbDetect))
 	mux.HandleFunc(base+"/api/extract", a.guard("POST", a.handleExtract))
 	mux.HandleFunc(base+"/api/url", a.guard("POST", a.handleURL))
+
+	// The src/ workspace: the file manager, its two editors and the checks behind
+	// them (see files.go). Uploads are the only route that is not JSON.
+	mux.HandleFunc(base+"/api/files", a.guard("GET", a.handleFiles))
+	mux.HandleFunc(base+"/api/files/read", a.guard("GET", a.handleFileRead))
+	mux.HandleFunc(base+"/api/files/write", a.guard("POST", a.handleFileWrite))
+	mux.HandleFunc(base+"/api/files/check", a.guard("POST", a.handleFileCheck))
+	mux.HandleFunc(base+"/api/files/upload", a.guard("POST", a.handleFileUpload))
+	mux.HandleFunc(base+"/api/files/delete", a.guard("POST", a.handleFileDelete))
+	mux.HandleFunc(base+"/api/files/mkdir", a.guard("POST", a.handleFileMkdir))
+	mux.HandleFunc(base+"/api/files/toggle", a.guard("POST", a.handleFileToggle))
 	mux.Handle(base+"/", http.StripPrefix(base, http.FileServer(http.FS(assets))))
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -176,17 +188,42 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, a.runner.Snapshot())
 }
 
+// handleCancel stops whatever is running. There is one Stop button per console
+// but only one job at a time (see Gate), so asking both runners is the same as
+// asking the one that has something to stop.
 func (a *App) handleCancel(w http.ResponseWriter, r *http.Request) {
 	if err := a.runner.Cancel(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if a.adbRunner != nil {
+		if err := a.adbRunner.Cancel(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, a.runner.Snapshot())
 }
 
-// handleLog is a server-sent event stream: one JSON LogLine per event, replayed
-// from the buffer first so a reload does not lose the run in progress.
+// handleLog is the Build console: a server-sent event stream, one JSON LogLine
+// per event, replayed from the buffer first so a reload does not lose the run
+// in progress.
 func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
+	a.streamLog(w, r, a.runner)
+}
+
+// handleAdbLog is the same stream for the Device console. It is a separate
+// buffer on a separate Runner, so an adb command no longer appears in the build
+// log and a build no longer wipes the device console.
+func (a *App) handleAdbLog(w http.ResponseWriter, r *http.Request) {
+	if a.adbRunner == nil {
+		http.Error(w, "no device console", http.StatusInternalServerError)
+		return
+	}
+	a.streamLog(w, r, a.adbRunner)
+}
+
+func (a *App) streamLog(w http.ResponseWriter, r *http.Request, run *Runner) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -197,13 +234,13 @@ func (a *App) handleLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	snapshot := a.runner.Snapshot()
+	snapshot := run.Snapshot()
 	for _, line := range snapshot.Lines {
 		writeEvent(w, line)
 	}
 	flusher.Flush()
 
-	lines, stop := a.runner.Subscribe()
+	lines, stop := run.Subscribe()
 	defer stop()
 
 	// Comment pings keep a webview from closing an idle stream while a long
@@ -287,7 +324,7 @@ func (a *App) handleDoc(w http.ResponseWriter, r *http.Request) {
 
 // handleExtract pulls the files the docs tell the user to pull by hand. The
 // long ones go through the runner so they stream and can be cancelled; nothing
-// here writes outside tools/, so a failed pull cannot damage a clone.
+// here writes outside stuff/tools/, so a failed pull cannot damage a clone.
 func (a *App) handleExtract(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Action string `json:"action"`
@@ -297,7 +334,7 @@ func (a *App) handleExtract(w http.ResponseWriter, r *http.Request) {
 	}
 	adb := a.adbPath()
 	if adb == "" {
-		writeError(w, http.StatusBadRequest, "adb was not found on PATH and tools/platform-tools is missing")
+		writeError(w, http.StatusBadRequest, "adb was not found on PATH and stuff/tools/platform-tools is missing")
 		return
 	}
 	root := a.Root()
@@ -305,19 +342,19 @@ func (a *App) handleExtract(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "no clone selected")
 		return
 	}
-	if err := os.MkdirAll(filepath.Join(root, "tools"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "stuff", "tools"), 0o755); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	switch body.Action {
 	case "framework-res":
-		// build.sh looks for tools/framework-res.apk and uses it as the platform
-		// jar; a local copy is what makes a build work without the SDK.
+		// build.sh looks for stuff/tools/framework-res.apk and uses it as the
+		// platform jar; a local copy is what makes a build work without the SDK.
 		// adb reports transfer progress on stderr; merged so a good pull reads as
 		// normal output instead of an error.
-		err := a.runner.Start(root, adb,
-			[]string{"pull", "/system/framework/framework-res.apk", filepath.Join("tools", "framework-res.apk")},
+		err := a.adbRunner.Start(root, adb,
+			[]string{"pull", "/system/framework/framework-res.apk", filepath.Join("stuff", "tools", "framework-res.apk")},
 			"adb pull framework-res.apk", true)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -330,9 +367,9 @@ func (a *App) handleExtract(w http.ResponseWriter, r *http.Request) {
 		// 2>&1 on each adb call, so progress is not red while a genuine shell
 		// error still is.
 		script := fmt.Sprintf(
-			`'%s' shell su -c 'tar -czf /data/local/tmp/vendor_full.tar.gz -C / vendor' 2>&1 && '%s' pull /data/local/tmp/vendor_full.tar.gz tools/vendor.tar.gz 2>&1`,
+			`'%s' shell su -c 'tar -czf /data/local/tmp/vendor_full.tar.gz -C / vendor' 2>&1 && '%s' pull /data/local/tmp/vendor_full.tar.gz stuff/tools/vendor.tar.gz 2>&1`,
 			adb, adb)
-		err := a.runner.Start(root, a.Bash(),
+		err := a.adbRunner.Start(root, a.Bash(),
 			[]string{"--noprofile", "--norc", "-c", script},
 			"adb pull full vendor", false)
 		if err != nil {
@@ -343,7 +380,7 @@ func (a *App) handleExtract(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown action")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, a.runner.Snapshot())
+	writeJSON(w, http.StatusAccepted, a.adbRunner.Snapshot())
 }
 
 // handleURL opens a link from the docs in the user's real browser. Without it
@@ -516,25 +553,76 @@ func (a *App) handleAdb(w http.ResponseWriter, r *http.Request) {
 		label = "adb " + strings.Join(args, " ")
 	}
 
-	if err := a.runner.Start(root, adb, args, label, true); err != nil {
+	if err := a.adbRunner.Start(root, adb, args, label, true); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, a.runner.Snapshot())
+	writeJSON(w, http.StatusAccepted, a.adbRunner.Snapshot())
 }
 
 // handleAdbInstall downloads platform-tools once. It is the only job that runs
 // inside this process, so it holds the runner's slot like a child would.
 func (a *App) handleAdbInstall(w http.ResponseWriter, r *http.Request) {
-	if err := a.runner.Begin("downloading platform-tools"); err != nil {
+	if err := a.adbRunner.Begin("downloading platform-tools"); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	go func() {
-		err := a.installPlatformTools(a.runner.Note)
-		a.runner.FinishJob(err)
+		err := a.installPlatformTools(a.adbRunner.Note)
+		a.adbRunner.FinishJob(err)
 	}()
-	writeJSON(w, http.StatusAccepted, a.runner.Snapshot())
+	writeJSON(w, http.StatusAccepted, a.adbRunner.Snapshot())
+}
+
+// DetectCandidate is one property that answered with a value, and what that
+// property is. The Device tab offers them in this order.
+type DetectCandidate struct {
+	Prop  string `json:"prop"`
+	Note  string `json:"note"`
+	Value string `json:"value"`
+}
+
+// DetectResult is what "Detect from device" found: the answer it would use, and
+// every other command that also had something to say.
+type DetectResult struct {
+	Codename     string            `json:"codename"`
+	Manufacturer string            `json:"manufacturer"`
+	Model        string            `json:"model"`
+	Prop         string            `json:"prop"`
+	Candidates   []DetectCandidate `json:"candidates"`
+}
+
+// codenameProps is the order the codename is looked for in. The vendor
+// partition keeps the stock name on most GSIs, so it is asked first;
+// ro.product.device is near the end because on a GSI it only names the GSI
+// itself. No single property is right on every phone — which is why the answer
+// is offered with the command that produced it, and the others are one click
+// away in the UI.
+var codenameProps = []DetectCandidate{
+	{Prop: "ro.product.vendor.device", Note: "vendor partition — the usual survivor on a GSI"},
+	{Prop: "ro.product.odm.device", Note: "ODM partition"},
+	{Prop: "ro.product.bootimage.device", Note: "boot image"},
+	{Prop: "ro.product.device", Note: "system property — often the GSI's own name"},
+	{Prop: "ro.build.product", Note: "legacy build.prop name"},
+}
+
+// detectCodenames asks every candidate property and keeps the answers that
+// mean something, in priority order and without duplicates. Every one is asked,
+// not just the first that answers: the ones that had a value are what "Wrong?
+// Try another command" cycles through, and that has to work without another
+// round trip to the phone.
+func detectCodenames(probe func(string) string) []DetectCandidate {
+	out := []DetectCandidate{}
+	seen := make(map[string]bool, len(codenameProps))
+	for _, c := range codenameProps {
+		value := probe(c.Prop)
+		if value == "" || strings.EqualFold(value, "unknown") || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, DetectCandidate{Prop: c.Prop, Note: c.Note, Value: value})
+	}
+	return out
 }
 
 // handleAdbDetect asks the phone for the values the presets need, so the user
@@ -553,24 +641,20 @@ func (a *App) handleAdbDetect(w http.ResponseWriter, r *http.Request) {
 		return strings.TrimSpace(out)
 	}
 
-	manufacturer := probe("ro.product.manufacturer")
-	model := probe("ro.product.model")
-	// The vendor partition keeps the stock name on most GSIs; product.device is
-	// only used when the vendor value is empty or a placeholder of its own.
-	codename := probe("ro.product.vendor.device")
-	if codename == "" || strings.EqualFold(codename, "unknown") {
-		codename = probe("ro.product.device")
+	res := DetectResult{Candidates: []DetectCandidate{}}
+	res.Manufacturer = probe("ro.product.manufacturer")
+	res.Model = probe("ro.product.model")
+	res.Candidates = detectCodenames(probe)
+	if len(res.Candidates) > 0 {
+		res.Codename = res.Candidates[0].Value
+		res.Prop = res.Candidates[0].Prop
 	}
 
-	if codename == "" && manufacturer == "" && model == "" {
+	if res.Codename == "" && res.Manufacturer == "" && res.Model == "" {
 		writeError(w, http.StatusBadGateway, "the phone did not answer — is it connected and authorized? (adb devices)")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"codename":     codename,
-		"manufacturer": manufacturer,
-		"model":        model,
-	})
+	writeJSON(w, http.StatusOK, res)
 }
 
 func lookupPreset(id string) (AdbPreset, bool) {
@@ -612,7 +696,13 @@ func runCapture(program string, args ...string) (string, error) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	return decodeLimit(w, r, dst, 1<<20)
+}
+
+// decodeLimit is the same for a body that is legitimately bigger than a config
+// form: saving a resource XML or a manifest.
+func decodeLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {

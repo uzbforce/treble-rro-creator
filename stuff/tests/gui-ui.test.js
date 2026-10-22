@@ -6,14 +6,14 @@
 // the failure mode is a dead button and a console error only a devtools user
 // sees. Pulling the ids out of both files catches that in CI instead.
 //
-// Run: node --test tests/gui-ui.test.js
+// Run: node --test stuff/tests/gui-ui.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const html = readFileSync(join(root, 'gui', 'ui', 'index.html'), 'utf8');
 const js = readFileSync(join(root, 'gui', 'ui', 'app.js'), 'utf8');
 

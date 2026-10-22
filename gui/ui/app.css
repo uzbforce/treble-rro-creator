@@ -150,20 +150,41 @@ button.link:hover { color: var(--ink); background: none; }
   max-width: 46vw;
 }
 .chips { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+/* These are buttons, so they are drawn as buttons: a real edge, a raised face
+   and a press. The pill shape they used to have read as a status badge, which
+   is why "Path" and "Check for updates" looked like labels you could not click. */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--rule);
-  background: var(--panel-2);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--rule-strong);
+  background: linear-gradient(var(--panel), var(--panel-2));
+  box-shadow: 0 1px 2px rgba(23, 24, 15, .10), 0 1px 0 rgba(255, 255, 255, .5) inset;
   font-size: 12px;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--ink);
   max-width: 30vw;
 }
+.chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.chip:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
 .chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip.plain { cursor: default; }
+/* The branch chip is information, not an action: flat, and it stays that way. */
+.chip.plain {
+  cursor: default;
+  border-color: var(--rule);
+  background: none;
+  box-shadow: none;
+  font-weight: 500;
+  color: var(--muted);
+}
+.chip.plain:hover { border-color: var(--rule); color: var(--muted); background: none; }
+.chip.plain:active { transform: none; }
 .chip .dot {
   width: 7px;
   height: 7px;
@@ -430,14 +451,6 @@ textarea#cfg {
   border-bottom: 1px solid var(--rule);
   margin-bottom: 8px;
 }
-.cfg-sec-note {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 0 0 8px;
-  white-space: pre-wrap;
-}
-.cfg-sec-note.empty { display: none; }
 .cfg-row {
   display: grid;
   grid-template-columns: auto auto minmax(150px, max-content) minmax(0, 1fr);
@@ -558,6 +571,48 @@ textarea#cfg {
   font-size: 12px;
   width: 150px;
 }
+
+/* The answer Detect gave, with its caret over the codename box it filled. */
+.detect-note {
+  position: relative;
+  margin: 12px 0 0;
+  max-width: 440px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.detect-note::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 18px;
+  width: 10px;
+  height: 10px;
+  background: var(--panel-2);
+  border-left: 1px solid var(--rule-strong);
+  border-top: 1px solid var(--rule-strong);
+  transform: rotate(45deg);
+}
+.detect-note p { margin: 0; color: var(--muted); }
+.detect-note code { color: var(--ink); }
+/* Drawn as a button, not as a link: it is the way out of a wrong answer, and
+   the thing it sits next to (the codename) is a field, not prose. */
+.detect-note .link {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.detect-note .link:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .presets { display: flex; flex-direction: column; gap: 12px; }
 .preset-group { display: flex; flex-direction: column; gap: 5px; }
 .preset-group h3 {
@@ -593,6 +648,194 @@ textarea#cfg {
   background: var(--panel-2);
 }
 
+/* ------------------------------------------------------------------- files -- */
+/* Two panes, like the Docs tab: the tree is the clone's src/ (what the build
+   reads), the right side is whatever file is open. Disabled files stay in place
+   in the tree, greyed, because their location is the thing worth knowing. */
+.files { flex: 1; min-height: 0; display: flex; gap: 16px; }
+.files-side { width: 330px; flex: none; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.files-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.files-tools button { padding: 6px 10px; font-size: 12px; }
+.files-target {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files-target code { color: var(--ink); }
+.files-quick { display: flex; gap: 6px; }
+.files-quick button { flex: 1; padding: 5px 8px; font-size: 11.5px; border-radius: 7px; color: var(--muted); }
+.files-quick button:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.files-tree {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 4px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.files-tree.is-drop { border-color: var(--accent); background: var(--accent-soft); }
+.files-tree:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ft-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; }
+.ft-row:hover { background: var(--panel-2); }
+.ft-row.is-target { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.ft-row.is-selected { background: var(--accent-soft); }
+.ft-row.is-selected .ft-label { color: var(--accent); font-weight: 600; }
+.ft-row.is-off .ft-label { color: var(--muted); font-style: italic; }
+.ft-main {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.ft-main:hover:not(:disabled) { background: none; }
+.ft-caret { width: 9px; flex: none; color: var(--rule-strong); font-size: 9px; }
+button.ft-caret {
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--rule-strong);
+  font-size: 9px;
+  line-height: 1;
+  flex: none;
+}
+button.ft-caret:hover:not(:disabled) { background: none; color: var(--accent); }
+.ft-icon { width: 11px; flex: none; color: var(--faint); font-size: 10px; text-align: center; }
+.ft-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-meta { font-size: 10.5px; color: var(--faint); flex: none; }
+.ft-off {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-strong);
+  background: none;
+  color: var(--muted);
+}
+.ft-off:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.ft-badge {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 8.5px;
+  line-height: 13px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  padding: 0 5px;
+}
+.ft-empty { padding: 10px; color: var(--muted); font-family: var(--sans); font-size: 12px; }
+
+.files-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.files-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.files-head .spacer { flex: 1; }
+.file-path {
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 3px 7px;
+  max-width: 56ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#file-editor {
+  flex: 1;
+  min-height: 240px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--console);
+  color: var(--console-ink);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  resize: none;
+  tab-size: 4;
+}
+#file-editor[hidden], .file-placeholder[hidden], .file-checks[hidden] { display: none; }
+.file-placeholder {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 30px 18px;
+  text-align: center;
+  font-size: 12.5px;
+}
+.file-checks {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 11px;
+  font-size: 12px;
+}
+.file-checks.is-bad { border-color: var(--bad); background: var(--bad-soft); }
+.check-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.check-warn { color: var(--warn); font-size: 12px; margin-top: 3px; }
+.check-bad { color: var(--bad); font-size: 12px; margin-top: 3px; }
+.check-hals { color: var(--muted); font-size: 11.5px; margin-top: 5px; line-height: 1.5; }
+.check-hals code { color: var(--ink); }
+
+/* A selected folder fills the right pane with what it holds, so the answer to
+   "what will this upload overwrite?" is visible before the picker opens. */
+.folder-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.folder-view[hidden] { display: none; }
+.folder-head { display: flex; flex-direction: column; gap: 6px; }
+.folder-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0; }
+.folder-line code { font-size: 12.5px; color: var(--ink); }
+.folder-actions { display: flex; gap: 6px; }
+.folder-actions button { padding: 5px 9px; font-size: 11.5px; }
+.folder-actions button:disabled { opacity: .45; }
+.folder-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 4px 0;
+}
+.fo-row { display: flex; align-items: center; gap: 6px; padding: 1px 8px 1px 10px; }
+.fo-row:hover { background: var(--panel-2); }
+.fo-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  text-align: left;
+}
+.fo-main:hover:not(:disabled) { background: none; color: var(--accent); }
+.fo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-meta { flex: none; margin-left: auto; font-size: 10.5px; color: var(--faint); }
+.fo-row.is-off .fo-name { color: var(--muted); font-style: italic; }
+.fo-empty { padding: 14px; color: var(--muted); font-size: 12px; }
+
 /* ------------------------------------------------------------------ update -- */
 .upd-label {
   font-size: 11px;
@@ -616,7 +859,7 @@ dialog {
 dialog::backdrop { background: rgba(23, 24, 15, .45); }
 dialog h2 { font-size: 15px; margin-bottom: 14px; }
 dialog label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-dialog input {
+dialog input, dialog select {
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
@@ -633,11 +876,20 @@ dialog menu {
   margin: 16px 0 0;
   padding: 0;
 }
+/* The delete confirmation puts the destructive action on the left, away from
+   where the pointer and Enter land; Cancel is the primary-styled one and sits
+   at the far right. */
+#confirm menu { justify-content: space-between; }
+button.danger { color: var(--bad); border-color: var(--bad); }
+button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
 .error { color: var(--bad); background: var(--bad-soft); padding: 8px 10px; border-radius: 8px; margin-top: 12px; font-size: 12.5px; }
 
 @media (max-width: 760px) {
   .docs { flex-direction: column; }
   .docs-nav { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; }
+  .files { flex-direction: column; }
+  .files-side { width: auto; }
+  .files-tree { min-height: 120px; max-height: 32vh; }
   .chips { display: none; }
   #sub { max-width: 70vw; }
 }

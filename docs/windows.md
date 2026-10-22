@@ -35,15 +35,15 @@ build.cmd clean --all      start over for another device
 ## First run
 
 1. `build.cmd` checks `aapt2`, `zipalign`, `apksigner` and `framework-res.apk`.
-2. Whatever is missing is downloaded into `tools/`:
+2. Whatever is missing is downloaded into `stuff/tools/`:
    - Google build-tools for Windows (`build-tools_r36_windows.zip`) → about
      33 MB extracted; the 120 MB archive is deleted afterwards.
    - Android 13 platform resources (`platform-33_r02.zip`) → the resource
-     dictionary `tools/framework-res.apk`.
+     dictionary `stuff/tools/framework-res.apk`.
 3. The build starts immediately.
 
 Roughly **20–30 seconds** on a normal connection. Nothing is installed
-system-wide; deleting `tools/` removes the whole toolchain.
+system-wide; deleting `stuff/tools/` removes the whole toolchain.
 
 Requirements:
 
@@ -62,11 +62,11 @@ build.cmd doctor
 
 It prints, for each tool:
 
-- every copy it can find (PATH and `tools/`),
+- every copy it can find (PATH and `stuff/tools/`),
 - what the file really is (Windows executable, Linux binary, shell script,
   archive),
 - whether it **actually runs** (`aapt2 version`, `apksigner --version`),
-- whether anything in `tools/` or on `PATH` belongs to another platform.
+- whether anything in `stuff/tools/` or on `PATH` belongs to another platform.
 
 Exit code `0` means a build should work, so it is safe in scripts. A healthy run
 ends with:
@@ -87,7 +87,7 @@ WSL is a Linux machine with access to the same files. If you build this project
 from WSL while it lives on `C:\`, two things go wrong:
 
 1. Linux binaries (`aapt2`, `zipalign`) are downloaded into the **same**
-   `tools/` folder the Windows build uses. Windows then reports them as found
+   `stuff/tools/` folder the Windows build uses. Windows then reports them as found
    and fails later with `Exec format error`.
 2. Output files and permissions are created by Linux for a build that Windows
    then tries to read.
@@ -119,16 +119,16 @@ PowerShell profile may have a conflicting alias; use `cmd /c build.cmd`.
 
 | Want to remove | Delete |
 |---|---|
-| Build output and APKs | `build.cmd clean` (or delete `build/` and `out/`) |
-| The downloaded toolchain | delete `tools/` |
+| Build output and APKs | `build.cmd clean` (or delete `stuff/build/` and `out/`) |
+| The downloaded toolchain | delete `stuff/tools/` |
 | Everything, start over | `build.cmd clean --all` |
 
 `clean --all` copies `config.env`, the module scripts and `src/vendor/` into
-`backups/` first, then puts `config.env` and `src/module/sepolicy.rule` back to
+`stuff/backups/` first, then puts `config.env` and `src/module/sepolicy.rule` back to
 the version this clone shipped with — `git checkout` for a tracked file, and the
-bundled copy in `templates/recoveries/` only when there is no `.git` (a zip
+bundled copy in `stuff/templates/recoveries/` only when there is no `.git` (a zip
 download). Either way the restored file is the current one, not a copy that
-froze at some older commit, and your own version stays in `backups/`.
+froze at some older commit, and your own version stays in `stuff/backups/`.
 
 ---
 
@@ -139,7 +139,7 @@ froze at some older commit, and your own version stays in `backups/`.
 | `Git for Windows was not found` | Install Git for Windows, reopen the terminal. WSL's `bash.exe` is deliberately rejected. |
 | `Java not found — apksigner needs a JDK (17+)` | Install Temurin 17 (winget line above), then retry. |
 | `... is not a Windows program (no PE header)` | A Linux binary is shadowing the `.exe`. Run `build.cmd setup`, or delete the named file. |
-| `cannot execute binary file` / `Exec format error` | Same cause: Linux toolchain in `tools/`. `build.cmd setup` replaces it. |
+| `cannot execute binary file` / `Exec format error` | Same cause: Linux toolchain in `stuff/tools/`. `build.cmd setup` replaces it. |
 | `Access is denied` on `.cmd` files | Some antivirus products block batch files in Downloads. Move the project to a normal folder (e.g. `C:\dev\`) or allow the file. |
 | Windows Defender slows the build down | Add the project folder to the exclusion list; `aapt2` starts many short-lived processes. |
 
@@ -152,5 +152,5 @@ symlinks in Android tooling can fail there.
 ## Manual toolchain (optional)
 
 If you prefer your own Android SDK, put `aapt2.exe`, `zipalign.exe` and
-`apksigner` on `PATH` (or in `tools/`) and set `PLATFORM_JAR` in `config.env`
+`apksigner` on `PATH` (or in `stuff/tools/`) and set `PLATFORM_JAR` in `config.env`
 to your `framework-res.apk`. `build.cmd doctor` then reports what it will use.

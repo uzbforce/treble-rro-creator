@@ -90,7 +90,7 @@ decides what the page can write:
 The framework maps overlay resources by **name**, so the entry needs no
 particular id; `idmap2` maps it to the target resource when zygote starts. The
 mapping lives in `PATCH_TARGETS` in `webroot/index.html` and mirrors the names
-`scripts/resources.sh` emits. The one thing that still needs a rebuild is a name
+`stuff/scripts/resources.sh` emits. The one thing that still needs a rebuild is a name
 this page cannot express: a resource *array* (auto-brightness), or a build whose
 `resources.arsc` holds more than one package. Then Apply says
 `x PAD_START: dimen/status_bar_padding_start could not be added to this build`
@@ -111,7 +111,7 @@ revert them until the page adds the entries again on the next Apply.
 Below the five fields, **All resources** lists everything else the build emits.
 It is rendered from `webroot/webui-manifest.json`, which `build.sh` writes from
 the same resource XML it compiles — there is no second list to fall out of sync
-with `scripts/resources.sh`.
+with `stuff/scripts/resources.sh`.
 
 | Type | Control | Stored as |
 |---|---|---|

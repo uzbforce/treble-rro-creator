@@ -35,8 +35,8 @@
 # Sourced by build.sh (common.sh loaded, config.env sourced, identity derived).
 # Standalone, with an optional config file (default: ./config.env):
 #
-#   ./scripts/hardware-overlay.sh plan [config.env]        what would be written
-#   ./scripts/hardware-overlay.sh write <dir> [config.env] write the tree
+#   ./stuff/scripts/hardware-overlay.sh plan [config.env]  what would be written
+#   ./stuff/scripts/hardware-overlay.sh write <dir> [config.env] write the tree
 # =============================================================================
 
 # Sourced by build.sh, or run directly for the standalone commands below.
@@ -80,7 +80,7 @@ hw_blacklist_re() {
 # Priorities already used by static framework overlays in the repo, so the
 # submission does not pick one that tests/tests.sh rejects as a duplicate.
 hw_priority_file() {
-    printf '%s' "${ROOT}/scripts/data/treble-overlay-priorities.txt"
+    printf '%s' "${ROOT}/stuff/scripts/data/treble-overlay-priorities.txt"
 }
 
 hw_priority_uses() { # <priority> -> how many repo overlays use it
@@ -548,14 +548,14 @@ print_hardware_overlay_plan() {
 }
 
 # ---------------------------------------------------------------------------
-# Standalone use: ./scripts/hardware-overlay.sh plan|write <dir>
+# Standalone use: ./stuff/scripts/hardware-overlay.sh plan  (or "write <dir>")
 # ---------------------------------------------------------------------------
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -e
-    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+    ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     export ROOT
     cd "$ROOT"
-    source "$ROOT/scripts/common.sh"
+    source "$ROOT/stuff/scripts/common.sh"
     case "${1:-plan}" in
         plan|write)
             ;;

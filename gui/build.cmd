@@ -9,5 +9,5 @@ rem Needs Go and a MinGW-w64 gcc on PATH; Git for Windows is already required by
 rem the rest of this project. See gui/README.md.
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
-call "%~dp0..\windows\run-bash.cmd" gui/build.sh %*
+call "%~dp0..\stuff\windows\run-bash.cmd" gui/build.sh %*
 exit /b %ERRORLEVEL%

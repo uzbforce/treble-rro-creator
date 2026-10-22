@@ -32,7 +32,7 @@ import (
 //	         user has also edited (the "clash");
 //	pull   — refuse when there is a clash, unless the caller asked to back the
 //	         clashing files up first, in which case they are copied to
-//	         backups/pre-update-<time>/ before being reset to HEAD.
+//	         stuff/backups/pre-update-<time>/ before being reset to HEAD.
 //
 // Nothing here runs on a timer the user cannot see: the window checks once at
 // startup and then every ten minutes, all of it asynchronous.
@@ -264,7 +264,7 @@ var errClash = errors.New("local changes would be overwritten")
 // pullUpdate fast-forwards the clone to its upstream.
 //
 // backupClash is the user's answer to the dialog: copy my versions of the
-// files that would be overwritten into backups/, then let git replace them. Any
+// files that would be overwritten into stuff/backups/, then let git replace them. Any
 // edit that does not collide survives untouched — a plain `git pull --ff-only`
 // keeps those, which is why this is not implemented as a stash.
 func (a *App) pullUpdate(backupClash bool) (pullResult, error) {
@@ -293,7 +293,7 @@ func (a *App) pullUpdate(backupClash bool) (pullResult, error) {
 		res.BackedUp = append(res.BackedUp, saved)
 		// Tracked: go back to the committed version so the pull can land.
 		// Untracked: a pull would simply refuse, so move it aside (it is in
-		// backups/ now) — otherwise the update can never be applied.
+		// stuff/backups/ now) — otherwise the update can never be applied.
 		if _, err := gitRun(root, 10*time.Second, "ls-files", "--error-unmatch", rel); err == nil {
 			if out, err := gitRun(root, 10*time.Second, "checkout", "HEAD", "--", rel); err != nil {
 				return res, fmt.Errorf("could not reset %s: %s", rel, firstLine(out))
@@ -325,19 +325,19 @@ func (a *App) pullUpdate(backupClash bool) (pullResult, error) {
 	return res, nil
 }
 
-// backupPath copies one file from the clone into backups/pre-update-<time>/,
+// backupPath copies one file from the clone into stuff/backups/pre-update-<time>/,
 // keeping its relative path so two files with the same name cannot collide.
 func backupPath(root, rel string) (string, error) {
 	src := filepath.Join(root, filepath.FromSlash(rel))
 	stamp := time.Now().Format("2006-01-02-150405")
-	dst := filepath.Join(root, "backups", "pre-update-"+stamp, filepath.FromSlash(rel))
+	dst := filepath.Join(root, "stuff", "backups", "pre-update-"+stamp, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
 	if err := copyFile(src, dst); err != nil {
 		return "", fmt.Errorf("could not back up %s: %w", rel, err)
 	}
-	return filepath.ToSlash(filepath.Join("backups", "pre-update-"+stamp, filepath.FromSlash(rel))), nil
+	return filepath.ToSlash(filepath.Join("stuff", "backups", "pre-update-"+stamp, filepath.FromSlash(rel))), nil
 }
 
 func copyFile(src, dst string) error {

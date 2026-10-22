@@ -28,7 +28,7 @@ import (
 //
 //   - an adb that is on PATH is used as-is, so an existing install wins;
 //   - otherwise "Download platform-tools" fetches Google's official zip once
-//     and unpacks it into tools/platform-tools (gitignored, next to the other
+//     and unpacks it into stuff/tools/platform-tools (gitignored, next to the other
 //     downloaded tools). Unzipping is Go's own archive/zip, so nothing else has
 //     to be installed to make that work.
 //
@@ -184,7 +184,7 @@ var adbPresets = []AdbPreset{
 // ---------------------------------------------------------------------------
 // Locating adb
 // ---------------------------------------------------------------------------
-// A PATH install is preferred over the copy in tools/: a user who keeps theirs
+// A PATH install is preferred over the copy in stuff/tools/: a user who keeps theirs
 // updated should not be silently downgraded to whatever was downloaded once.
 func (a *App) adbPath() string {
 	if p, err := exec.LookPath(adbName()); err == nil {
@@ -198,7 +198,7 @@ func (a *App) adbPath() string {
 
 func (a *App) toolsDir() string {
 	if root := a.Root(); dirExists(root) {
-		return filepath.Join(root, "tools")
+		return filepath.Join(root, "stuff", "tools")
 	}
 	// No clone yet: platform-tools is not device-specific, so the per-user
 	// cache is a better home than the folder next to the executable.
@@ -231,7 +231,7 @@ func (a *App) AdbInfo() AdbInfo {
 	info.Path = a.adbPath()
 	switch {
 	case info.Path == "":
-		info.Error = "adb was not found on PATH and tools/platform-tools is empty"
+		info.Error = "adb was not found on PATH and stuff/tools/platform-tools is empty"
 		return info
 	case strings.HasPrefix(filepath.Clean(info.Path), filepath.Clean(a.toolsDir())):
 		info.Source = "tools"
@@ -287,7 +287,7 @@ func platformToolsURL() (string, error) {
 // ---------------------------------------------------------------------------
 // Installing platform-tools
 // ---------------------------------------------------------------------------
-// installPlatformTools downloads and unpacks into tools/platform-tools. It is
+// installPlatformTools downloads and unpacks into stuff/tools/platform-tools. It is
 // called from a goroutine so the progress lands in the log pane through the
 // runner's in-process job, and it reports lines rather than percentages it
 // cannot know (the CDN does not always send a length).

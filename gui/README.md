@@ -16,15 +16,19 @@ for working on the app itself.
 |---|---|
 | `main.go` | flags, wiring, shutdown; no logic |
 | `app.go` | settings, clone and bash discovery, the verb table, state for the UI |
-| `run.go` | the single child process (or in-process job), its log ring buffer and subscribers |
+| `run.go` | one console: the child process (or in-process job), its log ring buffer and subscribers, plus `Gate`, the one-job-at-a-time token the two consoles share |
 | `git.go` | update check (`git fetch` + behind/ahead + which local edits collide) and the safe pull |
 | `configfile.go` | the config.env parser and the line-wise writer behind the form |
+| `files.go` | the src/ workspace: safe relative paths, listing, read/write, upload, delete, and "disable" as a move into `src/.disabled/` — plus the sepolicy and VINTF checks |
 | `adb.go` | adb discovery, the platform-tools download/unzip, the command tokenizer and the presets |
-| `server.go` | loopback HTTP handlers, embed of `ui/`, token prefix |
+| `server.go` | loopback HTTP handlers, the two log streams (`/api/log`, `/api/adb/log`), embed of `ui/`, token prefix |
 | `proc_windows.go` | Git Bash discovery, `taskkill /T`, Explorer, WebView2 host |
 | `proc_unix.go` | `/bin/bash`, process-group kill, `xdg-open` |
 | `window_cgo.go` | the native window (`//go:build cgo && (windows || linux)`) |
 | `window_no_cgo.go` | same program, browser instead (`//go:build !cgo …`) |
+| `icon.go`, `icon.ico` | the app mark, embedded for the window icon |
+| `icon_windows.go` | `setWindowIcon`: `WM_SETICON` on the window WebView2 created |
+| `icon_other.go` | the same call, doing nothing (the GTK window keeps its own) |
 | `browser.go` | opens the UI in the default browser and waits for Ctrl+C |
 | `ui/` | one page, one stylesheet, one script; no bundler, no `node_modules` |
 | `*_test.go` | argv, clone discovery, config round trip, adb parsing, update/pull against a temp git repo |
@@ -41,6 +45,7 @@ is installed into a clone anyway and a second copy would drift.
 ```bash
 ./gui.sh                    # build if stale, then launch — the normal path
 ./gui.sh --rebuild          # force a build first
+./gui.sh --detach           # window-only build, then let the console close (Windows)
 ./gui/build.sh              # build only (console build, for debugging)
 ./gui/build.sh --release    # stripped; no console window on Windows
 gui\build.cmd --release     # same from cmd/PowerShell
@@ -69,13 +74,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/gui-linux-arm64 .
 ## Tests
 
 ```bash
-CGO_ENABLED=0 go test ./...               # from the repo root; also runs from tests/run.sh
+CGO_ENABLED=0 go test ./...               # from the repo root; also runs from stuff/tests/run.sh
 ```
 
 The tests cover what can break silently: the argv handed to bash (including the
 trailing `-y`), the verb/flag allow-list, clone detection, settings round-trip,
-`docs/` path traversal, and that every verb still exists in `build.sh`. Nothing
-in them needs a window or a C compiler.
+`docs/` path traversal, the codename candidates the Device tab offers, and that
+every verb still exists in `build.sh`. For the workspace they pin the path rules
+(`..`, absolute paths, drive letters, `src/.disabled` itself), the disable/
+enable move, uploads that keep relative paths and refuse traversal, and both
+checkers (a missing `;`, an AIDL manifest carrying HIDL syntax). Nothing in them
+needs a window, a C compiler or a phone.
 
 ## Security model
 
@@ -88,4 +97,6 @@ any page in the user's browser, and these handlers start a build, so:
   cannot read our HTML, so it cannot learn the token;
 - requests marked `Sec-Fetch-Site: cross-site` are refused;
 - the endpoint surface is an allow-list (`build.sh` verbs, five flags, three
-  open targets, `http(s)` links), not "run this program".
+  open targets, `http(s)` links, and file operations whose paths are relative to
+  `src/` and re-validated server-side), not "run this program" or "write this
+  path".

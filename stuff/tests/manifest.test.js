@@ -4,11 +4,11 @@
 
    The manifest is built from the XML in src/framework/res and src/systemui/res,
    and the generated part of that XML is gitignored (it is a build artifact). The
-   test therefore generates it first, from the fixed config in tests/gen-res.sh,
+   test therefore generates it first, from the fixed config in stuff/tests/gen-res.sh,
    into a temp tree — the result must not depend on whether this checkout has
    been built, nor on the local config.env.
 
-   Run: node --test tests/ */
+   Run: node --test stuff/tests/ */
 "use strict";
 
 const test = require("node:test");
@@ -18,7 +18,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const ROOT = path.join(__dirname, "..");
+const ROOT = path.join(__dirname, "..", "..");
 
 // MSYS/Git Bash accepts C:/... but not the backslashes node.join() produces.
 function bashPath(p) {
@@ -28,10 +28,10 @@ function bashPath(p) {
 function buildManifest() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "treble-manifest-"));
   const res = path.join(dir, "res");
-  execFileSync("bash", ["tests/gen-res.sh", bashPath(res)], { cwd: ROOT, stdio: "pipe" });
+  execFileSync("bash", ["stuff/tests/gen-res.sh", bashPath(res)], { cwd: ROOT, stdio: "pipe" });
 
   const out = path.join(dir, "webui-manifest.json");
-  execFileSync("bash", ["scripts/manifest.sh", "write", bashPath(out)], {
+  execFileSync("bash", ["stuff/scripts/manifest.sh", "write", bashPath(out)], {
     cwd: ROOT,
     stdio: "pipe",
     env: {

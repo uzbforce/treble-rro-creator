@@ -94,11 +94,11 @@ func TestIsCloneAndChooseClone(t *testing.T) {
 	if isClone(root) {
 		t.Fatal("build.sh alone should not be enough")
 	}
-	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "stuff", "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if !isClone(root) {
-		t.Fatal("build.sh + scripts/ should be a clone")
+		t.Fatal("build.sh + stuff/scripts/ should be a clone")
 	}
 	if got := chooseClone(root, ""); got != root {
 		t.Fatalf("chooseClone(explicit) = %q, want %q", got, root)
@@ -117,7 +117,7 @@ func TestWalkUpForClone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "build.sh"), []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "stuff", "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,5 +203,29 @@ func TestGuardRejectsCrossSite(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+}
+
+// TestDetectCodenames checks what the Device tab offers after "Detect from
+// device": the properties that answered, in priority order, with the GSI's own
+// name kept as an alternative rather than dropped and "unknown" ignored.
+func TestDetectCodenames(t *testing.T) {
+	props := map[string]string{
+		"ro.product.vendor.device":    "r3q",
+		"ro.product.odm.device":       "unknown",
+		"ro.product.bootimage.device": "mivendor",
+		"ro.product.device":           "r3q",
+		"ro.build.product":            "",
+	}
+	got := detectCodenames(func(prop string) string { return props[prop] })
+
+	if len(got) != 2 {
+		t.Fatalf("got %d candidates, want 2: %+v", len(got), got)
+	}
+	if got[0].Prop != "ro.product.vendor.device" || got[0].Value != "r3q" {
+		t.Fatalf("first candidate = %+v, want the vendor property", got[0])
+	}
+	if got[1].Prop != "ro.product.bootimage.device" || got[1].Value != "mivendor" {
+		t.Fatalf("second candidate = %+v, want the boot image property", got[1])
 	}
 }

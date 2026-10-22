@@ -129,13 +129,18 @@ type Settings struct {
 
 // App is the whole program state. root and bash can change at runtime from the
 // UI, so both are read through the mutex rather than captured at startup.
+//
+// runner is the Build console and adbRunner the Device one: separate logs, so an
+// adb command cannot appear in the build pane (or the other way round). They
+// share one Gate, so only one of them runs at a time.
 type App struct {
-	mu       sync.RWMutex
-	settings Settings
-	file     string
-	root     string
-	bash     string
-	runner   *Runner
+	mu        sync.RWMutex
+	settings  Settings
+	file      string
+	root      string
+	bash      string
+	runner    *Runner
+	adbRunner *Runner
 
 	// The update check is cached separately: it can block on the network, and
 	// nothing that answers /api/state may wait for a fetch.
@@ -146,7 +151,12 @@ type App struct {
 }
 
 func newApp(explicitClone string) (*App, error) {
-	a := &App{runner: NewRunner(), file: settingsFile()}
+	gate := NewGate()
+	a := &App{
+		runner:    NewRunner(gate),
+		adbRunner: NewRunner(gate),
+		file:      settingsFile(),
+	}
 	a.settings = loadSettings(a.file)
 
 	a.root = chooseClone(explicitClone, a.settings.Clone)
@@ -282,7 +292,7 @@ func isClone(dir string) bool {
 	if dir == "" {
 		return false
 	}
-	return fileExists(filepath.Join(dir, "build.sh")) && dirExists(filepath.Join(dir, "scripts"))
+	return fileExists(filepath.Join(dir, "build.sh")) && dirExists(filepath.Join(dir, "stuff", "scripts"))
 }
 
 // chooseClone looks in the order a user would expect: what they passed on the
@@ -552,9 +562,20 @@ type State struct {
 	Docs       []Doc       `json:"docs"`
 	Out        []OutFile   `json:"out"`
 	Run        RunState    `json:"run"`
+	AdbRun     RunState    `json:"adbRun"`
 	Update     UpdateInfo  `json:"update"`
 	Adb        AdbInfo     `json:"adb"`
 	Presets    []AdbPreset `json:"adbPresets"`
+}
+
+// adbState is the Device console's snapshot with a nil guard: a test can build
+// an App with only the build runner, and a console that does not exist has no
+// job to report.
+func (a *App) adbState() RunState {
+	if a.adbRunner == nil {
+		return RunState{}
+	}
+	return a.adbRunner.Snapshot()
 }
 
 func (a *App) State() State {
@@ -580,6 +601,7 @@ func (a *App) State() State {
 		Docs:       listDocs(root),
 		Out:        listOut(root),
 		Run:        a.runner.Snapshot(),
+		AdbRun:     a.adbState(),
 		Update:     a.Update(),
 		Adb:        a.AdbInfo(),
 		Presets:    adbPresets,

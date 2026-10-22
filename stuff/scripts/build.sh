@@ -2,8 +2,8 @@
 # =============================================================================
 # Treble Overlay — build implementation
 # =============================================================================
-# Executed by the root build.sh, which loads scripts/common.sh and
-# scripts/toolchain.sh first and guarantees the toolchain is ready.
+# Executed by the root build.sh, which loads stuff/scripts/common.sh and
+# stuff/scripts/toolchain.sh first and guarantees the toolchain is ready.
 #
 # Set by build.sh:  ROOT, TOOLS_DIR, BUILD_DIR, OUT_DIR, CHECK_MODE,
 #                   ASSUME_YES, FORCE_VENDOR_HALS
@@ -12,7 +12,7 @@
 #                   src/systemui/res       SystemUI overlay resources
 #                   src/module/            customize.sh / service.sh / sepolicy.rule
 #                   src/vendor/            optional vendor HAL files
-#                   keys/                  signing key + certificate
+#                   stuff/keys/            signing key + certificate
 #
 # Output:           out/apks/*.apk          signed overlays
 #                   out/*.zip              flashable module + repo sources
@@ -34,11 +34,11 @@ BUILD_REL="${BUILD_DIR#"$ROOT"/}"
 : "${DRY_RUN:=false}"
 
 # Generators used by the build steps below.
-source "$ROOT/scripts/resources.sh"
-source "$ROOT/scripts/module.sh"
-source "$ROOT/scripts/manifest.sh"
-source "$ROOT/scripts/validate.sh"
-source "$ROOT/scripts/hardware-overlay.sh"
+source "$ROOT/stuff/scripts/resources.sh"
+source "$ROOT/stuff/scripts/module.sh"
+source "$ROOT/stuff/scripts/manifest.sh"
+source "$ROOT/stuff/scripts/validate.sh"
+source "$ROOT/stuff/scripts/hardware-overlay.sh"
 
 # Never die silently: an unexpected `set -e` abort says where and why.
 trap 'err "Unexpected failure at line ${LINENO}: ${BASH_COMMAND}"; err "Re-run with: bash -x ./build.sh  and report the last lines"' ERR
@@ -213,7 +213,7 @@ do_backup() {
     [ -f "$MODULE_DIR/service.sh" ]    && { cp "$MODULE_DIR/service.sh" "$BACKUP_DIR/service.sh";     ok "Backed up service.sh";         backed_up=true; }
     echo ""
     if $backed_up; then
-        info "Backup saved to backups/"
+        info "Backup saved to stuff/backups/"
     else
         info "Nothing to back up"
     fi
@@ -244,9 +244,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo -e "  ${YELLOW}Generating placeholder config.env — edit it for YOUR device, then re-run.${NC}\n"
 
         # The starter is the committed config.env (see restore_from_release):
-        # templates/recoveries/ is only the fallback for a checkout without .git.
+        # stuff/templates/recoveries/ is only the fallback for a checkout without .git.
         if ! restore_from_release "config.env" "$RECOVERIES_DIR/config.env"; then
-            err "Template config missing: neither git HEAD nor templates/recoveries/config.env has it"
+            err "Template config missing: neither git HEAD nor stuff/templates/recoveries/config.env has it"
             exit 1
         fi
 
@@ -258,9 +258,17 @@ fi
 
 source "$CONFIG_FILE"
 
+# config.env names the signing key relative to the project root. Keys moved to
+# stuff/keys/, so an older config.env that still says keys/platform.pk8 keeps
+# working: either path resolves, and neither is rewritten on disk.
+if [ -n "${PLATFORM_KEY:-}" ] && [ ! -f "$PLATFORM_KEY" ] && [ -f "stuff/$PLATFORM_KEY" ]; then
+    PLATFORM_KEY="stuff/$PLATFORM_KEY"
+    PLATFORM_CERT="stuff/$PLATFORM_CERT"
+fi
+
 # ── Auto-generate identity strings ─────────────────────────────────────────
 # Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER. The derivation
-# lives in scripts/common.sh so the standalone helpers agree with the build.
+# lives in stuff/scripts/common.sh so the standalone helpers agree with the build.
 derive_overlay_identity
 
 # Validate required values
@@ -407,7 +415,7 @@ if ! tool_ready zipalign; then
 fi
 
 # Windows cannot execute Linux binaries. A Linux aapt2/zipalign sitting in
-# tools/ (left there by a WSL/Kali run of this project on the same checkout)
+# stuff/tools/ (left there by a WSL/Kali run of this project on the same checkout)
 # shadows the .exe on PATH and used to fail much later, mid-build, with
 # "cannot execute binary file: Exec format error". Catch it up front instead.
 if $IS_WINDOWS; then
@@ -416,7 +424,7 @@ if $IS_WINDOWS; then
         _magic=$(head -c 2 "$_bin" 2>/dev/null | od -An -tx1 | tr -d ' \n')
         if [ "$_magic" != "4d5a" ]; then
             err "${cmd} at ${_bin} is not a Windows program (no PE header)."
-            err "This is usually a Linux/WSL binary left in the shared tools/ folder."
+            err "This is usually a Linux/WSL binary left in the shared stuff/tools/ folder."
             err "Fix:   rm -f \"${_bin}\"   then re-run ./build.sh setup"
             err "Check: ./build.sh doctor        (or build.cmd doctor)"
             exit 1
@@ -429,10 +437,10 @@ fi
 APKSIGNER_BIN=""
 if command -v apksigner >/dev/null 2>&1; then
     APKSIGNER_BIN="$(command -v apksigner)"
-elif [ -f "${ROOT}/tools/apksigner" ]; then
-    APKSIGNER_BIN="${ROOT}/tools/apksigner"
-elif [ -f "${ROOT}/tools/apksigner.bat" ]; then
-    APKSIGNER_BIN="${ROOT}/tools/apksigner.bat"
+elif [ -f "${TOOLS_DIR}/apksigner" ]; then
+    APKSIGNER_BIN="${TOOLS_DIR}/apksigner"
+elif [ -f "${TOOLS_DIR}/apksigner.bat" ]; then
+    APKSIGNER_BIN="${TOOLS_DIR}/apksigner.bat"
 elif command -v apksigner.bat >/dev/null 2>&1; then
     APKSIGNER_BIN="$(command -v apksigner.bat)"
 fi
@@ -453,21 +461,21 @@ fi
 ok "All tools found"
 ok "apksigner: ${APKSIGNER_BIN}"
 
-# Determine PLATFORM_JAR location (check tools/ first, then system path)
+# Determine PLATFORM_JAR location (check stuff/tools/ first, then system path)
 if [ ! -f "$PLATFORM_JAR" ]; then
-    # Check if it's in the tools/ directory
-    if [ -f "${ROOT}/tools/framework-res.apk" ]; then
-        PLATFORM_JAR="${ROOT}/tools/framework-res.apk"
-    elif [ -d "/data/data/com.termux" ] && [ ! -f "${ROOT}/tools/framework-res.apk" ]; then
+    # Check if it's in the stuff/tools/ directory
+    if [ -f "${TOOLS_DIR}/framework-res.apk" ]; then
+        PLATFORM_JAR="${TOOLS_DIR}/framework-res.apk"
+    elif [ -d "/data/data/com.termux" ] && [ ! -f "${TOOLS_DIR}/framework-res.apk" ]; then
         # On Termux, try to pull it if missing
         info "Running on Android (Termux) and framework-res.apk is missing."
         info "Attempting to pull from /system/framework/framework-res.apk..."
-        mkdir -p "${ROOT}/tools"
-        if cp /system/framework/framework-res.apk "${ROOT}/tools/framework-res.apk" 2>/dev/null; then
-            PLATFORM_JAR="${ROOT}/tools/framework-res.apk"
+        mkdir -p "$TOOLS_DIR"
+        if cp /system/framework/framework-res.apk "${TOOLS_DIR}/framework-res.apk" 2>/dev/null; then
+            PLATFORM_JAR="${TOOLS_DIR}/framework-res.apk"
             ok "framework-res.apk auto-pulled successfully"
-        elif su -c "cp /system/framework/framework-res.apk \"${ROOT}/tools/framework-res.apk\"" 2>/dev/null; then
-            PLATFORM_JAR="${ROOT}/tools/framework-res.apk"
+        elif su -c "cp /system/framework/framework-res.apk \"${TOOLS_DIR}/framework-res.apk\"" 2>/dev/null; then
+            PLATFORM_JAR="${TOOLS_DIR}/framework-res.apk"
             ok "framework-res.apk auto-pulled successfully (via su)"
         fi
     fi
@@ -476,10 +484,10 @@ fi
 if [ ! -f "$PLATFORM_JAR" ]; then
     err "Platform JAR not found."
     err "Checked: config.env PLATFORM_JAR path"
-    err "Also checked: tools/framework-res.apk"
+    err "Also checked: stuff/tools/framework-res.apk"
     err ""
     err "Install android-framework-res or pull from device:"
-    err "  adb pull /system/framework/framework-res.apk tools/"
+    err "  adb pull /system/framework/framework-res.apk stuff/tools/"
     err ""
     err "Or run: ./build.sh setup"
     exit 1
@@ -624,8 +632,8 @@ audit_framework_resources || exit 1
 # Compile a copy so a placeholder power_profile.xml can be left out without
 # touching the user's source file. An empty power_profile overrides the GSI's
 # battery/CPU data with nothing, which breaks battery statistics.
-RES_STAGE="build/res"
-SYSUI_STAGE="build/res_systemui"
+RES_STAGE="$BUILD_REL/res"
+SYSUI_STAGE="$BUILD_REL/res_systemui"
 rm -rf "$RES_STAGE" "$SYSUI_STAGE"
 cp -R "$RES_DIR" "$RES_STAGE"
 if power_profile_is_placeholder "$RES_STAGE/xml/power_profile.xml"; then
@@ -643,17 +651,17 @@ fi
 # ---------------------------------------------------------------------------
 step "Compiling framework-res overlay"
 run_or_die "aapt2 compile (framework resources)" \
-    aapt2 compile --dir "$RES_STAGE" -o build/compiled/ || exit 1
+    aapt2 compile --dir "$RES_STAGE" -o "$BUILD_REL/compiled/" || exit 1
 ok "Framework resources compiled"
 
 # ---------------------------------------------------------------------------
 # Compile SystemUI overlay
 # ---------------------------------------------------------------------------
 step "Compiling SystemUI overlay"
-mkdir -p build/compiled_systemui
+mkdir -p "$BUILD_REL/compiled_systemui"
 if [ -d "$SYSUI_STAGE" ] && [ "$(ls -A "$SYSUI_STAGE" 2>/dev/null)" ]; then
     run_or_die "aapt2 compile (SystemUI resources)" \
-        aapt2 compile --dir "$SYSUI_STAGE" -o build/compiled_systemui/ || exit 1
+        aapt2 compile --dir "$SYSUI_STAGE" -o "$BUILD_REL/compiled_systemui/" || exit 1
     ok "SystemUI resources compiled"
 else
     info "No SystemUI resources found — skipping SystemUI overlay"
@@ -669,15 +677,15 @@ run_or_die "aapt2 link (framework overlay)" \
     --auto-add-overlay \
     --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
     --compile-sdk-version-name "${ANDROID_VERSION}" \
-    -o build/apk/unsigned.apk \
-    build/compiled/*.flat || exit 1
+    -o "$BUILD_REL/apk/unsigned.apk" \
+    "$BUILD_REL/compiled"/*.flat || exit 1
 ok "Framework-res APK linked"
 
 # ---------------------------------------------------------------------------
 # Link SystemUI overlay (if resources exist)
 # ---------------------------------------------------------------------------
 LINKED_SYSTEMUI=false
-if [ -f "build/compiled_systemui/values_config.arsc.flat" ] || [ "$(ls build/compiled_systemui/*.flat 2>/dev/null | wc -l)" -gt 0 ]; then
+if [ -f "$BUILD_REL/compiled_systemui/values_config.arsc.flat" ] || [ "$(ls "$BUILD_REL/compiled_systemui"/*.flat 2>/dev/null | wc -l)" -gt 0 ]; then
     step "Linking SystemUI APK"
     run_or_die "aapt2 link (SystemUI overlay)" \
         aapt2 link --manifest "$BUILD_REL/systemui/AndroidManifest.xml" \
@@ -685,8 +693,8 @@ if [ -f "build/compiled_systemui/values_config.arsc.flat" ] || [ "$(ls build/com
         --auto-add-overlay \
         --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
         --compile-sdk-version-name "${ANDROID_VERSION}" \
-        -o build/apk/systemui_unsigned.apk \
-        build/compiled_systemui/*.flat || exit 1
+        -o "$BUILD_REL/apk/systemui_unsigned.apk" \
+        "$BUILD_REL/compiled_systemui"/*.flat || exit 1
     LINKED_SYSTEMUI=true
     ok "SystemUI APK linked"
 fi
@@ -696,12 +704,12 @@ fi
 # ---------------------------------------------------------------------------
 step "Zipaligning APKs"
 run_or_die "zipalign (framework overlay)" \
-    align_apk build/apk/unsigned.apk build/apk/aligned.apk || exit 1
+    align_apk "$BUILD_REL/apk/unsigned.apk" "$BUILD_REL/apk/aligned.apk" || exit 1
 ok "Framework-res APK aligned"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     run_or_die "zipalign (SystemUI overlay)" \
-        align_apk build/apk/systemui_unsigned.apk build/apk/systemui_aligned.apk || exit 1
+        align_apk "$BUILD_REL/apk/systemui_unsigned.apk" "$BUILD_REL/apk/systemui_aligned.apk" || exit 1
     ok "SystemUI APK aligned"
 fi
 
@@ -721,14 +729,14 @@ fi
 run_or_die "apksigner sign (framework overlay)" \
     "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
     --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-    --out "out/apks/${OVERLAY_NAME}.apk" build/apk/aligned.apk || exit 1
+    --out "out/apks/${OVERLAY_NAME}.apk" "$BUILD_REL/apk/aligned.apk" || exit 1
 ok "Framework-res APK signed: out/apks/${OVERLAY_NAME}.apk"
 
 if [ "$LINKED_SYSTEMUI" = "true" ]; then
     run_or_die "apksigner sign (SystemUI overlay)" \
         "$APKSIGNER_BIN" sign --key "${PLATFORM_KEY}" --cert "${PLATFORM_CERT}" \
         --v1-signing-enabled true --v2-signing-enabled true --v4-signing-enabled false \
-        --out "out/apks/${OVERLAY_NAME}-systemui.apk" build/apk/systemui_aligned.apk || exit 1
+        --out "out/apks/${OVERLAY_NAME}-systemui.apk" "$BUILD_REL/apk/systemui_aligned.apk" || exit 1
     ok "SystemUI APK signed: out/apks/${OVERLAY_NAME}-systemui.apk"
 fi
 
@@ -948,9 +956,9 @@ ok "Module packaged: out/${OVERLAY_NAME}-ksu.zip (KernelSU / KSU Next / APatch /
 step "Building Hardware Overlay Repo structure"
 
 # The submission tree (manifests, Android.mk, resources minus the repo's
-# blacklist, notes) is written by scripts/hardware-overlay.sh, which is also
-# runnable on its own: ./scripts/hardware-overlay.sh plan|write <dir>
-HW_OVERLAY_DIR="build/hardware_overlay"
+# blacklist, notes) is written by stuff/scripts/hardware-overlay.sh, which is also
+# runnable on its own: ./stuff/scripts/hardware-overlay.sh plan|write <dir>
+HW_OVERLAY_DIR="$BUILD_REL/hardware_overlay"
 write_hardware_overlay "$HW_OVERLAY_DIR" || { err "Failed to generate the hardware overlay tree"; exit 1; }
 FW_HW_DIR="$HW_FW_DIR"
 SYSUI_HW_DIR="${HW_SYSUI_DIR:-}"
@@ -965,7 +973,7 @@ ok "Hardware Overlay Repo package created: out/${OVERLAY_NAME}-hardware-overlay.
 # into a simple flashable module so you can test if the AOSP repo version works.
 step "Building Hardware Overlay TEST Flashable Zip"
 
-TEST_BUILD_DIR="build/hw_test"
+TEST_BUILD_DIR="$BUILD_REL/hw_test"
 rm -rf "$TEST_BUILD_DIR"
 mkdir -p "$TEST_BUILD_DIR/compiled" "$TEST_BUILD_DIR/apk" "$TEST_BUILD_DIR/module/system/product/overlay"
 

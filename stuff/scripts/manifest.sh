@@ -17,8 +17,8 @@
 # Sourced by build.sh (common.sh loaded, config.env sourced). With ROOT set it
 # can also be run on its own:
 #
-#   ./scripts/manifest.sh plan        print the resource plan (no build)
-#   ./scripts/manifest.sh write F     write the manifest to F
+#   ./stuff/scripts/manifest.sh plan  print the resource plan (no build)
+#   ./stuff/scripts/manifest.sh write F  write the manifest to F
 #
 # Both read RES_DIR / SYSUI_RES_DIR when they are set in the environment, so a
 # caller can point them at a generated tree instead of the checkout.
@@ -247,14 +247,14 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Standalone use: ./scripts/manifest.sh plan|write <file>
+# Standalone use: ./stuff/scripts/manifest.sh plan  (or "write <file>")
 # ---------------------------------------------------------------------------
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -e
-    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+    ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     export ROOT
     cd "$ROOT"
-    source "$ROOT/scripts/common.sh"
+    source "$ROOT/stuff/scripts/common.sh"
     # shellcheck source=/dev/null
     [ -f "$ROOT/config.env" ] && source "$ROOT/config.env"
     # The build sets these; standalone use reads the checkout, unless a caller

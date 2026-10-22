@@ -7,7 +7,7 @@
 #   src/framework/res/values-land/generated.xml
 #   src/systemui/res/values/generated.xml
 #
-# Sourced by scripts/build.sh (common.sh loaded, config.env already sourced).
+# Sourced by stuff/scripts/build.sh (common.sh loaded, config.env already sourced).
 #
 # Only resources that exist in AOSP (Android 13 through 16) are emitted.
 # A resource name that the target does not have is a silent no-op at runtime,

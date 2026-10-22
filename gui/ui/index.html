@@ -20,14 +20,11 @@
     </div>
   </div>
   <div class="chips">
-    <button class="chip" id="chip-update" type="button" hidden>
-      <span class="dot" aria-hidden="true"></span><span class="label">update available</span>
+    <button class="chip" id="chip-update" type="button" title="Check for updates">
+      <span class="dot" aria-hidden="true"></span><span class="label">Check for updates</span>
     </button>
-    <button class="chip" id="chip-clone" type="button" title="Change the clone">
-      <span class="dot" aria-hidden="true"></span><span class="label">no clone</span>
-    </button>
-    <button class="chip" id="chip-bash" type="button" title="Change the bash binary">
-      <span class="dot" aria-hidden="true"></span><span class="label">no bash</span>
+    <button class="chip" id="chip-path" type="button" title="Change the clone folder or the bash binary">
+      <span class="dot" aria-hidden="true"></span><span class="label">Path</span>
     </button>
     <span class="chip plain" id="chip-branch">—</span>
   </div>
@@ -36,6 +33,7 @@
 <nav class="tabs" role="tablist">
   <button class="tab is-active" data-tab="build" role="tab">Build</button>
   <button class="tab" data-tab="config" role="tab">config.env</button>
+  <button class="tab" data-tab="files" role="tab">Files</button>
   <button class="tab" data-tab="device" role="tab">Device</button>
   <button class="tab" data-tab="docs" role="tab">Docs</button>
 </nav>
@@ -102,6 +100,82 @@
     </p>
   </section>
 
+  <!-- ---------------------------------------------------------------- files -->
+  <!-- The workspace: src/ is what the build reads, so this is where a HAL
+       binary, a VINTF fragment or a SELinux rule can be dropped in without
+       leaving the window. "Disable" moves a file to src/.disabled/ — out of
+       the build's sight, but still in the clone and one click from coming
+       back. -->
+  <section class="pane" id="pane-files" role="tabpanel">
+    <div class="files">
+      <aside class="files-side">
+        <div class="files-tools">
+          <button type="button" id="files-upload">Upload files</button>
+          <button type="button" id="files-upload-dir">Upload folder</button>
+          <button type="button" id="files-new">New…</button>
+          <button type="button" id="files-refresh" title="Re-read src/ from disk">↻</button>
+        </div>
+        <p class="files-target" id="files-target">loading src/…</p>
+
+        <div class="files-quick" id="files-quick">
+          <button type="button" data-jump="module/sepolicy.rule">SELinux rules</button>
+          <button type="button" data-jump="vendor/etc/vintf/manifest">VINTF manifests</button>
+        </div>
+
+        <div class="files-tree" id="files-tree" tabindex="0"></div>
+
+        <p class="hint">
+          Click a folder to see what is inside it and make it the target for
+          <b>Upload</b>, <b>Upload folder</b> and <b>New…</b>. Disabling keeps an
+          item in place, greyed: it moves to <code>src/.disabled/</code>, so the
+          build stops seeing it and nothing is lost.
+        </p>
+
+        <input type="file" id="files-input" multiple hidden>
+        <input type="file" id="files-input-dir" webkitdirectory hidden>
+      </aside>
+
+      <div class="files-main">
+        <div class="files-head">
+          <code class="file-path" id="file-path">no file selected</code>
+          <span class="muted small" id="file-status"></span>
+          <span class="spacer"></span>
+          <button class="primary" type="button" id="file-save" disabled>Save</button>
+          <button type="button" id="file-disable" disabled>Disable</button>
+          <button type="button" id="file-delete" disabled>Delete</button>
+        </div>
+
+        <!-- What the app makes of a sepolicy.rule or a VINTF manifest. Hidden
+             for every other file. -->
+        <div class="file-checks" id="file-checks" hidden></div>
+
+        <textarea id="file-editor" spellcheck="false" autocomplete="off" autocapitalize="off" hidden></textarea>
+
+        <!-- What a selected folder holds. The tree is good for the shape of
+             src/, but "what am I about to upload into?" is answered best by the
+             folder itself. -->
+        <div class="folder-view" id="folder-view" hidden>
+          <div class="folder-head">
+            <p class="folder-line">
+              <code id="folder-path">src/</code>
+              <span class="muted small" id="folder-summary"></span>
+            </p>
+            <div class="folder-actions">
+              <button type="button" id="folder-upload">Upload here</button>
+              <button type="button" id="folder-new">New here</button>
+            </div>
+            <p class="hint" id="folder-note">Uploads and new files land here.</p>
+          </div>
+          <div class="folder-list" id="folder-list"></div>
+        </div>
+
+        <div class="file-placeholder" id="file-placeholder">
+          <p class="muted">Pick a file or folder on the left, or drop one on the tree.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- --------------------------------------------------------------- device -->
   <section class="pane" id="pane-device" role="tabpanel">
     <div class="card">
@@ -121,6 +195,13 @@
         <label>codename <input id="adb-codename" type="text" spellcheck="false" placeholder="r3q"></label>
         <label>manufacturer <input id="adb-manufacturer" type="text" spellcheck="false" placeholder="samsung"></label>
         <button id="adb-detect" type="button">Detect from device</button>
+      </div>
+      <!-- Shown after Detect: which property answered, and a way out when the
+           phone reports something that is not its own codename (the GSI's name
+           is the usual one). It points at the codename box it filled. -->
+      <div class="detect-note" id="detect-note" hidden>
+        <p id="detect-source"></p>
+        <button class="link" id="detect-next" type="button">Wrong? Try another command</button>
       </div>
       <p class="hint">
         Filled in from <code>config.env</code>; <b>Detect</b> asks the phone and
@@ -156,7 +237,7 @@
     <div class="card">
       <h2>Pull what the build needs</h2>
       <p class="hint">
-        Both write into <code>tools/</code> and stream into the build log, so
+        Both write into <code>stuff/tools/</code> and report in the console above, so
         they can be stopped half way. The vendor tarball is not extracted for
         you: <code>docs/device-extraction.md</code> explains why it has to be
         unpacked one level above <code>src/vendor</code>.
@@ -185,7 +266,7 @@
 
     <label for="set-clone">Clone folder</label>
     <input id="set-clone" type="text" spellcheck="false" placeholder="C:\Users\you\treble-rro-creator">
-    <p class="hint">The folder holding <code>build.sh</code> and <code>scripts/</code>.</p>
+    <p class="hint">The folder holding <code>build.sh</code> and <code>stuff/scripts/</code>.</p>
 
     <label for="set-bash">bash</label>
     <input id="set-bash" type="text" spellcheck="false" placeholder="C:\Program Files\Git\bin\bash.exe">
@@ -199,6 +280,51 @@
     <menu>
       <button value="cancel" formnovalidate>Cancel</button>
       <button value="save" class="primary" id="set-save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- New file / folder. One dialog for both, because the only difference is one
+     select: a folder, an empty file, or one of the two templates the app is
+     here to help with (a VINTF fragment, a sepolicy starter). -->
+<dialog id="file-new">
+  <form method="dialog" id="file-new-form">
+    <h2 id="file-new-title">New file</h2>
+    <p class="muted small" id="file-new-where"></p>
+
+    <label for="file-new-kind">Create</label>
+    <select id="file-new-kind">
+      <option value="file">an empty file</option>
+      <option value="dir">a folder</option>
+      <option value="aidl">a VINTF manifest (AIDL template)</option>
+      <option value="hidl">a VINTF manifest (HIDL template)</option>
+      <option value="sepolicy">SELinux rules (starter template)</option>
+    </select>
+
+    <label for="file-new-name">Name</label>
+    <input id="file-new-name" spellcheck="false" placeholder="android.hardware.biometrics.fingerprint.xml">
+    <p class="hint" id="file-new-hint">The HAL name is taken from the file name.</p>
+
+    <p class="error" id="file-new-error" hidden></p>
+
+    <menu>
+      <button type="button" id="file-new-cancel">Cancel</button>
+      <button type="submit" class="primary">Create</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Deleting cannot be undone, so it is the one question the app insists on.
+     The destructive button is on the left and Cancel is on the right, styled as
+     the primary action and focused when the dialog opens: a stray Enter keeps
+     the file. -->
+<dialog id="confirm">
+  <form method="dialog">
+    <h2 id="confirm-title">Delete?</h2>
+    <p class="muted" id="confirm-text"></p>
+    <menu>
+      <button type="button" class="danger" id="confirm-yes">Delete</button>
+      <button type="button" class="primary" id="confirm-no">Cancel</button>
     </menu>
   </form>
 </dialog>

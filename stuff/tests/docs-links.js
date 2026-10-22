@@ -4,13 +4,13 @@
    sections elsewhere), and a renamed heading otherwise only shows up as a dead
    link on GitHub.
 
-   Run: node tests/docs-links.js */
+   Run: node stuff/tests/docs-links.js */
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..");
+const ROOT = path.join(__dirname, "..", "..");
 const errors = [];
 
 // GitHub's heading slug: lowercase, drop everything that is not a letter,

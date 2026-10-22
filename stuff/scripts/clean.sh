@@ -31,7 +31,7 @@ has_vendor_files() {
 }
 
 list_artifacts() {
-    [ -d "$BUILD_DIR" ] && echo "build/  ($(fmt_size "$BUILD_DIR"))"
+    [ -d "$BUILD_DIR" ] && echo "stuff/build/  ($(fmt_size "$BUILD_DIR"))"
     [ -d "$OUT_DIR" ] && echo "out/  ($(fmt_size "$OUT_DIR"))"
     local f
     for f in AndroidManifest.xml module.prop Android.mk; do
@@ -66,7 +66,7 @@ do_backup() {
 
     echo ""
     if $backed_up; then
-        info "Backup saved to backups/"
+        info "Backup saved to stuff/backups/"
     else
         info "Nothing to back up"
     fi
@@ -77,7 +77,7 @@ do_backup() {
 remove_build_output() {
     if [ -d "$BUILD_DIR" ]; then
         rm -rf "$BUILD_DIR"
-        ok "Removed: build/"
+        ok "Removed: stuff/build/"
     fi
     if [ -d "$OUT_DIR" ]; then
         rm -rf "$OUT_DIR"
@@ -96,11 +96,11 @@ remove_build_output() {
 restore_templates() {
     # git first: a tracked file's committed content is the template for this
     # release, so "start over" cannot hand back a copy that froze at an old
-    # commit. templates/recoveries/ is only the no-.git fallback.
+    # commit. stuff/templates/recoveries/ is only the no-.git fallback.
     if restore_from_release "config.env" "$RECOVERIES_DIR/config.env"; then
         ok "Restored: config.env"
     else
-        warn "config.env was not restored — no git, and templates/recoveries/config.env is missing"
+        warn "config.env was not restored — no git, and stuff/templates/recoveries/config.env is missing"
     fi
 
     # customize.sh and service.sh are generated from config.env at build time.
@@ -133,23 +133,31 @@ echo ""
 # Choose a mode
 # ---------------------------------------------------------------------------
 if [ "$CLEAN_ALL" != "true" ]; then
-    echo -e "  ${BOLD}What should be removed?${NC}"
-    echo ""
-    echo -e "    ${BOLD}[1]${NC} ${GREEN}Build output only${NC}"
-    echo "        build/, out/, generated manifests. Keeps config.env and device files."
-    echo "        Safe to run at any time."
-    echo ""
-    echo -e "    ${BOLD}[2]${NC} ${RED}Everything (start over)${NC}"
-    echo "        Also removes config.env, src/vendor/ contents and the module scripts,"
-    echo "        then restores the fresh templates. Use this to re-target a new device."
-    echo ""
-    ask "  Choose [1/2] or q to quit: " "q"
+    if [ "$ASSUME_YES" = "true" ]; then
+        # No way to answer the menu (the desktop app runs this with no stdin).
+        # -y therefore means the safe answer: build output only. A full clean
+        # is asked for explicitly with --all, which skips this section.
+        info "Non-interactive: removing build output only (use --all for a full clean)"
+        CLEAN_ALL=false
+    else
+        echo -e "  ${BOLD}What should be removed?${NC}"
+        echo ""
+        echo -e "    ${BOLD}[1]${NC} ${GREEN}Build output only${NC}"
+        echo "        stuff/build/, out/, generated manifests. Keeps config.env and device files."
+        echo "        Safe to run at any time."
+        echo ""
+        echo -e "    ${BOLD}[2]${NC} ${RED}Everything (start over)${NC}"
+        echo "        Also removes config.env, src/vendor/ contents and the module scripts,"
+        echo "        then restores the fresh templates. Use this to re-target a new device."
+        echo ""
+        ask "  Choose [1/2] or q to quit: " "q"
 
-    case "$REPLY" in
-        1) CLEAN_ALL=false ;;
-        2) CLEAN_ALL=true ;;
-        *) info "Cleanup cancelled."; exit 0 ;;
-    esac
+        case "$REPLY" in
+            1) CLEAN_ALL=false ;;
+            2) CLEAN_ALL=true ;;
+            *) info "Cleanup cancelled."; exit 0 ;;
+        esac
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -158,12 +166,12 @@ fi
 if [ "$CLEAN_ALL" = "true" ] && ! $ASSUME_YES; then
     echo ""
     echo -e "  ${RED}${BOLD}This will delete:${NC}"
-    echo "    • build/, out/ and generated manifests"
+    echo "    • stuff/build/, out/ and generated manifests"
     echo "    • src/vendor/ contents ($(count_files "$VENDOR_DIR") files)"
     echo "    • config.env"
     echo "    • src/module/customize.sh, service.sh, sepolicy.rule"
     echo ""
-    echo "  Everything is copied to backups/ first. config.env and sepolicy.rule are"
+    echo "  Everything is copied to stuff/backups/ first. config.env and sepolicy.rule are"
     echo "  restored to the version this clone shipped with (git checkout, or the"
     echo "  bundled copy when there is no .git); module scripts are generated again"
     echo "  at build time."
@@ -220,7 +228,7 @@ if [ "$CLEAN_ALL" = "true" ]; then
     echo ""
     echo -e "  ${YELLOW}→${NC} Edit config.env for your device, then run: ./build.sh"
     echo -e "  ${YELLOW}→${NC} Vendor files are explained in docs/device-extraction.md"
-    echo -e "  ${YELLOW}→${NC} Your previous files are in backups/"
+    echo -e "  ${YELLOW}→${NC} Your previous files are in stuff/backups/"
 else
     echo -e "  ${GREEN}${BOLD}Build output removed.${NC}"
     echo ""

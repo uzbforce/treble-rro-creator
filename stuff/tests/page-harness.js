@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
-const PAGE = path.join(__dirname, "..", "src", "webui", "index.html");
+const PAGE = path.join(__dirname, "..", "..", "src", "webui", "index.html");
 
 // Any property access returns another stub (except a few that the page reads
 // as values), so getElementById(...).style.setProperty(...) and friends are

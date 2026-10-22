@@ -35,10 +35,10 @@ fi
 export ROOT
 cd "$ROOT"
 
-source "$ROOT/scripts/common.sh"
-source "$ROOT/scripts/toolchain.sh"
+source "$ROOT/stuff/scripts/common.sh"
+source "$ROOT/stuff/scripts/toolchain.sh"
 
-# Put tools/ on PATH (and its lib64 on LD_LIBRARY_PATH on Linux).
+# Put stuff/tools/ on PATH (and its lib64 on LD_LIBRARY_PATH on Linux).
 tools_on_path
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ for arg in "$@"; do
     esac
 done
 
-# A checkout on a Windows drive cannot be built from WSL (shared tools/).
+# A checkout on a Windows drive cannot be built from WSL (shared stuff/tools/).
 wsl_guard
 
 # ---------------------------------------------------------------------------
@@ -121,19 +121,19 @@ case "$MODE" in
     check)
         # Config validation only: no tools, no output.
         CHECK_MODE=true
-        source "$ROOT/scripts/build.sh"
+        source "$ROOT/stuff/scripts/build.sh"
         ;;
 
     clean)
         migrate_layout
-        source "$ROOT/scripts/clean.sh"
+        source "$ROOT/stuff/scripts/clean.sh"
         ;;
 
     dryrun)
         # Needs config.env and the resource generators, no toolchain: the point
         # is to see the plan in seconds.
         DRY_RUN=true
-        source "$ROOT/scripts/build.sh"
+        source "$ROOT/stuff/scripts/build.sh"
         ;;
 
     build)
@@ -149,8 +149,8 @@ case "$MODE" in
         # Installs only what is missing; prints a summary and returns non-zero
         # when the machine still cannot build.
         ensure_toolchain auto
-        # The installer may just have created tools/, so refresh PATH.
+        # The installer may just have created stuff/tools/, so refresh PATH.
         tools_on_path
-        source "$ROOT/scripts/build.sh"
+        source "$ROOT/stuff/scripts/build.sh"
         ;;
 esac

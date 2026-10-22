@@ -9,12 +9,12 @@
 #
 # Everything here is a warning, because a value that looks odd can still be
 # deliberate. Resources that cannot compile at all (a radius of "abc") are
-# already an error in scripts/resources.sh.
+# already an error in stuff/scripts/resources.sh.
 #
 # Sourced by build.sh right after config.env is loaded. Standalone:
 #
-#   ./scripts/validate.sh            read ./config.env and report
-#   ./scripts/validate.sh --strict   exit 1 when anything is reported
+#   ./stuff/scripts/validate.sh      read ./config.env and report
+#   ./stuff/scripts/validate.sh --strict   exit 1 when anything is reported
 # =============================================================================
 
 if [ "${BASH_SOURCE[0]}" != "$0" ] && [ -z "${ROOT:-}" ]; then
@@ -286,7 +286,7 @@ _validate_submission() {
     # Priority collisions: the repo's tests/tests.sh fails on a duplicate.
     prio="${HW_OVERLAY_PRIORITY:-}"
     if [ -n "$prio" ]; then
-        file="${ROOT:-.}/scripts/data/treble-overlay-priorities.txt"
+        file="${ROOT:-.}/stuff/scripts/data/treble-overlay-priorities.txt"
         if [ -f "$file" ]; then
             count=$(grep -cx "$prio" "$file" 2>/dev/null || true)
             if [ "${count:-0}" -gt 0 ]; then
@@ -311,7 +311,7 @@ _validate_submission() {
 # ---------------------------------------------------------------------------
 _validate_unknown_keys() {
     local conf="${CONFIG_FILE:-$ROOT/config.env}"
-    local scripts="${ROOT:-.}/scripts"
+    local scripts="${ROOT:-.}/stuff/scripts"
     local key
     [ -f "$conf" ] || return 0
     while IFS= read -r key; do
@@ -351,10 +351,10 @@ validate_config() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+    ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
     export ROOT
     cd "$ROOT"
-    source "$ROOT/scripts/common.sh"
+    source "$ROOT/stuff/scripts/common.sh"
     CONFIG_FILE="$ROOT/config.env"
     # shellcheck source=/dev/null
     [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"

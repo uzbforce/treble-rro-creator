@@ -5,30 +5,30 @@
 # CI runs this on every push (see .github/workflows/check.yml), and it is worth
 # running before a release:
 #
-#   bash tests/run.sh
+#   bash stuff/tests/run.sh
 #
 # 1. shell syntax of every shipped script (bash -n / sh -n, no execution)
-# 2. the WebUI resource-table writer against tests/fixtures/*.apk
+# 2. the WebUI resource-table writer against stuff/tests/fixtures/*.apk
 # 3. the WebUI manifest and the overlay-repo submission tree (Doze-off
 #    vendor_hardware_overlay), built from
-#    resource XML that tests/gen-res.sh generates into a temp directory (so a
-#    fresh clone needs no build first)
+#    resource XML that stuff/tests/gen-res.sh generates into a temp directory (so
+#    a fresh clone needs no build first)
 # 4. every relative link and #anchor in the docs
 # =============================================================================
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 status=0
 step() { printf '\n== %s ==\n' "$*"; }
 
 step "shell syntax"
-for f in build.sh gui.sh gui/build.sh scripts/*.sh tests/*.sh; do
+for f in build.sh gui.sh gui/build.sh stuff/scripts/*.sh stuff/tests/*.sh; do
     [ -f "$f" ] || continue
     if bash -n "$f"; then :; else echo "bash -n failed: $f"; status=1; fi
 done
 # apply.sh and the module scripts run under Android's mksh (/system/bin/sh).
-for f in src/webui/apply.sh src/module/*.sh templates/*.sh templates/recoveries/*.sh; do
+for f in src/webui/apply.sh src/module/*.sh stuff/templates/*.sh stuff/templates/recoveries/*.sh; do
     [ -f "$f" ] || continue
     if command -v sh >/dev/null 2>&1; then
         if sh -n "$f"; then :; else echo "sh -n failed: $f"; status=1; fi
@@ -53,8 +53,8 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
             copy_status=1
         fi
     }
-    check_copy config.env templates/recoveries/config.env
-    check_copy src/module/sepolicy.rule templates/recoveries/sepolicy.rule
+    check_copy config.env stuff/templates/recoveries/config.env
+    check_copy src/module/sepolicy.rule stuff/templates/recoveries/sepolicy.rule
     if [ "$copy_status" -eq 0 ]; then echo "fallbacks match"; else status=1; fi
 else
     echo "not a git checkout — skipping"
@@ -72,22 +72,22 @@ if (
     # No .gitattributes here, and Git for Windows defaults to autocrlf=true,
     # which would check the file back out with CRLF and fail the greps below.
     git config core.autocrlf false
-    mkdir -p src/module templates/recoveries
+    mkdir -p src/module stuff/templates/recoveries
     printf 'KEY="released"\n' > config.env
     printf 'released rules\n' > src/module/sepolicy.rule
-    printf 'STALE\n' > templates/recoveries/config.env
-    printf 'STALE\n' > templates/recoveries/sepolicy.rule
+    printf 'STALE\n' > stuff/templates/recoveries/config.env
+    printf 'STALE\n' > stuff/templates/recoveries/sepolicy.rule
     git add -A && git commit -qm one || exit 1
     # The user edits both files; the fallback copies are stale.
     printf 'KEY="mine"\n' > config.env
     printf 'my rules\n' > src/module/sepolicy.rule
-    ROOT="$restore_tmp" bash -c 'source "$1/scripts/common.sh"; restore_from_release config.env "$ROOT/templates/recoveries/config.env" && restore_from_release src/module/sepolicy.rule "$ROOT/templates/recoveries/sepolicy.rule"' _ "$restore_here" || exit 2
+    ROOT="$restore_tmp" bash -c 'source "$1/stuff/scripts/common.sh"; restore_from_release config.env "$ROOT/stuff/templates/recoveries/config.env" && restore_from_release src/module/sepolicy.rule "$ROOT/stuff/templates/recoveries/sepolicy.rule"' _ "$restore_here" || exit 2
     grep -qx 'KEY="released"' config.env || { echo "git restore did not win: $(cat config.env)"; exit 3; }
     grep -qx 'released rules' src/module/sepolicy.rule || exit 4
     # No .git (a zip download): the bundled copy is the only source left.
     rm -rf .git
     printf 'KEY="mine"\n' > config.env
-    ROOT="$restore_tmp" bash -c 'source "$1/scripts/common.sh"; restore_from_release config.env "$ROOT/templates/recoveries/config.env"' _ "$restore_here" || exit 6
+    ROOT="$restore_tmp" bash -c 'source "$1/stuff/scripts/common.sh"; restore_from_release config.env "$ROOT/stuff/templates/recoveries/config.env"' _ "$restore_here" || exit 6
     grep -q 'STALE' config.env || { echo "fallback was not used without git"; exit 7; }
 ); then
     echo "restore behaves"
@@ -99,8 +99,8 @@ rm -rf "$restore_tmp"
 
 step "node tests"
 if command -v node >/dev/null 2>&1; then
-    node --test tests/arsc.test.js tests/manifest.test.js tests/hw-overlay.test.js \
-        tests/gui-ui.test.js || status=1
+    node --test stuff/tests/arsc.test.js stuff/tests/manifest.test.js \
+        stuff/tests/hw-overlay.test.js stuff/tests/gui-ui.test.js || status=1
 else
     echo "node is not installed — skipping the resource-table tests"
     status=1
@@ -118,7 +118,7 @@ fi
 
 step "documentation links"
 if command -v node >/dev/null 2>&1; then
-    node tests/docs-links.js || status=1
+    node stuff/tests/docs-links.js || status=1
 fi
 
 if [ "$status" -ne 0 ]; then

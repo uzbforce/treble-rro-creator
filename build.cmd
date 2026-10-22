@@ -15,7 +15,7 @@ rem Requirements: Git for Windows + JDK 17+ on PATH.
 rem Tip: run this from cmd or PowerShell (.\\build.cmd), not from WSL.
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
-call "%~dp0windows\run-bash.cmd" build.sh %*
+call "%~dp0stuff\windows\run-bash.cmd" build.sh %*
 set "RC=%ERRORLEVEL%"
 
 rem Keep the window open only when double-clicked from Explorer. Explorer runs

@@ -50,7 +50,7 @@ install_windows_tools() {
     if [ -z "$api" ]; then
         err "Could not download the Windows build-tools."
         info "Install Android SDK build-tools and add its folder to PATH, or copy"
-        info "aapt2.exe and zipalign.exe into tools/ and re-run build.cmd."
+        info "aapt2.exe and zipalign.exe into stuff/tools/ and re-run build.cmd."
         rm -f "$tmp_zip"
         return 1
     fi
@@ -83,7 +83,7 @@ install_windows_tools() {
         fi
     done
 
-    # A Linux aapt2/zipalign left in tools/ by a WSL/Kali run of this project
+    # A Linux aapt2/zipalign left in stuff/tools/ by a WSL/Kali run of this project
     # would shadow the .exe installed above and break the build with
     # "cannot execute binary file".
     local stale
@@ -108,13 +108,13 @@ esac
 exec java -jar "$here/apksigner.jar" "$@"
 APKSIGNER_EOF
         chmod +x "${TOOLS_DIR}/apksigner"
-        ok "Installed apksigner (java -jar tools/apksigner.jar)"
+        ok "Installed apksigner (java -jar stuff/tools/apksigner.jar)"
         installed=true
     else
         warn "apksigner.jar not found in the build-tools package"
     fi
 
-    # Everything needed is copied into tools/; drop the ~120 MB extraction.
+    # Everything needed is copied into stuff/tools/; drop the ~120 MB extraction.
     rm -rf "${TOOLS_DIR}/build-tools-win"
 
     $installed
@@ -163,7 +163,7 @@ download_platform_resources() {
 
     mv "$TOOLS_DIR/android.jar" "$TOOLS_DIR/framework-res.apk"
     rm -f "$tmp_zip"
-    ok "Android ${sdk_ver} resources installed (tools/framework-res.apk, $(du -sh "$TOOLS_DIR/framework-res.apk" | cut -f1))"
+    ok "Android ${sdk_ver} resources installed (stuff/tools/framework-res.apk, $(du -sh "$TOOLS_DIR/framework-res.apk" | cut -f1))"
 }
 
 # acquire_framework_res <auto|ask> [force]
@@ -317,7 +317,7 @@ install_linux_packages() {
 }
 
 # ---------------------------------------------------------------------------
-# Manual install into tools/ (no root)
+# Manual install into stuff/tools/ (no root)
 # ---------------------------------------------------------------------------
 download_manual_tools() {
     mkdir -p "$TOOLS_DIR"
@@ -352,7 +352,7 @@ download_manual_tools() {
         fi
 
         # The jar is a zip that also holds META-INF/ and NOTICE; extract only
-        # the binary so tools/ stays clean. On Windows MSYS resolves the bare
+        # the binary so stuff/tools/ stays clean. On Windows MSYS resolves the bare
         # name to the .exe, so drop both spellings first.
         rm -f "$TOOLS_DIR/aapt2" "$TOOLS_DIR/aapt2.exe"
         ( cd "$TOOLS_DIR" && { unzip -o "$jar" "aapt2.exe" || unzip -o "$jar" "aapt2"; } 2>/dev/null )
@@ -360,7 +360,7 @@ download_manual_tools() {
         rm -f "$jar"
 
         if tool_ready aapt2; then
-            ok "aapt2 installed to tools/"
+            ok "aapt2 installed to stuff/tools/"
         else
             err "Could not extract aapt2 from the downloaded jar"
             return 1
@@ -708,7 +708,7 @@ ensure_toolchain() {
     echo -e "    ${BOLD}[1]${NC} Debian / Ubuntu / Mint        (apt)"
     echo -e "    ${BOLD}[2]${NC} Arch Linux / Manjaro         (pacman)"
     echo -e "    ${BOLD}[3]${NC} Android / Termux             (pkg)"
-    echo -e "    ${BOLD}[4]${NC} Manual download into tools/  (no root)"
+    echo -e "    ${BOLD}[4]${NC} Manual download into stuff/tools/  (no root)"
     if $IS_WINDOWS; then
         echo -e "    ${BOLD}[5]${NC} Windows build-tools          ${GREEN}<-- use this${NC}"
     else

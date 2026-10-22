@@ -44,7 +44,7 @@ func killTree(cmd *exec.Cmd) error {
 	return nil
 }
 
-// findBash mirrors windows/run-bash.cmd: the two standard Git for Windows
+// findBash mirrors stuff/windows/run-bash.cmd: the two standard Git for Windows
 // locations first, then anything called bash.exe on PATH — accepted only if it
 // reports an MSYS/Cygwin environment, because WSL's bash cannot see the native
 // Windows build tools.

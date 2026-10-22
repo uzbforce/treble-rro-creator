@@ -11,19 +11,19 @@
 # So generate the files the manifest is built from, from a fixed config, into a
 # temporary tree:
 #
-#   bash tests/gen-res.sh <outdir>
+#   bash stuff/tests/gen-res.sh <outdir>
 #
 #   <outdir>/framework/res/values/*.xml
 #   <outdir>/framework/res/values-land/*.xml
 #   <outdir>/systemui/res/values/*.xml
 #
 # No Android tools are involved: this only runs the config.env -> XML half of
-# the build (scripts/resources.sh).
+# the build (stuff/scripts/resources.sh).
 # =============================================================================
 
 set -eo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 OUT="${1:-}"
@@ -34,7 +34,7 @@ SYSUI_RES_DIR="$OUT/systemui/res"
 mkdir -p "$RES_DIR/values" "$RES_DIR/values-land" "$SYSUI_RES_DIR/values"
 
 # shellcheck source=/dev/null
-source "$ROOT/scripts/common.sh"
+source "$ROOT/stuff/scripts/common.sh"
 
 # The fixed config. Everything the sliders do not cover still has to reach the
 # manifest, so set the values that produce extra resources: a corner radius (6
@@ -57,6 +57,6 @@ HAS_5G=false
 HAS_VOLTE=false
 
 # shellcheck source=/dev/null
-source "$ROOT/scripts/resources.sh"
+source "$ROOT/stuff/scripts/resources.sh"
 generate_resource_xml
 generate_systemui_resource_xml

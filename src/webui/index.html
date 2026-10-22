@@ -2109,7 +2109,7 @@
     return out;
   }
 
-  // Every resource of this module mirrors a name emitted by scripts/resources.sh
+  // Every resource of this module mirrors a name emitted by stuff/scripts/resources.sh
   // with the same px value, so the patcher and a rebuild agree.
   var PATCH_TARGETS = [
     { key: "RADIUS", apk: "fw", res: [
@@ -2956,7 +2956,7 @@
 
   /* -------------------------------------------------------------------
      Test hook
-     The resource-table writer is exercised outside the page (tests/), so
+     The resource-table writer is exercised outside the page (stuff/tests/), so
      those functions have to be reachable from there. Nothing else uses it.
      ------------------------------------------------------------------- */
   if (typeof window !== "undefined") {

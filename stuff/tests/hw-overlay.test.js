@@ -5,7 +5,7 @@
    build.sh does — from resource XML generated into a temp directory, so a fresh
    clone needs no Android tools — and check it against the repo's rules.
 
-   Run: node --test tests/ */
+   Run: node --test stuff/tests/ */
 
 "use strict";
 
@@ -16,7 +16,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-const ROOT = path.join(__dirname, "..");
+const ROOT = path.join(__dirname, "..", "..");
 
 // tests/blacklist of the overlay repo: resources an overlay may not define.
 const BLACKLIST = [
@@ -64,7 +64,7 @@ function buildTree(opts = {}) {
   // The committed resources plus the generated ones, like a real build.
   fs.cpSync(path.join(ROOT, "src/framework/res"), path.join(res, "framework/res"), { recursive: true });
   fs.cpSync(path.join(ROOT, "src/systemui/res"), path.join(res, "systemui/res"), { recursive: true });
-  exec("tests/gen-res.sh", [bashPath(res)], dir);
+  exec("stuff/tests/gen-res.sh", [bashPath(res)], dir);
 
   const xmlDir = path.join(res, "framework/res/xml");
   fs.mkdirSync(xmlDir, { recursive: true });
@@ -81,7 +81,7 @@ function buildTree(opts = {}) {
   const out = path.join(dir, "tree");
   const proc = spawnSync(
     "bash",
-    ["scripts/hardware-overlay.sh", "write", bashPath(out), bashPath(cfg)],
+    ["stuff/scripts/hardware-overlay.sh", "write", bashPath(out), bashPath(cfg)],
     {
       cwd: ROOT,
       encoding: "utf8",
@@ -217,7 +217,7 @@ test("the priority is not one the repo already uses", () => {
   const manifest = read(path.join(fw, "AndroidManifest.xml"));
   const priority = /android:priority="(\d+)"/.exec(manifest)[1];
   const used = new Set(
-    read(path.join(ROOT, "scripts/data/treble-overlay-priorities.txt"))
+    read(path.join(ROOT, "stuff/scripts/data/treble-overlay-priorities.txt"))
       .split(/\r?\n/)
       .filter((l) => /^\d+$/.test(l))
   );

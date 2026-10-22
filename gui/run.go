@@ -33,10 +33,39 @@ type RunState struct {
 	Lines   []LogLine `json:"lines"`
 }
 
-// Runner owns the single child process the app is allowed to have.
+// Gate is the process-wide "one job at a time" token.
 //
-// One at a time is deliberate: build.sh writes to out/ and src/staging, and a
-// second run started mid-build would corrupt both. The mutex plus `running`
+// The Build and the Device console each own a Runner, so an adb command's
+// output can never land in the build log again. They share one Gate because
+// they also share the clone: an adb pull writing stuff/tools/framework-res.apk while
+// a build reads it is still one job too many.
+type Gate struct{ ch chan struct{} }
+
+func NewGate() *Gate { return &Gate{ch: make(chan struct{}, 1)} }
+
+// tryAcquire takes the slot without waiting: a second job is an error to
+// report, not something to queue behind a build that may take minutes.
+func (g *Gate) tryAcquire() bool {
+	select {
+	case g.ch <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (g *Gate) release() {
+	select {
+	case <-g.ch:
+	default:
+	}
+}
+
+// Runner owns one console: the child process it is running, that run's log
+// ring buffer, and the subscribers to it.
+//
+// One job at a time is deliberate: build.sh writes to out/ and src/staging, and
+// a second run started mid-build would corrupt both. The mutex plus `running`
 // makes "Start while running" an error rather than a race.
 type Runner struct {
 	mu       sync.Mutex
@@ -49,10 +78,17 @@ type Runner struct {
 	cmd      *exec.Cmd
 	maxLines int
 	started  time.Time
+	gate     *Gate
 }
 
-func NewRunner() *Runner {
-	return &Runner{maxLines: 20000, subs: make(map[chan LogLine]struct{})}
+// NewRunner makes a console. A Runner given no Gate gets one of its own, which
+// is all a test needs; the app passes the same Gate to both consoles.
+func NewRunner(gates ...*Gate) *Runner {
+	gate := NewGate()
+	if len(gates) > 0 && gates[0] != nil {
+		gate = gates[0]
+	}
+	return &Runner{maxLines: 20000, subs: make(map[chan LogLine]struct{}), gate: gate}
 }
 
 // Start launches a program in the clone and begins streaming its output.
@@ -70,6 +106,10 @@ func (r *Runner) Start(root, program string, args []string, label string, mergeS
 
 	r.mu.Lock()
 	if r.running {
+		r.mu.Unlock()
+		return errors.New("a command is already running")
+	}
+	if !r.gate.tryAcquire() {
 		r.mu.Unlock()
 		return errors.New("a command is already running")
 	}
@@ -169,6 +209,8 @@ func (r *Runner) emit(stream, text string) {
 }
 
 func (r *Runner) finish(err error) {
+	r.gate.release()
+
 	code := 0
 	if err != nil {
 		code = -1
@@ -206,6 +248,10 @@ func (r *Runner) Begin(label string) error {
 		r.mu.Unlock()
 		return errors.New("a command is already running")
 	}
+	if !r.gate.tryAcquire() {
+		r.mu.Unlock()
+		return errors.New("a command is already running")
+	}
 	r.lines = nil
 	r.seq = 0
 	r.exit = 0
@@ -225,6 +271,8 @@ func (r *Runner) Note(text string) { r.emit("out", text) }
 // FinishJob ends a job started with Begin. err is printed before the closing
 // line, so the pane never says a job failed without saying why.
 func (r *Runner) FinishJob(err error) {
+	r.gate.release()
+
 	code := 0
 	if err != nil {
 		code = 1
