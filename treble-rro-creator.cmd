@@ -54,6 +54,6 @@ echo   treble-rro-creator.cmd --browser     no window; use the default browser
 echo   treble-rro-creator.cmd -clone PATH   start on a different clone
 echo   treble-rro-creator.cmd -h            this message
 echo.
-echo Builds on the first run (needs Go plus MinGW-w64 gcc once); later launches
-echo open straight away. Full guide: docs\gui.md
+echo Builds on the first run (Go is downloaded; MinGW-w64 gcc needed once);
+echo later launches open straight away. Full guide: docs\gui.md
 exit /b 0

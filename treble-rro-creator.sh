@@ -11,9 +11,10 @@
 #   ./treble-rro-creator.sh --browser        no window; use the default browser
 #   ./treble-rro-creator.sh -clone ~/other   start on a different clone
 #
-# It only needs Go the first time — a checkout that already has gui/bin/ filled
-# in runs without a toolchain, and the app finds its clone by walking up from
-# where it lives, so no path has to be typed.
+# The first launch builds the app, downloading Go into stuff/tools/go/ when the
+# machine has none; a checkout that already has gui/bin/ filled in runs without
+# a toolchain at all, and the app finds its clone by walking up from where it
+# lives, so no path has to be typed.
 #
 # Windows: double-click treble-rro-creator.cmd; it finds Git Bash and calls this.
 # =============================================================================
@@ -65,12 +66,6 @@ if [ "$release" = "true" ]; then
     build_flags+=("--release")
 fi
 
-# Whether a rebuild is possible at all. Without Go the launcher can still start
-# the binary that is already there, but it cannot make it any newer — and the UI
-# is embedded in that binary, so "no toolchain" means "the old page".
-have_go=false
-command -v go >/dev/null 2>&1 && have_go=true
-
 # Whether Windows gives a program a console window is decided by one field in
 # the executable itself: the PE subsystem, 3 for a console build (the default)
 # and 2 for one linked with -H windowsgui. Reading it means the launcher knows
@@ -102,10 +97,7 @@ sources_newer() {
 stale() {
     sources_newer && return 0
     # Asked for a window-only build but the exe on disk has a console (or the
-    # other way round): the mode is linked in, so that needs a rebuild. Without
-    # Go there is nothing to relink with, and starting the existing binary is
-    # still better than refusing to open it.
-    [ "$have_go" = "true" ] || return 1
+    # other way round): the mode is linked in, so that needs a rebuild.
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*)
             local want=3
@@ -121,22 +113,20 @@ stale() {
 }
 
 if [ "$rebuild" = "true" ] || stale; then
-    if [ "$have_go" != "true" ]; then
+    echo "building the app…"
+    if ! bash "$here/gui/build.sh" ${build_flags[@]+"${build_flags[@]}"}; then
         if [ -f "$exe" ]; then
-            echo "go was not found — starting the app that is already built." >&2
+            # The build is what would make the window new; failing it is no
+            # reason to refuse to open the one that is already there.
+            echo "the build failed — starting the app that is already built." >&2
             if sources_newer; then
                 echo "  That binary is older than gui/, so the window shows the OLD page:" >&2
                 echo "  the UI is embedded in it, not read from disk." >&2
-                echo "  Install Go and a C compiler, then run: ./treble-rro-creator.sh --rebuild" >&2
+                echo "  Fix what the build reported, then: ./treble-rro-creator.sh --rebuild" >&2
             fi
         else
-            echo "The app is not built yet and go was not found on PATH." >&2
-            echo "  Install Go from https://go.dev/dl/ and run this again." >&2
             exit 1
         fi
-    else
-        echo "building the app…"
-        bash "$here/gui/build.sh" ${build_flags[@]+"${build_flags[@]}"}
     fi
 fi
 
@@ -158,7 +148,7 @@ if [ "$browser" = "false" ]; then
                 exit 0
             fi
             echo "note: this is a console build, so the console stays while the window is open." >&2
-            echo "      install go and run ./treble-rro-creator.sh --rebuild to get the console-free build." >&2
+            echo "      the relink needs a C compiler; run ./treble-rro-creator.sh --rebuild once it is installed." >&2
             ;;
     esac
 fi

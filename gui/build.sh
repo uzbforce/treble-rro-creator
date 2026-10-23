@@ -9,7 +9,7 @@
 #   ./gui/build.sh --release    stripped, and no console window on Windows
 #
 # Requirements
-#   Go 1.23+ and a C compiler, because the window is a webview:
+#   A C compiler, because the window is a webview:
 #     Windows  Git for Windows (for bash) + MinGW-w64 gcc on PATH.
 #              "winget install MSYS2.MSYS2" then
 #              "pacman -S mingw-w64-x86_64-gcc" is the shortest route.
@@ -17,6 +17,9 @@
 #              Whatever is missing is installed with the package manager this
 #              distro already has — apt (Debian/Ubuntu), pacman (Arch) or dnf
 #              (Fedora) — instead of being left as a Debian-only apt command.
+#
+#   Go 1.23+ — downloaded from go.dev into stuff/tools/go/ when the machine has
+#   none, so a fresh clone builds with no setup step.
 #
 # The window uses the engine the machine already has (WebView2 on Windows,
 # WebKitGTK on Linux). CGO_ENABLED=0 still builds — it just opens the same UI
@@ -46,9 +49,7 @@ done
 # The window is linked with CGO: a C compiler, pkg-config, and the GTK3 and
 # WebKitGTK development headers. A missing one is installed with the package
 # manager this machine already has, so an Arch box is not handed an apt
-# command. Go is not on that list — several distros still package a version
-# older than go.mod asks for — so it stays a download from go.dev, named for
-# the distro below.
+# command.
 
 pkg_family() {
     if command -v apt-get >/dev/null 2>&1; then
@@ -172,18 +173,181 @@ window_deps_hint() {
     esac
 }
 
-command -v go >/dev/null 2>&1 || {
-    go_min="$(awk '$1 == "go" { print $2; exit }' "$here/../go.mod" 2>/dev/null || true)"
-    echo "go was not found on PATH — install Go ${go_min:-1.23}+ from https://go.dev/dl/" >&2
-    if [ "$(uname -s)" = "Linux" ]; then
-        case "$(pkg_family)" in
-            pacman) echo "  (or from the distro, which tracks upstream: sudo pacman -S --needed go)" >&2 ;;
-            dnf)    echo "  (or: sudo dnf install -y golang, if that is ${go_min:-1.23} or newer)" >&2 ;;
-            apt)    echo "  (Debian and Ubuntu often package an older Go as golang-go; go.dev is the safe source)" >&2 ;;
-        esac
-    fi
-    exit 1
+# ---------------------------------------------------------------------------
+# Go: used when present, downloaded when not
+# ---------------------------------------------------------------------------
+# The launcher is the first command a new clone runs, so "install Go and come
+# back" is not an answer. The official tarball is unpacked into
+# stuff/tools/go/ — inside the clone, no root, and found again by every later
+# build. A Go already on PATH is used when it is new enough; distro packages
+# are often older than go.mod asks for, which is why a too-old one is passed
+# over instead of trusted.
+
+tools_dir="$here/../stuff/tools"
+local_go="$tools_dir/go/bin/go"
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) local_go="$local_go.exe" ;;
+esac
+
+go_required() {
+    local req
+    req="$(awk '$1 == "go" { print $2; exit }' "$here/../go.mod" 2>/dev/null || true)"
+    echo "${req:-1.23}"
 }
+
+# version_at_least <have> <want>, both dotted ("1.23", "1.23.4").
+version_at_least() {
+    awk -v have="$1" -v want="$2" 'BEGIN {
+        n = split(have, h, "."); m = split(want, w, ".")
+        if (m > n) n = m
+        for (i = 1; i <= n; i++) {
+            a = (i in h) ? h[i] + 0 : 0
+            b = (i in w) ? w[i] + 0 : 0
+            if (a > b) exit 0
+            if (a < b) exit 1
+        }
+        exit 0
+    }'
+}
+
+go_usable() {
+    [ -x "$1" ] || return 1
+    local v
+    v="$("$1" version 2>/dev/null | awk '{ sub(/^go/, "", $3); print $3 }')"
+    [ -n "$v" ] || return 1
+    version_at_least "$v" "$(go_required)"
+}
+
+# fetch_url <url> [outfile]: the body on stdout, or into the file.
+fetch_url() {
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "${2:-}" ]; then
+            # One repainted line: Go is ~70 MB, and a full meter for that is
+            # hundreds of lines in the launcher's output.
+            curl -fL --retry 2 --progress-bar -o "$2" "$1"
+        else
+            curl -fsSL --retry 2 "$1"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "${2:-}" ]; then
+            wget -O "$2" "$1"
+        else
+            wget -qO- "$1"
+        fi
+    else
+        return 1
+    fi
+}
+
+# The os-arch half of the download name, empty when there is no official
+# build for this machine.
+go_platform() {
+    local os arch
+    case "$(uname -s)" in
+        Linux*)
+            # Termux is Android: its prefix is not an FHS root and Go's Linux
+            # tarball is not built for it, but its own package manager has Go.
+            case "${PREFIX:-}" in
+                *com.termux*) return 1 ;;
+            esac
+            os=linux
+            ;;
+        Darwin*) os=darwin ;;
+        MINGW*|MSYS*|CYGWIN*) os=windows ;;
+        *) return 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)        arch=amd64 ;;
+        i386|i486|i586|i686)  arch=386 ;;
+        aarch64|arm64)       arch=arm64 ;;
+        armv6l|armv7l)       arch=armv6l ;;
+        ppc64le)             arch=ppc64le ;;
+        s390x)               arch=s390x ;;
+        riscv64)             arch=riscv64 ;;
+        *) return 1 ;;
+    esac
+    if [ "$os" = windows ] && [ "$arch" = armv6l ]; then
+        return 1
+    fi
+    echo "$os-$arch"
+}
+
+install_go() {
+    local platform ver file url tmp
+
+    if ! platform="$(go_platform)"; then
+        echo "Go $(go_required)+ is needed, and there is no download for this platform." >&2
+        echo "  Install it from https://go.dev/dl/ and run this again." >&2
+        case "${PREFIX:-}" in
+            *com.termux*) echo "  On Termux: pkg install golang" >&2 ;;
+        esac
+        return 1
+    fi
+
+    # VERSION?m=text is the smallest way to ask go.dev what "latest" is: two
+    # lines, the first being go1.24.5 and the second its release time.
+    ver="$(fetch_url "https://go.dev/VERSION?m=text" 2>/dev/null | head -1 | tr -d '\r')" || ver=""
+    case "$ver" in
+        go1.*) ;;
+        *)
+            echo "Could not work out the current Go version — go.dev unreachable?" >&2
+            echo "  Install Go $(go_required)+ from https://go.dev/dl/ and run this again." >&2
+            return 1
+            ;;
+    esac
+
+    case "$platform" in
+        windows-*) file="$ver.$platform.zip" ;;
+        *)         file="$ver.$platform.tar.gz" ;;
+    esac
+    url="https://go.dev/dl/$file"
+
+    echo "go was not found — downloading Go ${ver#go} into stuff/tools/go…"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/go-download.XXXXXX")" || return 1
+    if ! fetch_url "$url" "$tmp/$file"; then
+        echo "  The download failed: $url" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    mkdir -p "$tools_dir"
+    rm -rf "$tools_dir/go"
+    case "$file" in
+        *.zip)
+            if ! command -v unzip >/dev/null 2>&1 || ! unzip -q "$tmp/$file" -d "$tools_dir"; then
+                echo "  Could not unpack $file (is unzip installed?)" >&2
+                rm -rf "$tmp"
+                return 1
+            fi
+            ;;
+        *)
+            if ! tar -xzf "$tmp/$file" -C "$tools_dir"; then
+                echo "  Could not unpack $file" >&2
+                rm -rf "$tmp"
+                return 1
+            fi
+            ;;
+    esac
+    rm -rf "$tmp"
+
+    if ! go_usable "$local_go"; then
+        echo "  Go unpacked but does not run from $local_go" >&2
+        echo "  Install Go $(go_required)+ from https://go.dev/dl/ instead." >&2
+        return 1
+    fi
+    echo "installed Go ${ver#go} in stuff/tools/go"
+}
+
+go_cmd=""
+if command -v go >/dev/null 2>&1 && go_usable "$(command -v go)"; then
+    go_cmd="$(command -v go)"
+elif go_usable "$local_go"; then
+    go_cmd="$local_go"
+else
+    install_go || exit 1
+    go_cmd="$local_go"
+fi
+export PATH="$(dirname "$go_cmd"):$PATH"
 
 # Only the CGO build links a window; the browser build needs none of this.
 cgo=1
@@ -230,8 +394,9 @@ esac
 
 # webview_go asks pkg-config for webkit2gtk-4.0 by name. Ubuntu 24.04+ and
 # Fedora 40+ ship only 4.1, which is ABI-compatible for our use; a two-line .pc
-# shim makes the requested name resolve instead of failing the build.
-if [ "$(uname -s)" = "Linux" ] && command -v pkg-config >/dev/null 2>&1; then
+# shim makes the requested name resolve instead of failing the build. A build
+# without CGO imports no webview at all, so it needs none of this.
+if [ "$cgo" = "1" ] && [ "$(uname -s)" = "Linux" ] && command -v pkg-config >/dev/null 2>&1; then
     if ! pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
         if pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
             shim="$here/.pkgconfig"
