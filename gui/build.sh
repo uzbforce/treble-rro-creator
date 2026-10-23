@@ -18,7 +18,7 @@
 #              distro already has — apt (Debian/Ubuntu), pacman (Arch) or dnf
 #              (Fedora) — instead of being left as a Debian-only apt command.
 #
-#   Go 1.23+ — downloaded from go.dev into stuff/tools/go/ when the machine has
+#   Go 1.23+ — downloaded from go.dev into stuff/tools/_go/ when the machine has
 #   none, so a fresh clone builds with no setup step.
 #
 # The window uses the engine the machine already has (WebView2 on Windows,
@@ -178,13 +178,15 @@ window_deps_hint() {
 # ---------------------------------------------------------------------------
 # The launcher is the first command a new clone runs, so "install Go and come
 # back" is not an answer. The official tarball is unpacked into
-# stuff/tools/go/ — inside the clone, no root, and found again by every later
-# build. A Go already on PATH is used when it is new enough; distro packages
-# are often older than go.mod asks for, which is why a too-old one is passed
-# over instead of trusted.
+# stuff/tools/_go/ — inside the clone, no root, and found again by every later
+# build. The leading underscore matters: the go tool skips such directories,
+# so this copy of Go's source tree is not pulled into `go test ./...`. A Go
+# already on PATH is used when it is new enough; distro packages are often
+# older than go.mod asks for, which is why a too-old one is passed over
+# instead of trusted.
 
 tools_dir="$here/../stuff/tools"
-local_go="$tools_dir/go/bin/go"
+local_go="$tools_dir/_go/bin/go"
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) local_go="$local_go.exe" ;;
 esac
@@ -302,7 +304,7 @@ install_go() {
     esac
     url="https://go.dev/dl/$file"
 
-    echo "go was not found — downloading Go ${ver#go} into stuff/tools/go…"
+    echo "go was not found — downloading Go ${ver#go} into stuff/tools/_go…"
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/go-download.XXXXXX")" || return 1
     if ! fetch_url "$url" "$tmp/$file"; then
         echo "  The download failed: $url" >&2
@@ -311,7 +313,9 @@ install_go() {
     fi
 
     mkdir -p "$tools_dir"
-    rm -rf "$tools_dir/go"
+    # `go/` is the tarball's own top-level directory, and the old name of the
+    # unpacked copy here — both must be gone before unpacking over them.
+    rm -rf "$tools_dir/_go" "$tools_dir/go"
     case "$file" in
         *.zip)
             if ! command -v unzip >/dev/null 2>&1 || ! unzip -q "$tmp/$file" -d "$tools_dir"; then
@@ -329,13 +333,16 @@ install_go() {
             ;;
     esac
     rm -rf "$tmp"
+    if [ -d "$tools_dir/go" ]; then
+        mv "$tools_dir/go" "$tools_dir/_go" || return 1
+    fi
 
     if ! go_usable "$local_go"; then
         echo "  Go unpacked but does not run from $local_go" >&2
         echo "  Install Go $(go_required)+ from https://go.dev/dl/ instead." >&2
         return 1
     fi
-    echo "installed Go ${ver#go} in stuff/tools/go"
+    echo "installed Go ${ver#go} in stuff/tools/_go"
 }
 
 go_cmd=""

@@ -45,7 +45,10 @@ function anchorsOf(file) {
 
 function markdownFiles(dir, acc = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "build" || entry.name === "out") continue;
+    // Downloaded trees are not ours: Go's own docs come with the toolchain
+    // fetch in gui/build.sh, and theirs are written for golang.org.
+    if (entry.name === "node_modules" || entry.name.startsWith(".") ||
+        entry.name.startsWith("_") || entry.name === "build" || entry.name === "out") continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) markdownFiles(full, acc);
     else if (/\.md$/i.test(entry.name)) acc.push(full);

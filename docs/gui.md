@@ -24,7 +24,7 @@ The launchers used to be called `gui.sh` and `gui.cmd`; a shortcut or note from
 before the rename needs pointing at the new file. Nothing else changed.
 
 The first launch builds the app, and what the build needs it installs or
-downloads itself. Go is fetched from go.dev into `stuff/tools/go/` when the
+downloads itself. Go is fetched from go.dev into `stuff/tools/_go/` when the
 machine has none (a distro's package is skipped when it is older than `go.mod`
 asks for, so nothing has to be installed by hand); the next launch finds that
 copy and does not download again. On Linux the missing GTK/WebKitGTK headers and
