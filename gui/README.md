@@ -54,7 +54,7 @@ gui\build.cmd --release     # same from cmd/PowerShell
 | Platform | Needs |
 |---|---|
 | Windows | Go 1.23+, MinGW-w64 gcc on PATH (`pacman -S mingw-w64-x86_64-gcc` in MSYS2), Git for Windows at run time |
-| Linux | Go 1.23+, `libgtk-3-dev`, `libwebkit2gtk-4.0-dev` (4.1 is shimmed automatically) |
+| Linux | Go 1.23+, plus gcc, pkg-config and the GTK3/WebKitGTK headers — installed automatically with apt, pacman or dnf when missing (4.1 is shimmed to the 4.0 name webview_go asks for) |
 
 `CGO_ENABLED=0 ./gui/build.sh` builds without a C compiler and without
 WebKitGTK; the app then serves the same UI to the default browser instead of a
@@ -99,4 +99,8 @@ any page in the user's browser, and these handlers start a build, so:
 - the endpoint surface is an allow-list (`build.sh` verbs, five flags, three
   open targets, `http(s)` links, and file operations whose paths are relative to
   `src/` and re-validated server-side), not "run this program" or "write this
-  path".
+  path";
+- the sudo password from the install dialog is kept in the page's memory,
+  written to a `0600` temporary file for the run that needs it, handed to
+  `sudo -A` through `stuff/scripts/sudo-askpass.sh`, and deleted when that run
+  ends. It is never written into the clone and never logged.

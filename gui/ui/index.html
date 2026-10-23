@@ -340,6 +340,30 @@
 <!-- Update: what is waiting upstream, and what pulling it would do to the files
      that were edited here. The second part is the whole point — a pull that
      overwrites config.env would take the device settings with it. -->
+<!-- Installing packages needs root, and the child has no terminal for sudo to
+     ask in. This is the one question the app answers itself: the password is
+     handed to sudo -A through stuff/scripts/sudo-askpass.sh for that run only
+     and kept in memory for the window's lifetime. -->
+<dialog id="sudo">
+  <form method="dialog" id="sudo-form">
+    <h2>Install the build tools</h2>
+    <p class="muted">
+      Installing the missing tools needs root. Enter the password sudo would
+      ask for; it stays in this window and is used for the install only.
+    </p>
+
+    <label for="sudo-password">sudo password</label>
+    <input id="sudo-password" type="password" autocomplete="current-password" spellcheck="false">
+
+    <p class="error" id="sudo-error" hidden></p>
+
+    <menu>
+      <button type="button" id="sudo-cancel">Cancel</button>
+      <button type="submit" class="primary">Install</button>
+    </menu>
+  </form>
+</dialog>
+
 <dialog id="update">
   <form method="dialog" id="update-form">
     <h2>Update available</h2>

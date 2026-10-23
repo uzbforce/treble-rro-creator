@@ -172,6 +172,10 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Verb  string   `json:"verb"`
 		Flags []string `json:"flags"`
+		// Sudo is the password the app collected after the installer said it
+		// needed one. It lives in this request, a 0600 file for the duration of
+		// the run, and the page's memory — never in a log or the clone.
+		Sudo string `json:"sudo"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -181,11 +185,49 @@ func (a *App) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.runner.Start(a.Root(), a.Bash(), args, "build.sh "+body.Verb, false); err != nil {
+	// Only these two verbs install anything (see ensure_toolchain). A password
+	// for check or clean would be carried for nothing.
+	if body.Sudo != "" && body.Verb != "build" && body.Verb != "setup" {
+		writeError(w, http.StatusBadRequest, "that command does not install anything")
+		return
+	}
+	extraEnv, cleanup, err := a.sudoEnv(body.Sudo)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.runner.StartEnv(a.Root(), a.Bash(), args, "build.sh "+body.Verb, false, extraEnv, cleanup); err != nil {
+		// start() already ran cleanup on its own failure paths.
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusAccepted, a.runner.Snapshot())
+}
+
+// sudoEnv turns a password from the dialog into what `sudo -A` needs.
+//
+// The password goes into a 0600 file rather than the child's environment: an
+// environment entry is inherited by everything the build starts, while the file
+// can be removed the moment the run ends (Runner.finish does exactly that).
+func (a *App) sudoEnv(password string) ([]string, func(), error) {
+	if password == "" {
+		return nil, nil, nil
+	}
+	helper := filepath.Join(a.Root(), "stuff", "scripts", "sudo-askpass.sh")
+	if st, err := os.Stat(helper); err != nil || st.Mode()&0o111 == 0 {
+		return nil, nil, errors.New("the sudo helper is missing or not executable — update the clone (git pull) and try again")
+	}
+	dir, err := os.MkdirTemp("", "rro-sudo-")
+	if err != nil {
+		return nil, nil, err
+	}
+	path := filepath.Join(dir, "password")
+	if err := os.WriteFile(path, []byte(password+"\n"), 0o600); err != nil {
+		os.RemoveAll(dir)
+		return nil, nil, err
+	}
+	cleanup := func() { os.RemoveAll(dir) }
+	return []string{"SUDO_ASKPASS=" + helper, "RRO_SUDO_PASSWORD_FILE=" + path}, cleanup, nil
 }
 
 // handleCancel stops whatever is running. There is one Stop button per console

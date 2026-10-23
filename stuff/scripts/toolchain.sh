@@ -245,11 +245,72 @@ package_install_hint() {
     fi
 }
 
-# install_linux_packages <auto|interactive>
-install_linux_packages() {
-    local mode="${1:-auto}"
-    local sudo=""
+# How to run a package manager as root, in $INSTALL_AS_ROOT (empty when these
+# privileges are already ours). Returns 1 when a password is needed but there
+# is no way to ask for one here: no terminal — the desktop app — and no
+# SUDO_ASKPASS helper to read it from.
+#
+# sudo -A is that helper: the app collects the password in a dialog, writes it
+# to a private file and points SUDO_ASKPASS at stuff/scripts/sudo-askpass.sh,
+# so the install below can run without a tty.
+INSTALL_AS_ROOT=()
+install_as_root() {
+    INSTALL_AS_ROOT=()
+    [ "$(id -u)" -eq 0 ] && return 0
+    command -v sudo >/dev/null 2>&1 || return 1
+    if sudo -n true 2>/dev/null; then
+        INSTALL_AS_ROOT=(sudo -n)
+    elif [ -n "${SUDO_ASKPASS:-}" ]; then
+        INSTALL_AS_ROOT=(sudo -A)
+    elif [ -t 0 ] || [ -t 2 ]; then
+        INSTALL_AS_ROOT=(sudo)
+    else
+        return 1
+    fi
+    return 0
+}
 
+# install_linux_packages
+#
+# 0  installed (or there was nothing to run)
+# 1  could not install; the caller may fall back to the no-root download
+# 2  install possible, but root needs a password and nothing here can ask for
+#    one — the caller prints @@RRO_SUDO_REQUIRED@@ so the app can offer its
+#    dialog and re-run the same command
+# 3  the package manager is busy: another one is running, or its stale lock
+#    could not be removed — waiting or removing it by hand is the only fix, so
+#    do not fall back to a download
+
+# Is something holding the pacman database right now? /proc is enough and
+# avoids depending on pgrep; comm is what the executable is called, which is
+# also why a paru/yay repo install shows up as pacman.
+package_manager_running() {
+    local p comm
+    for p in /proc/[0-9]*/comm; do
+        [ -r "$p" ] || continue
+        read -r comm < "$p" || continue
+        case "$comm" in
+            pacman|pacman-key|paru|yay|pikaur|trizen|pamac*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# The package manager did not succeed. When the password came from the app
+# (sudo -A), the likely cause is a typo, so ask again instead of quietly falling
+# back to the no-root download. 2 = "needs a password" to the caller.
+install_failed() {
+    case "${INSTALL_AS_ROOT[*]:-}" in
+        *-A*)
+            warn "sudo could not install the build tools — the password may be wrong."
+            echo "@@RRO_SUDO_REQUIRED@@" >&2
+            return 2
+            ;;
+    esac
+    return 1
+}
+
+install_linux_packages() {
     if $IS_TERMUX; then
         info "Termux detected — running: pkg install ..."
         # 'aapt' carries zipalign (the aapt2 package does not).
@@ -263,53 +324,67 @@ install_linux_packages() {
         return 1
     fi
 
+    if ! install_as_root; then
+        # One machine-readable line, because the desktop app has no terminal to
+        # prompt in: it asks for the password itself and re-runs the command
+        # with SUDO_ASKPASS set. The pane strips this line, so nobody sees it.
+        echo "@@RRO_SUDO_REQUIRED@@" >&2
+        warn "Root privileges are needed to install the build tools."
+        echo "     Run: $(package_install_hint)"
+        echo "     Then re-run: ./build.sh"
+        return 2
+    fi
+
     if command -v apt-get >/dev/null 2>&1; then
-        if [ "$(id -u)" -ne 0 ]; then
-            if [ "$mode" = "auto" ]; then
-                # Never sit waiting for a password: only run unattended when
-                # sudo is already available without one.
-                if ! sudo -n true 2>/dev/null; then
-                    warn "Root privileges are needed to install the build tools."
-                    echo "     Run: $(package_install_hint)"
-                    echo "     Then re-run: ./build.sh"
-                    return 1
-                fi
-            fi
-            sudo="sudo"
-        fi
         info "Installing Debian/Ubuntu packages (apt)..."
-        $sudo apt-get update && \
-        $sudo apt-get install -y aapt android-sdk-build-tools apksigner android-framework-res zip curl
+        if ${INSTALL_AS_ROOT[@]+"${INSTALL_AS_ROOT[@]}"} apt-get update && \
+           ${INSTALL_AS_ROOT[@]+"${INSTALL_AS_ROOT[@]}"} apt-get install -y aapt android-sdk-build-tools apksigner android-framework-res zip curl; then
+            return 0
+        fi
+        install_failed
         return $?
     fi
 
     if command -v pacman >/dev/null 2>&1; then
-        if [ "$(id -u)" -ne 0 ]; then
-            if [ "$mode" = "auto" ] && ! sudo -n true 2>/dev/null; then
-                warn "Root privileges are needed to install the build tools."
-                echo "     Run: $(package_install_hint)"
-                echo "     Then re-run: ./build.sh"
-                return 1
+        # A stopped build or a closed window during a transaction can kill
+        # pacman before it cleans up, and the next run finds its lock. If no
+        # package manager is running, that lock is stale: remove it, which is
+        # exactly what pacman's own error message advises. If one is running,
+        # removing it would corrupt the database — wait instead.
+        # PACMAN_LOCK is the seam for tests and databases kept elsewhere.
+        local lock="${PACMAN_LOCK:-/var/lib/pacman/db.lck}"
+        if [ -e "$lock" ]; then
+            if package_manager_running; then
+                err "pacman is locked: $lock"
+                info "Another package manager (pacman, paru, yay, pamac…) is running."
+                echo "     Wait for it to finish, then re-run: ./build.sh setup"
+                return 3
             fi
-            sudo="sudo"
+            warn "Removing the stale pacman lock from an interrupted run: $lock"
+            if ! ${INSTALL_AS_ROOT[@]+"${INSTALL_AS_ROOT[@]}"} rm -f "$lock"; then
+                err "Could not remove $lock"
+                echo "     Run: sudo rm $lock"
+                echo "     Then re-run: ./build.sh setup"
+                return 3
+            fi
         fi
         info "Installing Arch Linux packages (pacman)..."
-        $sudo pacman -S --needed android-tools jdk-openjdk zip curl
+        # --noconfirm even in a terminal: this also runs with no stdin (the
+        # desktop app), where pacman's "Proceed with installation?" would be
+        # answered by EOF and the transaction would be abandoned.
+        if ${INSTALL_AS_ROOT[@]+"${INSTALL_AS_ROOT[@]}"} pacman -S --needed --noconfirm android-tools jdk-openjdk zip curl; then
+            return 0
+        fi
+        install_failed
         return $?
     fi
 
     if command -v dnf >/dev/null 2>&1; then
-        if [ "$(id -u)" -ne 0 ]; then
-            if [ "$mode" = "auto" ] && ! sudo -n true 2>/dev/null; then
-                warn "Root privileges are needed to install the build tools."
-                echo "     Run: $(package_install_hint)"
-                echo "     Then re-run: ./build.sh"
-                return 1
-            fi
-            sudo="sudo"
-        fi
         info "Installing Fedora packages (dnf)..."
-        $sudo dnf install -y android-tools java-17-openjdk zip curl
+        if ${INSTALL_AS_ROOT[@]+"${INSTALL_AS_ROOT[@]}"} dnf install -y android-tools java-17-openjdk zip curl; then
+            return 0
+        fi
+        install_failed
         return $?
     fi
 
@@ -643,8 +718,31 @@ ensure_toolchain() {
             install_windows_tools || return 1
         else
             # Prefer the distro packages; fall back to a local download that
-            # needs no root (aapt2 from Maven + SDK command-line tools).
-            install_linux_packages auto || download_manual_tools || true
+            # needs no root (aapt2 from Maven + SDK command-line tools). When
+            # every tool is already present and --force only asks for another
+            # resource dictionary, no package is installed at all — that would
+            # ask for a sudo password to change nothing.
+            local need_install=false t rc=0
+            for t in aapt2 zipalign apksigner; do
+                [ "$t" = "zipalign" ] && zipalign_optional && continue
+                tool_ready "$t" || need_install=true
+            done
+            command -v java >/dev/null 2>&1 || need_install=true
+            # apt packages the resource dictionary; pacman and dnf do not, and
+            # acquire_framework_res downloads it — so a missing resource alone
+            # is no reason to ask for a sudo password there.
+            if ! framework_res_path >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+                need_install=true
+            fi
+
+            if $need_install; then
+                install_linux_packages || rc=$?
+                case "$rc" in
+                    0) ;;
+                    2|3) verify_toolchain; return 1 ;;
+                    *) download_manual_tools || true ;;
+                esac
+            fi
         fi
         if [ -n "$force_res" ] || ! framework_res_path >/dev/null 2>&1; then
             acquire_framework_res auto "$force_res" || true
@@ -721,21 +819,21 @@ ensure_toolchain() {
         1)
             if $IS_WINDOWS; then
                 warn "apt is not available on Windows. Choose [5]."
-            elif install_linux_packages interactive; then
+            elif install_linux_packages; then
                 acquire_framework_res ask || true
             fi
             ;;
         2)
             if $IS_WINDOWS; then
                 warn "pacman is not available on Windows. Choose [5]."
-            elif install_linux_packages interactive; then
+            elif install_linux_packages; then
                 acquire_framework_res ask || true
             fi
             ;;
         3)
             if $IS_WINDOWS; then
                 warn "pkg is not available on Windows. Choose [5]."
-            elif install_linux_packages interactive; then
+            elif install_linux_packages; then
                 acquire_framework_res ask || true
             fi
             ;;

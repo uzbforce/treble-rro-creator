@@ -23,6 +23,10 @@ The toolchain is incomplete. Run:
 # or simply re-run the build; it installs what is missing
 ```
 
+In the desktop app, **Setup** does the same install. When sudo needs a password
+the app asks for it in a dialog and repeats the command, so nothing has to be
+typed into a terminal.
+
 On Windows, `build.cmd` needs **Git for Windows** and **JDK 17+**:
 
 ```bat
@@ -30,6 +34,26 @@ winget install EclipseAdoptium.Temurin.17.JDK
 ```
 
 Open a **new** terminal after installing Java so `PATH` is refreshed.
+
+### `unable to lock database` / `could not lock database: File exists` (pacman)
+
+pacman refuses to start because `/var/lib/pacman/db.lck` exists. Either another
+package manager is running — wait for it to finish — or an interrupted install
+(a build stopped with the **Stop** button, a closed window, a killed terminal)
+left the lock behind.
+
+When nothing is holding the database, the build removes the stale lock itself
+and continues. If a pacman/paru/yay/pamac process is running it waits instead,
+because deleting a live lock is what corrupts the database. By hand, the same
+recovery is:
+
+```bash
+sudo rm /var/lib/pacman/db.lck
+./build.sh setup
+```
+
+If removing it needs root, the usual sudo path applies — a password dialog in
+the app when sudo asks for one.
 
 ### `cannot execute binary file` / `Exec format error` / `not a valid win32`
 

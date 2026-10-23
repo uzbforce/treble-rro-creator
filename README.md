@@ -54,14 +54,17 @@ asks first and backs them up.
 ```bash
 git clone https://github.com/uzbforce/treble-rro-creator
 cd treble-rro-creator
-./treble-rro-creator.sh   # Linux   — builds itself first (needs Go once)
+./treble-rro-creator.sh   # Linux   — builds itself first (needs Go; missing GTK/WebKitGTK headers are installed for you)
 treble-rro-creator.cmd    # Windows — double-clickable, no console left open; needs Go + MinGW gcc once
 ```
 
-The first launch builds it and says what is missing if anything is. Later
-launches open straight away, and a `git pull` only triggers a rebuild when the
-Go sources actually changed. Full guide, including what each button does and
-what to do when no window appears: [docs/gui.md](docs/gui.md).
+The first launch builds it and says what is missing if anything is. **Setup**,
+and the first build, install the Android tools with the distro's package
+manager — when sudo asks for a password, the app asks for it in a dialog and
+repeats the command, so nothing has to be typed into a terminal. Later launches
+open straight away, and a `git pull` only triggers a rebuild when the Go
+sources actually changed. Full guide, including what each button does and what
+to do when no window appears: [docs/gui.md](docs/gui.md).
 
 ### Windows (command line)
 

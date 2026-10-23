@@ -23,10 +23,14 @@ treble-rro-creator.cmd    # Windows (double-click it too)
 The launchers used to be called `gui.sh` and `gui.cmd`; a shortcut or note from
 before the rename needs pointing at the new file. Nothing else changed.
 
-The first launch builds the app and tells you what is missing if anything is
-(Go, plus MinGW-w64 gcc on Windows or the WebKitGTK headers on Linux). After
-that it starts straight away, and it rebuilds on its own only when the Go
-sources or the UI changed — `./treble-rro-creator.sh --rebuild` forces it.
+The first launch builds the app, and what the build needs it installs: on Linux
+the missing GTK/WebKitGTK headers and pkg-config come from the distro's own
+package manager — apt on Debian/Ubuntu, pacman on Arch, dnf on Fedora — after
+your sudo password if one is required. Go is the exception it only names, since
+a distro's package can be older than `go.mod` asks for; on Windows, MinGW-w64
+gcc is the same. After that it starts straight away, and it rebuilds on its own
+only when the Go sources or the UI changed — `./treble-rro-creator.sh --rebuild`
+forces it.
 
 The page is **embedded in the executable**, so a build is what makes the window
 match `gui/`: editing `app.js` without relinking changes nothing on screen.
@@ -69,7 +73,7 @@ WebView2 on Windows, WebKitGTK on Linux.
 | **Dry run** | `build.sh --dry-run -y` | see which resources `config.env` emits, build nothing |
 | **Check** | `build.sh check -y` | validate `config.env` before spending a build on it |
 | **Doctor** | `build.sh doctor -y` | something is missing; find what |
-| **Setup** | `build.sh setup -y` | install or repair the Android build tools |
+| **Setup** | `build.sh setup -y` | install or repair the Android build tools (asks for the sudo password when it needs it) |
 | **Clean** | `build.sh clean -y` | discard `out/` (tick `--all` to also drop config and device files) |
 
 Flags appear only on the commands that accept them:
@@ -81,10 +85,20 @@ Flags appear only on the commands that accept them:
 
 `-y` is always appended: the app has no terminal for the script to ask
 questions in, so anything that would prompt takes its default instead of
-blocking forever.
+blocking forever. The one question the app answers itself is **sudo's
+password**: when installing the tools needs root, the run stops, the app asks
+for the password in a dialog, and the same command is repeated with it. The
+password is kept in that window's memory and handed to `sudo -A` (through
+`stuff/scripts/sudo-askpass.sh`) via a private file that is deleted when the
+run ends. **Setup** therefore installs rather than printing a command, and
+**Build** repairs a partial toolchain the same way.
 
 The green **Stop** button kills the whole process tree, not just `bash` — a
 cancelled build does not leave `aapt2` writing into `out/`.
+
+Downloads move while they happen: pacman (and `adb pull`) repaint one line with
+carriage returns, and the pane updates that line in place as each chunk arrives
+instead of showing it only once the retrieval ends.
 
 **Last build** — what `out/` holds — sits folded at the bottom of the Build
 pane. It opens itself when a build finishes and stays out of the way otherwise,

@@ -33,6 +33,9 @@ let running = false;      // the build console
 let adbRunning = false;  // the device console, which has its own stream
 let lastSeq = 0;
 let adbSeq = 0;
+// The node a repainting progress bar owns, per console: the build log and the
+// adb console each draw their own in place.
+const progressNode = new WeakMap();
 // Where the current adb run writes: the <pre> under the preset that started it,
 // or null for the console at the top of the pane.
 let adbTarget = null;
@@ -42,6 +45,14 @@ const presetOut = new Map();
 let currentDoc = null;
 let statusTimer = null;
 let refreshInFlight = false;
+
+// A run that stopped for a sudo password keeps its verb here, so the retry is
+// exactly the same command. sudoPassword is the answer; it stays in this
+// window's memory for the session and is never written by the page.
+let pendingRun = null;
+let sudoPassword = '';
+let sudoPromptOpen = false;
+let sudoDeclined = false;
 
 // config.env: the form keeps only what the user changed, so a poll that lands
 // mid-edit cannot repaint the row they are typing in.
@@ -298,11 +309,23 @@ async function runSelected() {
   const v = currentVerb();
   if (!v) return;
   const flags = [...checkedFlags].filter((f) => v.flags && v.flags.includes(f));
+  sudoDeclined = false;
+  pendingRun = { verb: v.name, flags, label: v.label.toLowerCase() };
+  await startRun(pendingRun);
+}
+
+// startRun is separate so the sudo dialog can repeat exactly the command that
+// stopped for a password: same verb, same flags, now with the answer.
+async function startRun(run) {
   try {
     clearLog();
     setRunning(true);
-    status(`running ${v.label.toLowerCase()}…`, 0);
-    await api('api/run', { method: 'POST', body: { verb: v.name, flags } });
+    status(`running ${run.label}…`, 0);
+    const body = { verb: run.verb, flags: run.flags };
+    // Only the two verbs that can install need it; check and clean never run
+    // sudo, so the password does not travel with them.
+    if (sudoPassword && (run.verb === 'build' || run.verb === 'setup')) body.sudo = sudoPassword;
+    await api('api/run', { method: 'POST', body });
   } catch (err) {
     setRunning(false);
     status(err.message, 8000);
@@ -336,6 +359,12 @@ function connectLog() {
       lastSeq = 0;
     }
     lastSeq = line.seq;
+    // The server's own line asking for a password: not something to print, an
+    // action to take. The sentence before it already explained why.
+    if (line.stream === 'sudo') {
+      openSudoPrompt();
+      return;
+    }
     appendLine(line);
   });
 
@@ -347,6 +376,24 @@ function connectLog() {
 
 function renderLogLine(pre, line) {
   const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+
+  if (line.stream === 'progress') {
+    // pacman and adb pull repaint one line with \r. Rewrite that line instead
+    // of appending a row per chunk, so a download reads like a terminal.
+    let live = progressNode.get(pre);
+    if (!live || live.parentNode !== pre) {
+      live = document.createElement('span');
+      live.className = 'progress';
+      pre.appendChild(live);
+      progressNode.set(pre, live);
+    }
+    live.textContent = line.text + '\n';
+    if (stick) pre.scrollTop = pre.scrollHeight;
+    return false;
+  }
+  // Any real line ends the bar's run: the next repaint starts a new line.
+  progressNode.delete(pre);
+
   const node = document.createElement('span');
 
   if (line.stream === 'done') {
@@ -1287,6 +1334,42 @@ function resolveConfirm(answer) {
   if (resolve) resolve(answer);
 }
 
+// ------------------------------------------------------------------- sudo --
+// toolchain.sh says it could install the tools if something could ask for a
+// password; the server turns that into this dialog. The password is posted with
+// the retry and handed to sudo -A for that run only.
+function openSudoPrompt() {
+  if (!pendingRun || sudoPromptOpen || sudoDeclined) return;
+  sudoPromptOpen = true;
+  $('sudo-error').hidden = true;
+  if (sudoPassword) {
+    $('sudo-error').textContent = 'sudo could not install with the last password — try again.';
+    $('sudo-error').hidden = false;
+  }
+  $('sudo-password').value = '';
+  $('sudo').showModal();
+  $('sudo-password').focus();
+}
+
+async function submitSudo(event) {
+  event.preventDefault();
+  const password = $('sudo-password').value;
+  if (!password) {
+    $('sudo-error').textContent = 'enter the password sudo would ask for';
+    $('sudo-error').hidden = false;
+    return;
+  }
+  sudoPassword = password;
+  $('sudo').close();
+  if (pendingRun) await startRun(pendingRun);
+}
+
+function cancelSudo() {
+  sudoDeclined = true;
+  $('sudo').close();
+  status('install skipped — the build tools are still missing', 6000);
+}
+
 async function deleteEntry(path, disabled, dir) {
   if (!path) return;
   const openInside = filesSel && !filesSel.dir && filesSel.disabled === !!disabled &&
@@ -1706,6 +1789,18 @@ function bindFiles() {
       confirmAnswer = null;
       resolve(false);
     }
+  });
+
+  $('sudo-form').addEventListener('submit', submitSudo);
+  $('sudo-cancel').addEventListener('click', cancelSudo);
+  $('sudo').addEventListener('cancel', (event) => {
+    // Esc: same as Cancel, so the prompt cannot leave a retry half-armed.
+    event.preventDefault();
+    cancelSudo();
+  });
+  $('sudo').addEventListener('close', () => {
+    sudoPromptOpen = false;
+    $('sudo-password').value = '';
   });
 
   bindFileDrop();

@@ -114,7 +114,16 @@ case "$MODE" in
     setup)
         banner "Setup — build tools"
         migrate_layout
-        ensure_toolchain interactive "$FORCE_RES"
+        # -y means "no questions": the desktop app has no terminal, so the
+        # interactive menu would fall back to its default instead of using the
+        # packages this machine already has. Auto is the installer a plain
+        # build runs; it still asks for a sudo password when it needs one —
+        # in a terminal sudo prompts, and the app has its own dialog for it.
+        if $ASSUME_YES; then
+            ensure_toolchain auto "$FORCE_RES"
+        else
+            ensure_toolchain interactive "$FORCE_RES"
+        fi
         exit $?
         ;;
 

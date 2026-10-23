@@ -15,8 +15,9 @@ import (
 
 // LogLine is one line of child output as it reaches the pane.
 //
-// Stream is "out", "err", "note" (something the GUI says) or "done" (the last
-// line of a run, which also unblocks the UI's spinner).
+// Stream is "out", "err", "note" (something the GUI says), "progress" (a
+// repaint of the line before it, sent with \r) or "done" (the last line of a
+// run, which also unblocks the UI's spinner).
 type LogLine struct {
 	Seq    int    `json:"seq"`
 	Stream string `json:"stream"`
@@ -31,6 +32,9 @@ type RunState struct {
 	Label   string    `json:"label"`
 	Exit    int       `json:"exit"`
 	Lines   []LogLine `json:"lines"`
+	// Sudo: the run stopped because installing the build tools needs a
+	// password, and the app is the only thing that can ask for it.
+	Sudo bool `json:"sudo"`
 }
 
 // Gate is the process-wide "one job at a time" token.
@@ -79,6 +83,10 @@ type Runner struct {
 	maxLines int
 	started  time.Time
 	gate     *Gate
+	// Set when the child asked for a sudo password; finish turns it into the
+	// line that opens the app's dialog. cleanup removes the password file.
+	sudoNeeded bool
+	cleanup    func()
 }
 
 // NewRunner makes a console. A Runner given no Gate gets one of its own, which
@@ -97,20 +105,41 @@ func NewRunner(gates ...*Gate) *Runner {
 // a successful pull is not painted in the pane's error colour. The exit code,
 // not the stream, decides whether the run succeeded.
 func (r *Runner) Start(root, program string, args []string, label string, mergeStderr bool) error {
+	return r.start(root, program, args, label, mergeStderr, nil, nil)
+}
+
+// StartEnv is Start with extra environment entries and a cleanup that runs when
+// the job ends. The sudo handshake uses both: the page's password goes into a
+// private file, the file's path into the environment for sudo -A, and the file
+// must be gone the moment the child is.
+func (r *Runner) StartEnv(root, program string, args []string, label string, mergeStderr bool, extraEnv []string, cleanup func()) error {
+	return r.start(root, program, args, label, mergeStderr, extraEnv, cleanup)
+}
+
+func (r *Runner) start(root, program string, args []string, label string, mergeStderr bool, extraEnv []string, cleanup func()) error {
+	abort := func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}
 	if !dirExists(root) {
+		abort()
 		return errors.New("no clone selected — pick the folder that has build.sh")
 	}
 	if program == "" {
+		abort()
 		return errors.New("no bash found — install Git for Windows, or set the bash path")
 	}
 
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
+		abort()
 		return errors.New("a command is already running")
 	}
 	if !r.gate.tryAcquire() {
 		r.mu.Unlock()
+		abort()
 		return errors.New("a command is already running")
 	}
 	// A new run starts a new log: the pane means "what just happened", not
@@ -119,6 +148,8 @@ func (r *Runner) Start(root, program string, args []string, label string, mergeS
 	r.lines = nil
 	r.seq = 0
 	r.exit = 0
+	r.sudoNeeded = false
+	r.cleanup = cleanup
 	r.label = label
 	r.running = true
 	r.started = time.Now()
@@ -130,6 +161,7 @@ func (r *Runner) Start(root, program string, args []string, label string, mergeS
 	// ask for a colour-capable terminal instead of inheriting whatever the app
 	// was started from.
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = mergeEnv(cmd.Env, extraEnv)
 	// No stdin: anything that would prompt has to take its default. That is
 	// what the -y appended in buildArgs is for.
 	cmd.Stdin = nil
@@ -174,29 +206,106 @@ func (r *Runner) Start(root, program string, args []string, label string, mergeS
 	return nil
 }
 
+// pump streams one pipe line by line. A bare carriage return ends a line too:
+// pacman and adb pull repaint a progress bar with \r between newlines, and
+// waiting for the next \n would hide the whole download until it finished.
 func (r *Runner) pump(pipe io.Reader, stream string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	br := bufio.NewReader(pipe)
-	for {
-		line, err := br.ReadString('\n')
-		if line != "" {
-			r.emit(stream, strings.TrimRight(line, "\r\n"))
-		}
-		if err != nil {
+	buf := make([]byte, 0, 512)
+	flush := func(progress bool) {
+		text := string(buf)
+		buf = buf[:0]
+		if !progress {
+			r.emit(stream, text)
 			return
+		}
+		// An empty repaint would only blank the previous one.
+		if text != "" {
+			r.emit("progress", text)
+		}
+	}
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			if len(buf) > 0 {
+				flush(false)
+			}
+			return
+		}
+		switch b {
+		case '\n':
+			flush(false)
+		case '\r':
+			// CRLF is an ordinary line ending; a lone CR is a repaint.
+			if next, err := br.Peek(1); err == nil && next[0] == '\n' {
+				_, _ = br.ReadByte()
+				flush(false)
+			} else {
+				flush(true)
+			}
+		default:
+			buf = append(buf, b)
+			// A line is text; this only stops an endless one from growing.
+			if len(buf) >= 64*1024 {
+				flush(false)
+			}
 		}
 	}
 }
 
+// sudoMarker is the one line stuff/scripts/toolchain.sh prints when it could
+// install the build tools if only something could ask for a password. It is a
+// protocol line, not a message: the human sentence comes right after it.
+const sudoMarker = "@@RRO_SUDO_REQUIRED@@"
+
+// mergeEnv appends entries, dropping any earlier value for the same key: the
+// child's getenv sees the first copy, so leaving both would make the override
+// depend on whether the app itself was started with SUDO_ASKPASS set.
+func mergeEnv(env, extra []string) []string {
+	if len(extra) == 0 {
+		return env
+	}
+	drop := make(map[string]bool, len(extra))
+	for _, e := range extra {
+		if key, _, ok := strings.Cut(e, "="); ok {
+			drop[key] = true
+		}
+	}
+	kept := env[:0]
+	for _, e := range env {
+		if key, _, ok := strings.Cut(e, "="); ok && drop[key] {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return append(kept, extra...)
+}
+
 func (r *Runner) emit(stream, text string) {
+	if strings.TrimSpace(text) == sudoMarker {
+		r.mu.Lock()
+		r.sudoNeeded = true
+		r.mu.Unlock()
+		stream = "note"
+		text = "installing the build tools needs root — the app can ask for the password"
+	}
+
 	r.mu.Lock()
 	r.seq++
 	line := LogLine{Seq: r.seq, Stream: stream, Text: text}
-	r.lines = append(r.lines, line)
-	if len(r.lines) > r.maxLines {
-		kept := make([]LogLine, r.maxLines)
-		copy(kept, r.lines[len(r.lines)-r.maxLines:])
-		r.lines = kept
+	// A progress repaint replaces the previous one in the buffer: every update
+	// still reaches the live page, but a replayed hundred-step download bar is
+	// one line instead of a hundred. The page draws it in place either way.
+	if stream == "progress" && len(r.lines) > 0 && r.lines[len(r.lines)-1].Stream == "progress" {
+		r.lines[len(r.lines)-1] = line
+	} else {
+		r.lines = append(r.lines, line)
+		if len(r.lines) > r.maxLines {
+			kept := make([]LogLine, r.maxLines)
+			copy(kept, r.lines[len(r.lines)-r.maxLines:])
+			r.lines = kept
+		}
 	}
 	for ch := range r.subs {
 		// A window that is not reading must not stall the build.
@@ -224,7 +333,21 @@ func (r *Runner) finish(err error) {
 	r.running = false
 	r.cmd = nil
 	r.exit = code
+	needSudo := r.sudoNeeded && code != 0
+	cleanup := r.cleanup
+	r.cleanup = nil
 	r.mu.Unlock()
+
+	// The password file only ever existed for the child's lifetime.
+	if cleanup != nil {
+		cleanup()
+	}
+
+	if needSudo {
+		// Its own stream: the page turns this into the password dialog. The
+		// run is already over, so the retry cannot collide with it.
+		r.emit("sudo", "sudo password needed")
+	}
 
 	switch {
 	case code == 0:
@@ -255,6 +378,7 @@ func (r *Runner) Begin(label string) error {
 	r.lines = nil
 	r.seq = 0
 	r.exit = 0
+	r.sudoNeeded = false
 	r.label = label
 	r.running = true
 	r.started = time.Now()
@@ -299,6 +423,7 @@ func (r *Runner) Snapshot() RunState {
 		Running: r.running,
 		Label:   r.label,
 		Exit:    r.exit,
+		Sudo:    r.sudoNeeded,
 		// Non-nil so an empty buffer encodes as [] rather than null.
 		Lines: append([]LogLine{}, r.lines...),
 	}
