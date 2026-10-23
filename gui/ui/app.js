@@ -33,6 +33,12 @@ let running = false;      // the build console
 let adbRunning = false;  // the device console, which has its own stream
 let lastSeq = 0;
 let adbSeq = 0;
+// Where the current adb run writes: the <pre> under the preset that started it,
+// or null for the console at the top of the pane.
+let adbTarget = null;
+// preset id -> the panel under that command, kept across the re-render every
+// finished run triggers so the answer stays where the question was clicked.
+const presetOut = new Map();
 let currentDoc = null;
 let statusTimer = null;
 let refreshInFlight = false;
@@ -229,6 +235,15 @@ function renderRunState() {
   $('adb-run').disabled = running || adbRunning || !adbReady();
   $('adb-run').title = running ? 'a build is running — one job at a time' : '';
   $('adb-stop').disabled = !adbRunning;
+
+  // One job at a time: a second preset clicked mid-run would be refused by the
+  // server, and the panel under the command still running would end up with the
+  // refusal in it. Blocked-for-needs is remembered by renderPresets, which is
+  // what reads the codename and the adb install state.
+  for (const b of $('adb-presets').querySelectorAll('button.preset')) {
+    if (running || adbRunning) b.disabled = true;
+    else b.disabled = b.dataset.blocked === '1';
+  }
 }
 
 // -------------------------------------------------------------- last build --
@@ -383,12 +398,20 @@ function connectAdbLog() {
   stream.addEventListener('message', (event) => {
     let line;
     try { line = JSON.parse(event.data); } catch (_) { return; }
+    // The console is the record of every run. A preset also writes a copy under
+    // its own button, so the answer is where the command was clicked.
+    const panel = adbTarget;
     if (line.seq <= adbSeq) {
-      adbClear();
+      $('adb-console').textContent = '';
+      if (panel) panel.textContent = '';
       adbSeq = 0;
     }
     adbSeq = line.seq;
-    if (renderLogLine($('adb-console'), line)) {
+    const finished = renderLogLine($('adb-console'), line);
+    // The panel shows the output only: the command itself is the button above
+    // it, and repeating it there was noise.
+    if (panel && line.stream !== 'note') renderLogLine(panel, line);
+    if (finished) {
       adbRunning = false;
       renderRunState();
       refreshState();
@@ -396,9 +419,12 @@ function connectAdbLog() {
   });
 }
 
+// Clears the shared console and points the stream back at it: a typed command
+// belongs in the console, not in whichever preset ran last.
 function adbClear() {
   $('adb-console').textContent = '';
   adbSeq = 0;
+  adbTarget = null;
 }
 
 let adbStatusTimer = null;
@@ -413,8 +439,9 @@ function adbStatus(message, ms = 4000) {
 
 function adbPrint(text) {
   const pre = $('adb-console');
+  const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
   pre.appendChild(el('span', 'err', text + '\n'));
-  pre.scrollTop = pre.scrollHeight;
+  if (stick) pre.scrollTop = pre.scrollHeight;
 }
 
 // -------------------------------------------------------------------- ansi --
@@ -545,6 +572,20 @@ function renderConfig(force = false) {
 
   const box = $('cfg-fields');
   box.textContent = '';
+
+  // Search/filter input for config entries
+  const searchInput = el('input', 'filter-input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Search config entries…';
+  searchInput.addEventListener('input', () => {
+    const term = searchInput.value.trim().toLowerCase();
+    const rows = box.querySelectorAll('.cfg-row');
+    for (const row of rows) {
+      const text = (row.textContent || '').toLowerCase();
+      row.style.display = text.includes(term) ? '' : 'none';
+    }
+  });
+  box.insertBefore(searchInput, box.firstChild);
 
   const doc = state.config;
   if (!state.cloneValid || !doc || !doc.sections || doc.sections.length === 0) {
@@ -1674,6 +1715,26 @@ function bindFiles() {
 function renderDocsNav() {
   const nav = $('docs-nav');
   nav.textContent = '';
+
+  // Search/filter input for docs
+  const searchInput = el('input', 'filter-input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Search docs…';
+  const noMatch = el('p', 'filter-empty', 'No docs match your search.');
+  noMatch.hidden = true;
+  searchInput.addEventListener('input', () => {
+    const term = searchInput.value.trim().toLowerCase();
+    const buttons = nav.querySelectorAll('button');
+    for (const b of buttons) {
+      const text = b.textContent.toLowerCase();
+      b.style.display = !term || text.includes(term) ? '' : 'none';
+    }
+    // The message is a sibling: rewriting nav.textContent here would remove the
+    // input too, leaving no way to clear a search that matched nothing.
+    noMatch.hidden = [...buttons].some((b) => b.style.display !== 'none');
+  });
+  nav.append(searchInput, noMatch);
+
   for (const doc of state.docs || []) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -1796,20 +1857,138 @@ function renderPresets() {
       b.append(cmd, why);
 
       const missing = missingNeeds(p);
-      b.disabled = !adbReady() || missing.length > 0;
-      if (missing.length) b.title = `needs ${missing.join(' and ')} — fill it in above`;
+      const blocked = !adbReady() || missing.length > 0;
+      // renderRunState re-disables these from the stored reason while a build
+      // or another adb command owns the one job slot.
+      b.dataset.blocked = blocked ? '1' : '';
+      b.disabled = blocked || running || adbRunning;
+      if (running || adbRunning) b.title = 'a command is already running — one job at a time';
+      else if (missing.length) b.title = `needs ${missing.join(' and ')} — fill it in above`;
       else b.title = p.why;
 
+      b.dataset.preset = p.id;
       b.addEventListener('click', () => runAdb({ preset: p.id }));
       sec.appendChild(b);
+      // Output from an earlier click is re-attached here: renderPresets runs
+      // again after every run, and the panel belongs under its own command.
+      const out = presetOut.get(p.id);
+      if (out) sec.appendChild(out.node);
     }
     box.appendChild(sec);
+  }
+  applyPresetFilter();
+}
+
+// The panel a preset's output goes into: the text, a Copy, and a Hide that
+// folds the text away without throwing it out. The map keeps the same nodes, so
+// a re-render or a Hide never loses lines that already streamed in.
+function presetPanel(id) {
+  let out = presetOut.get(id);
+  if (out) return out;
+
+  const pre = el('pre', 'preset-log');
+  pre.setAttribute('aria-live', 'polite');
+
+  const copy = el('button', 'primary', 'Copy');
+  copy.type = 'button';
+  copy.title = 'Copy this output';
+  copy.addEventListener('click', async () => {
+    const text = pre.textContent;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copy.textContent = 'Copied';
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
+    } catch (_) {
+      // No clipboard to write to: select the text so Ctrl+C still does what the
+      // button promised.
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      copy.textContent = 'Ctrl+C';
+    }
+  });
+
+  const toggle = el('button', null, 'Hide');
+  toggle.type = 'button';
+  toggle.title = 'Fold this output away';
+
+  // Controls first, at the left edge: they are a short reach from the command
+  // above, whatever the length of the answer below them.
+  const node = el('div', 'preset-out');
+  const bar = el('div', 'preset-out-bar');
+  bar.append(toggle, copy);
+  node.append(bar, pre);
+
+  out = { node, pre, toggle, copy, hidden: false };
+  toggle.addEventListener('click', () => {
+    out.hidden = !out.hidden;
+    pre.hidden = out.hidden;
+    // Nothing to copy out of sight: Copy comes back with the text.
+    copy.hidden = out.hidden;
+    toggle.textContent = out.hidden ? 'Show' : 'Hide';
+    toggle.title = out.hidden ? 'Show this output again' : 'Fold this output away';
+  });
+  presetOut.set(id, out);
+  return out;
+}
+
+// Shows the panel for a preset about to run and points the stream at it. The
+// button is looked up rather than captured: renderPresets replaces the buttons,
+// never the panel.
+function startPresetOutput(id) {
+  const out = presetPanel(id);
+  out.pre.textContent = '';
+  out.hidden = false;
+  out.pre.hidden = false;
+  out.copy.hidden = false;
+  out.toggle.textContent = 'Hide';
+  out.toggle.title = 'Fold this output away';
+  if (!out.node.isConnected) {
+    const button = document.querySelector(`#adb-presets button.preset[data-preset="${id}"]`);
+    if (button) button.after(out.node);
+  }
+  out.node.scrollIntoView({ block: 'nearest' });
+  adbTarget = out.pre;
+  adbSeq = 0;
+  return out;
+}
+
+// The filter input sits outside #adb-presets, so re-rendering the list (Detect,
+// a saved codename) keeps whatever was typed. A group with no matching command
+// goes away with its heading.
+function applyPresetFilter() {
+  const input = $('adb-search');
+  if (!input) return;
+  const term = input.value.trim().toLowerCase();
+  for (const sec of $('adb-presets').querySelectorAll('.preset-group')) {
+    let shown = 0;
+    for (const b of sec.querySelectorAll('button.preset')) {
+      const hit = !term || b.textContent.toLowerCase().includes(term);
+      b.style.display = hit ? '' : 'none';
+      // The output panel is a sibling of its button, so it has to follow it out
+      // of the filter — otherwise a hidden command keeps a visible answer.
+      const out = presetOut.get(b.dataset.preset);
+      if (out) out.node.style.display = hit ? '' : 'none';
+      if (hit) shown += 1;
+    }
+    sec.style.display = shown ? '' : 'none';
   }
 }
 
 async function runAdb(body) {
+  const presetId = body.preset || '';
   try {
-    adbClear();
+    if (presetId) {
+      // The console's last run is not this run, and this run's answer belongs
+      // under the command that was clicked.
+      $('adb-console').textContent = '';
+      startPresetOutput(presetId);
+    } else {
+      adbClear();
+    }
     const snap = await api('api/adb', {
       method: 'POST',
       body: {
@@ -1822,6 +2001,12 @@ async function runAdb(body) {
     renderRunState();
     if (body.command) pushHistory(body.command);
   } catch (err) {
+    // The failure belongs where the user is looking: under the command that did
+    // not start, or in the console for a typed one.
+    if (presetId) {
+      const pre = startPresetOutput(presetId).pre;
+      pre.appendChild(el('span', 'err', '✗ ' + err.message + '\n'));
+    }
     adbPrint('✗ ' + err.message);
     adbStatus(err.message, 9000);
   }
@@ -2030,7 +2215,7 @@ async function runUpdate() {
     $('upd-output').hidden = false;
     $('upd-output').textContent = (res.output || 'updated') +
       (res.backedUp && res.backedUp.length ? '\n\nbacked up:\n' + res.backedUp.join('\n') : '') +
-      (res.restart ? '\n\nThe app itself changed — close this window and start it again (gui.sh / gui.cmd) to run the new version. The build scripts are already the new ones.' : '');
+      (res.restart ? '\n\nThe app itself changed — close this window and start it again (treble-rro-creator.sh / treble-rro-creator.cmd) to run the new version. The build scripts are already the new ones.' : '');
     go.textContent = 'Close';
     go.disabled = false;
     go.dataset.done = '1';
@@ -2223,6 +2408,12 @@ function inline(text) {
 // -------------------------------------------------------------------- wire --
 function bind() {
   $('run').addEventListener('click', runSelected);
+  // A button inside <summary> must not also toggle the fold it is closing.
+  $('hide-out').addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    $('out-fold').open = false;
+  });
   $('stop').addEventListener('click', stopRun);
   $('log-clear').addEventListener('click', clearLog);
   $('open-out').addEventListener('click', () => {
@@ -2265,8 +2456,12 @@ function bind() {
   });
 
   $('adb-refresh').addEventListener('click', () => refreshState(true));
+  // Clear the text, not the run: the stream keeps writing and a preset's panel
+  // keeps its copy.
+  $('adb-clear').addEventListener('click', () => { $('adb-console').textContent = ''; });
   $('adb-install').addEventListener('click', installAdb);
   $('adb-detect').addEventListener('click', detectDevice);
+  $('adb-search').addEventListener('input', applyPresetFilter);
   $('detect-next').addEventListener('click', nextDetectCandidate);
   $('adb-run').addEventListener('click', () => {
     const command = $('adb-input').value.trim();

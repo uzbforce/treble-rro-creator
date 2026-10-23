@@ -16,14 +16,17 @@ From the clone, one command:
 ```bash
 git clone https://github.com/uzbforce/treble-rro-creator   # or -b BETA
 cd treble-rro-creator
-./gui.sh                  # Linux
-gui.cmd                   # Windows (double-click it too)
+./treble-rro-creator.sh   # Linux
+treble-rro-creator.cmd    # Windows (double-click it too)
 ```
+
+The launchers used to be called `gui.sh` and `gui.cmd`; a shortcut or note from
+before the rename needs pointing at the new file. Nothing else changed.
 
 The first launch builds the app and tells you what is missing if anything is
 (Go, plus MinGW-w64 gcc on Windows or the WebKitGTK headers on Linux). After
 that it starts straight away, and it rebuilds on its own only when the Go
-sources or the UI changed — `./gui.sh --rebuild` forces it.
+sources or the UI changed — `./treble-rro-creator.sh --rebuild` forces it.
 
 The page is **embedded in the executable**, so a build is what makes the window
 match `gui/`: editing `app.js` without relinking changes nothing on screen.
@@ -31,14 +34,16 @@ That relink needs Go and a C compiler on `PATH`; without them the launcher still
 starts the binary that is already in `gui/bin/`, and says so when that binary is
 older than the sources.
 
-**Double-clicking `gui.cmd` leaves no console window behind.** That launch
-builds the window-only variant (linked without a console) and hands it to the
-shell, so the black window closes as soon as the app is up. Started from a
-terminal, `gui.sh` / `gui.cmd` keep the console and its output — that is where
-the build messages go — and `./gui.sh --detach` asks for the hand-off there
-too. The launcher reads the executable's own header to decide, so a binary from
-a release archive is judged by what it is, and switching between the two modes
-rebuilds once.
+**No console window stays behind the app.** On Windows the launcher always
+builds the window-only variant (linked without a console) and starts it in the
+background — double-clicked or typed into a cmd window, the black window closes
+as soon as the app is up, and the app outlives it. Build messages are printed
+by the launcher before that happens; the app's own failures are appended to
+`gui.log` next to the executable. `--browser` is the one case that stays in the
+console, because that is where the server is watched and stopped. The launcher
+reads the executable's own header to decide, so a binary from a release archive
+is judged by what it is, and switching to a console build and back relinks
+once.
 
 Building by hand, when you want the binary without launching it:
 
@@ -202,7 +207,7 @@ touched.
 
 A branch with no upstream, or a checkout without `.git`, only says so; it is not
 an error. If the update touches `gui/`, the dialog tells you to close the window
-and start it again (`gui.sh` / `gui.cmd` rebuild it) — the build scripts are
+and start it again (`treble-rro-creator.sh` / `treble-rro-creator.cmd` rebuild it) — the build scripts are
 already the new ones, because they are read from disk on every run.
 
 ## Where it keeps settings
@@ -225,24 +230,24 @@ way to get a confusing failure (see [windows.md](windows.md)).
 | Symptom | Cause |
 |---|---|
 | the **Path** dot is red | hover it: the tooltip says which half is wrong — bash missing (Git for Windows not installed, or `bash.exe` on PATH is WSL's) or the folder not being a clone (no `build.sh` and `stuff/scripts/`) |
-| nothing opens at all | no window can be created: run `./gui.sh --browser`, which serves the same UI on `127.0.0.1` and opens your default browser |
+| nothing opens at all | no window can be created: run `./treble-rro-creator.sh --browser`, which serves the same UI on `127.0.0.1` and opens your default browser |
 | window opens, then closes | look for `gui.log` next to the executable |
-| the console stays open behind the window | that is a console build: `./gui.sh --detach` rebuilds window-only and lets the console close |
+| the console stays open behind the window | the binary is a console build and `go` is missing, so it cannot be relinked: install Go and a C compiler, then `./treble-rro-creator.sh --rebuild`. `--browser` keeps the console on purpose |
 | a build that works in a terminal fails here | run **Doctor**, then compare with the CLI output: the app adds `-y` and nothing else |
 | "adb was not found" | install platform-tools with the button in the Device tab, or put `adb` on `PATH` yourself |
 | the update dot never turns green | the branch has no upstream, `git fetch` cannot reach the remote, or you are up to date — the dialog says which |
-| the window shows an older UI than `gui/` | the page is embedded in `gui/bin/treble-rro-creator-gui`, and the launcher only relinks when it finds `go` (plus a C compiler for the window). It says when it is starting a binary older than the sources — install the toolchain and run `./gui.sh --rebuild` |
+| the window shows an older UI than `gui/` | the page is embedded in `gui/bin/treble-rro-creator-gui`, and the launcher only relinks when it finds `go` (plus a C compiler for the window). It says when it is starting a binary older than the sources — install the toolchain and run `./treble-rro-creator.sh --rebuild` |
 | a file looks greyed out in the Files tree | it is disabled: the row stays in place with a `disabled` badge while the file lives in `src/.disabled/`. **↺** puts it back |
 | "that folder does not exist" after uploading | the target folder changed underneath the window (another program removed it) — press **↻** and pick it again |
 
 Command line options, for the cases where you want to pin something:
 
 ```bash
-./gui.sh -clone /path/to/clone    # drive another clone
-./gui.sh --browser                # no native window
-./gui.sh --detach                 # window-only build, console closes (Windows)
-./gui.sh -port 8765               # fixed port, when 8765 is known free
-./gui.sh -debug                   # webview devtools
+./treble-rro-creator.sh -clone /path/to/clone    # drive another clone
+./treble-rro-creator.sh --browser                # no native window
+./treble-rro-creator.sh --detach                 # kept for scripts; the hand-off is the default
+./treble-rro-creator.sh -port 8765               # fixed port, when 8765 is known free
+./treble-rro-creator.sh -debug                   # webview devtools
 ```
 
 The launcher passes anything it does not recognise straight to the binary

@@ -20,11 +20,12 @@ set "RC=%ERRORLEVEL%"
 
 rem Keep the window open only when double-clicked from Explorer. Explorer runs
 rem   cmd.exe /c ""C:\path\build.cmd" "
-rem (cmdcmdline ends with quote-space-quote), while a terminal -- including
-rem PowerShell -- ends with just quote-quote. Replacing quotes with Q makes the
-rem two cases easy to compare.
-set "TAIL=%cmdcmdline:~-3%"
-set "TAIL=%TAIL:"=Q%"
-if "%TAIL%"=="Q Q" pause
+rem and a terminal -- cmd, PowerShell, VS Code -- starts cmd.exe with no /c. The
+rem /c is the difference, and matching on it is the only test that works:
+rem Windows leaves a space after the trailing quotes, so a last-three-characters
+rem test never matches.
+set "DOUBLE="
+echo %cmdcmdline% | "%SystemRoot%\System32\findstr.exe" /i /c:" /c " >nul && set "DOUBLE=1"
+if defined DOUBLE pause
 
 exit /b %RC%

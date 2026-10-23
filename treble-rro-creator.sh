@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Launch the desktop app
+# Treble RRO Creator — desktop app
 # =============================================================================
 # One command, from anywhere:
 #
-#   ./gui.sh                  build if needed, then open the window
-#   ./gui.sh --rebuild        rebuild first (after a git pull, say)
-#   ./gui.sh --release        build without a console window (Windows)
-#   ./gui.sh --detach         like --release, and let the console close too
-#   ./gui.sh --browser        no native window; use the default browser instead
-#   ./gui.sh -clone ~/other   start on a different clone
+#   ./treble-rro-creator.sh                  build if needed, then open the window
+#   ./treble-rro-creator.sh --rebuild        rebuild first (after a git pull, say)
+#   ./treble-rro-creator.sh --release        no console window (Windows; the default)
+#   ./treble-rro-creator.sh --detach         accepted for scripts; hand-off is automatic
+#   ./treble-rro-creator.sh --browser        no window; use the default browser
+#   ./treble-rro-creator.sh -clone ~/other   start on a different clone
 #
 # It only needs Go the first time — a checkout that already has gui/bin/ filled
 # in runs without a toolchain, and the app finds its clone by walking up from
 # where it lives, so no path has to be typed.
 #
-# Windows: double-click gui.cmd instead; it finds Git Bash and calls this.
+# Windows: double-click treble-rro-creator.cmd; it finds Git Bash and calls this.
 # =============================================================================
 set -euo pipefail
 
@@ -28,20 +28,38 @@ esac
 rebuild=false
 release=false
 detach=false
+browser=false
 app_args=()
 for arg in "$@"; do
     case "$arg" in
+        -h|--help)
+            # The launcher's own flags, which the app knows nothing about: the
+            # block between the second and third rule in the header above.
+            printf '%s\n\n' "Treble RRO Creator — desktop app"
+            awk '/^# =====/ { n++; next } n == 2 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
+            exit 0
+            ;;
         --rebuild) rebuild=true ;;
         --release) release=true ;;
-        --detach)
-            # There is nothing to detach from without a release build: a
-            # console build would just get a console window of its own.
-            detach=true
-            release=true
-            ;;
+        # Accepted for the launchers and for people used to typing it: on
+        # Windows the hand-off happens anyway.
+        --detach) detach=true ;;
+        --browser|-browser) browser=true ; app_args+=("$arg") ;;
         *) app_args+=("$arg") ;;
     esac
 done
+
+# On Windows the app is always the window-only build. The window is the whole
+# UI, so a binary linked against a console only drags one along behind it —
+# and dies when that console is closed. --browser is the exception: that run
+# keeps its console, because that is where the server is watched and stopped.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ "$browser" = "false" ]; then
+            release=true
+        fi
+        ;;
+esac
 build_flags=()
 if [ "$release" = "true" ]; then
     build_flags+=("--release")
@@ -109,7 +127,7 @@ if [ "$rebuild" = "true" ] || stale; then
             if sources_newer; then
                 echo "  That binary is older than gui/, so the window shows the OLD page:" >&2
                 echo "  the UI is embedded in it, not read from disk." >&2
-                echo "  Install Go and a C compiler, then run: ./gui.sh --rebuild" >&2
+                echo "  Install Go and a C compiler, then run: ./treble-rro-creator.sh --rebuild" >&2
             fi
         else
             echo "The app is not built yet and go was not found on PATH." >&2
@@ -122,21 +140,25 @@ if [ "$rebuild" = "true" ] || stale; then
     fi
 fi
 
-if [ "$detach" = "true" ]; then
+# Windows: hand the window to the background and return, however the launcher
+# was started — double-clicked, or typed into a cmd window. The window owns no
+# console of its own, so it outlives the cmd.exe that started it, and that
+# cmd.exe finishing is what closes the console instead of leaving one sitting
+# behind the app. Its output goes nowhere: with the console gone there is
+# nothing to read it on, and keeping the handles is what would hold the console
+# open. Failures land in gui.log next to the executable.
+#
+# A console build is the one thing left in the console, and only when there is
+# no go to relink with: it would take the console down with it, so it says why.
+if [ "$browser" = "false" ]; then
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*)
-            # `start` hands the program to the shell, so cmd.exe stops waiting
-            # here and this console closes while the app keeps running. Only a
-            # window-only build can be passed on this way: a console build
-            # launched like this would open a console window of its own, so
-            # when that is all there is (no go to rebuild with) it still runs
-            # in this one, and says why.
-            if [ "$(pe_subsystem "$exe")" = "2" ] && command -v cygpath >/dev/null 2>&1; then
-                cmd.exe //c start "" "$(cygpath -w "$exe")" ${app_args[@]+"${app_args[@]}"}
+            if [ "$(pe_subsystem "$exe")" = "2" ]; then
+                "$exe" ${app_args[@]+"${app_args[@]}"} >/dev/null 2>&1 &
                 exit 0
             fi
             echo "note: this is a console build, so the console stays while the window is open." >&2
-            echo "      install go and run ./gui.sh --detach once to get the console-free build." >&2
+            echo "      install go and run ./treble-rro-creator.sh --rebuild to get the console-free build." >&2
             ;;
     esac
 fi

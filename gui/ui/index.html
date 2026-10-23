@@ -70,6 +70,7 @@
     <details class="out-fold" id="out-fold">
       <summary>
         <span class="row-label">Last build</span>
+        <button class="link hide-out" id="hide-out" type="button" title="Hide last build output">✕</button>
         <span id="out-summary" class="out-summary">nothing in out/ yet</span>
       </summary>
       <div id="out" class="out-list"><span class="muted">nothing in out/ yet</span></div>
@@ -218,7 +219,13 @@
         <button class="primary" id="adb-run" type="button">Run</button>
         <button id="adb-stop" type="button" disabled>Stop</button>
       </div>
-      <pre id="adb-console" class="device-log" aria-live="polite"></pre>
+      <div class="logwrap device-logwrap">
+        <div class="logbar">
+          <span>Output</span>
+          <button class="link" id="adb-clear" type="button">clear</button>
+        </div>
+        <pre id="adb-console" class="log" aria-live="polite"></pre>
+      </div>
       <p class="hint">
         Anything adb understands: <code>devices -l</code>, <code>shell …</code>,
         <code>pull …</code>. Pipes are the phone's, so
@@ -231,6 +238,7 @@
       <h2>Useful commands</h2>
       <p class="hint">Each one explains what the answer is for, so the output
         means something the first time.</p>
+      <input id="adb-search" class="filter-input" type="text" placeholder="Filter commands…" autocomplete="off">
       <div id="adb-presets" class="presets"></div>
     </div>
 

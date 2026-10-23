@@ -1,14 +1,18 @@
-# Treble Overlay Creator
+# Treble RRO Creator
 
 Build a **Magisk / KernelSU / APatch module** that adapts a GSI (Generic System Image) to
 your phone's hardware: rounded corners, display cutout, brightness curve, UDFPS,
 AOD/doze, 5G/VoLTE — and optional vendor HALs for fingerprint or vibrator.
 
-You edit **one file** (`config.env`) and run **one command**.
+Two ways in, same tool: the **desktop app**, which puts every setting and the
+whole build in a window, or **one command** from a terminal. Both edit the same
+`config.env` and run the same build.
 
 ```bash
-./build.sh          # Linux / Termux / Git Bash
-build.cmd           # Windows (cmd, PowerShell, or double-click)
+treble-rro-creator.cmd    # Windows: the app (double-click it too)
+./treble-rro-creator.sh   # Linux: the app
+./build.sh                # or just build: Linux / Termux / Git Bash
+build.cmd                 #                 Windows
 ```
 
 The first run installs the Android build tools automatically (about 33 MB on
@@ -50,8 +54,8 @@ asks first and backs them up.
 ```bash
 git clone https://github.com/uzbforce/treble-rro-creator
 cd treble-rro-creator
-./gui.sh                # Linux  — builds itself first (needs Go once)
-gui.cmd                 # Windows — double-clickable, no console left open; needs Go + MinGW gcc once
+./treble-rro-creator.sh   # Linux   — builds itself first (needs Go once)
+treble-rro-creator.cmd    # Windows — double-clickable, no console left open; needs Go + MinGW gcc once
 ```
 
 The first launch builds it and says what is missing if anything is. Later
@@ -125,8 +129,8 @@ project is called by them.
 
 | Command | What it does |
 |---|---|
+| `./treble-rro-creator.sh` / `treble-rro-creator.cmd` | **Open the desktop app** — the window for everything below. Builds it on the first run, then just launches it. |
 | `./build.sh` | Build. Installs missing tools first. |
-| `./gui.sh` / `gui.cmd` | Open the desktop app. Builds it on the first run, then just launches it. |
 | `./build.sh setup` | Install or repair the toolchain (menu: distro / resource version) |
 | `./build.sh doctor` | Check the toolchain, install nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
@@ -247,8 +251,8 @@ The status bar uses `status_bar_height_default` (Android 12L+), not the old
 
 ```
 .
-├── build.sh / build.cmd        ← the entry points
-├── gui.sh / gui.cmd            ← desktop app: build if stale, then launch
+├── build.sh / build.cmd        ← the command line
+├── treble-rro-creator.sh/.cmd  ← desktop app: build if stale, then launch
 ├── config.env                  ← your device settings (created on first run)
 ├── config.env.example          ← filled-in Samsung A90 5G example
 ├── src/

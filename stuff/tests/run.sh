@@ -23,7 +23,7 @@ status=0
 step() { printf '\n== %s ==\n' "$*"; }
 
 step "shell syntax"
-for f in build.sh gui.sh gui/build.sh stuff/scripts/*.sh stuff/tests/*.sh; do
+for f in build.sh treble-rro-creator.sh gui/build.sh stuff/scripts/*.sh stuff/tests/*.sh; do
     [ -f "$f" ] || continue
     if bash -n "$f"; then :; else echo "bash -n failed: $f"; status=1; fi
 done

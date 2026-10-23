@@ -116,6 +116,44 @@ button.link {
 button.link:hover { color: var(--ink); background: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* ----------------------------------------------------------------- filters -- */
+/* The in-place search boxes (config.env, Docs, Device). They sit inside the
+   list they narrow, so they take the same paper panel and rule as the other
+   inputs — left to the browser they would be a white box on cream paper. */
+.filter-input {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  transition: border-color .12s, background .12s, box-shadow .12s;
+}
+.filter-input::placeholder { color: var(--faint); }
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* The list scrolls under the filter instead of carrying it away. */
+.cfg-fields > .filter-input,
+.docs-nav > .filter-input {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.docs-nav > .filter-input { padding: 6px 8px; font-size: 12px; }
+.filter-empty {
+  margin: 2px 0 0;
+  padding: 0 9px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
 /* ------------------------------------------------------------------ header -- */
 .top {
   display: flex;
@@ -396,17 +434,13 @@ textarea#cfg {
   margin-bottom: 14px;
 }
 .card h2 { font-size: 13.5px; margin-bottom: 6px; }
-.device-log {
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  background: var(--console);
-  color: var(--console-ink);
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 12px;
-  white-space: pre-wrap;
-  max-height: 160px;
-  overflow: auto;
+/* Same box as the Build console (border, bar, dark pane), but with a height of
+   its own: this pane scrolls through cards, so flex: 1 has nothing to fill. */
+.device-logwrap {
+  flex: 0 0 auto;
+  min-height: 0;
+  height: clamp(200px, 36vh, 320px);
+  margin-top: 10px;
 }
 
 /* ------------------------------------------------------------- last build -- */
@@ -637,6 +671,47 @@ textarea#cfg {
 .preset code { font-size: 11.5px; color: var(--ink); }
 .preset .why { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
 .preset .advice { color: var(--warn); font-size: 11px; margin-top: 2px; display: block; }
+
+/* Output of a preset, directly under the command that produced it: the answer
+   is read where the question was clicked, not at the top of the pane. The rule
+   on the left ties the panel to the button above it. */
+.preset-out {
+  margin: -3px 0 6px 10px;
+  padding: 2px 0 0 10px;
+  border-left: 2px solid var(--rule-strong);
+  animation: preset-out-in .16s var(--ease);
+}
+.preset-out-bar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 6px;
+}
+/* Real buttons, not links: Copy is the one worth reaching for, so it wears the
+   accent. The base button rule already supplies border, radius and hover. */
+.preset-out-bar button { padding: 4px 12px; font-size: 11.5px; }
+.preset-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@keyframes preset-out-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preset-out { animation: none; }
+}
 .adb-form kbd,
 .hint kbd {
   font-family: var(--mono);

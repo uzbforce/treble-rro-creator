@@ -33,7 +33,7 @@ for working on the app itself.
 | `ui/` | one page, one stylesheet, one script; no bundler, no `node_modules` |
 | `*_test.go` | argv, clone discovery, config round trip, adb parsing, update/pull against a temp git repo |
 | `build.sh`, `build.cmd` | build the app |
-| `../gui.sh`, `../gui.cmd` | build-if-needed and launch; what users actually run |
+| `../treble-rro-creator.sh`, `../treble-rro-creator.cmd` | build-if-needed and launch; what users actually run |
 | `../go.mod`, `../go.sum` | the module, at the root so the whole clone is one Go project |
 
 The UI is embedded with `go:embed`, so a released binary is a single file. Docs
@@ -43,9 +43,9 @@ is installed into a clone anyway and a second copy would drift.
 ## Build and run
 
 ```bash
-./gui.sh                    # build if stale, then launch — the normal path
-./gui.sh --rebuild          # force a build first
-./gui.sh --detach           # window-only build, then let the console close (Windows)
+./treble-rro-creator.sh                    # build if stale, then launch — the normal path
+./treble-rro-creator.sh --rebuild          # force a build first
+./treble-rro-creator.sh --detach           # accepted for scripts; the hand-off is the default
 ./gui/build.sh              # build only (console build, for debugging)
 ./gui/build.sh --release    # stripped; no console window on Windows
 gui\build.cmd --release     # same from cmd/PowerShell
