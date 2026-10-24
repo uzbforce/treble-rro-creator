@@ -9,7 +9,8 @@ They are physical facts about the panel, not a style choice: another device's
 numbers put the icon next to the sensor, where no finger can reach it.
 
 The geometry is only half of the job. On Xiaomi optical sensors the module also
-has to put the touch panel into FOD mode; that is described in
+has to put the touch panel into FOD mode and restore the display node the
+vendor HAL opens; both are described in
 [touch-panel FOD mode](#hbm-and-the-touch-panel-fod-mode) below.
 
 ---
@@ -197,6 +198,64 @@ large one makes the bright spot look wrong.
 
 ## HBM and the touch-panel FOD mode
 
+Three separate things have to be true before the sensor can see a finger on a
+Xiaomi optical device: the touch panel must be in FOD mode, the vendor FOD
+engine must be able to open the display node it monitors, and something must
+switch local HBM on around the capture. None of them is a resource, so no
+overlay can supply them.
+
+### The display node the HAL opens
+
+The FOD engine lives in the vendor fingerprint HAL (`libmifpext.so`) and
+hardcodes `/dev/mi_display/disp_feature`. It opens that path once, while it
+initialises, and then registers for display events and sets local HBM through
+it:
+
+```text
+D vendor.xiaomi.hardware.fingerprintextension@1.0: XiaomiFingerprint init
+D android.hardware.biometrics.fingerprint@2.1-service-lx: FodEngineCore enable!
+D android.hardware.biometrics.fingerprint@2.1-service-lx: open /dev/mi_display/disp_feature success
+```
+
+MIUI's system image creates that path. A GSI replaces `/system` and does not,
+and the kernel only publishes `/dev/disp_feature`, so the same boot reads:
+
+```text
+E android.hardware.biometrics.fingerprint@2.1-service-lx: could not open /dev/mi_display/disp_feature
+E android.hardware.biometrics.fingerprint@2.1-service-lx: open /dev/mi_display/disp_feature failed
+```
+
+The FOD engine then stays half-initialised, which is exactly the failure the
+geometry check does not catch: the icon sits in the right place, the spot
+behind it is grey and dim instead of a bright white circle, touches never
+arrive, and the sensor looks dead even at full brightness.
+
+The module re-creates the missing path in `post-fs-data.sh`, before the HAL's
+`late_start` service, from the node the kernel did create:
+
+```sh
+DEV=$(cat /sys/class/mi_display/disp_feature/dev)   # e.g. 480:0
+mkdir -p /dev/mi_display
+mknod /dev/mi_display/disp_feature c ${DEV%%:*} ${DEV##*:}
+chown system system /dev/mi_display/disp_feature
+chmod 0660 /dev/mi_display/disp_feature
+restorecon /dev/mi_display/disp_feature            # vendor_displayfeature_device
+```
+
+Both details matter. The node must be owned by `system` because the HAL runs as
+that user (`user system` in its `.rc`), and it must carry the
+`vendor_displayfeature_device` label so SELinux lets the fingerprint domain
+open it. A root-owned `0600` node, or a symlink to the `device`-labelled
+`/dev/disp_feature`, produces the same unhelpful `could not open …` message
+with no denial in dmesg — check the label, not only the path.
+
+```bash
+su -c 'ls -lZ /dev/mi_display/disp_feature'
+su -c 'logcat -d -b all | grep -E "disp_feature|FodEngine|XiaomiFingerprint" | tail'
+```
+
+### The touch-panel FOD mode
+
 There is no AOSP overlay resource for HBM. The bright spot behind the
 fingerprint icon is controlled by the fingerprint HAL and the panel driver, not
 by the RRO. On Xiaomi devices the stock properties are
@@ -213,24 +272,55 @@ mode, and on Xiaomi optical sensors that is a separate step:
 - `setModeValue` is `ioctl(0x5400, {10, 3})` on `/dev/xiaomi-touch`; the driver
   logs it as `Mode:FOD fod_status = 3`, and a released mode as `0`.
 - With the panel in that mode the touch controller reports presses in the
-  sensor area (`/sys/devices/virtual/touch/touch_dev/fod_press_status`). The
-  vendor Goodix HAL reads that node, turns on local HBM
-  (`ioctl(0x400c440e, ...)` on `/dev/mi_display/disp_feature`; 2 = on,
-  1 = off) and hands the finger to the fingerprint core.
+  sensor area (`/sys/devices/virtual/touch/touch_dev/fod_press_status`), and
+  the vendor Goodix HAL wakes the sensor and captures an image.
+- Local HBM is a separate ioctl (`0x400c440e` on
+  `/dev/mi_display/disp_feature`; 2 = on, 1 = off). On HyperOS the HAL turns it
+  on around the capture; on a GSI it refuses, with
+  `skip enable lhbm as fingerprint is idle` — that check expects the MIUI
+  fingerprint client, which is the thing a GSI does not have.
 
 A GSI has no HyperOS fingerprint client, so the first call never happens: the
 panel stays in normal touch mode, the HAL never sees the finger, and the sensor
-looks dead even though the icon is in the right place.
+looks dead even though the icon is in the right place. Even with the panel
+armed, the sensor only gets ambient light and the HBM step is skipped.
 
 The module ships `fod/xiaomi-fod`, a small arm64 helper that issues the same
-ioctl. `service.sh` starts it when `/dev/xiaomi-touch` exists and
+ioctls. `service.sh` starts it when `/dev/xiaomi-touch` exists and
 `ro.hardware.fp.fod=true`. The daemon copies the state machine the stock touch
 driver logs: mode 10 is armed with value 3 (FOD plus the AOD wake bit) when the
 screen turns off, stays armed while the keyguard is showing (lock screen and
-AOD), and is released with 0 once the device is unlocked. It reads the panel
-backlight and `dumpsys window policy` for that, so it needs no MIUI service.
-The HBM step needs no MIUI client either — the vendor HAL drives
-`/dev/mi_display/disp_feature` directly and keeps working on a GSI.
+AOD) or a fingerprint client is running (settings enrollment, in-app prompts),
+and is released with 0 otherwise. It reads the panel backlight,
+`dumpsys window policy` and `dumpsys fingerprint` for that, so it needs no MIUI
+service.
+
+Because the vendor HAL will not light the panel on a GSI, the same daemon
+drives local HBM. While the panel is armed it watches `fod_press_status` every
+50 ms and turns HBM on when the finger lands, and off as soon as the finger is
+up and no prompt is left (a 150 ms hold covers the capture, and the prompt
+disappearing ends it early). That is
+the stock behaviour — the spot stays dark until the sensor is touched — and it
+keeps the bright circle out of the lock screen and the AOD.
+
+A press with the display asleep works the same way, with one extra step. The
+touch controller reports it in suspend, the daemon lights HBM (about 10 ms) and
+wakes the screen with `input keyevent 224`. The wake is not cosmetic: with the
+panel asleep the vendor HAL starts an auth, waits 1500 ms for the fingerprint
+UI to answer and aborts with
+`GF_ERROR_UI_READY_TIMEOUT`, because the GSI's SystemUI has no UDFPS view up in
+doze. Waking brings the keyguard's prompt up inside that window, so the same
+press goes on to unlock the phone. The `screen_off_udfps_enabled` Secure setting
+is not consulted: this GSI's SystemUI does not act on it, and MIUI wakes the
+display on that press anyway.
+
+The prompt itself is noticed from SystemUI's own logs: `logcat` is filtered to
+`UdfpsController` and `UdfpsControllerOverlay`, and `showUdfpsOverlay` arms the
+panel the moment the window appears (opening enrollment, an in-app biometric
+prompt), while `hideUdfpsControllerOverlay` releases it. That costs nothing
+while no line arrives. A `dumpsys fingerprint` check every 5 s is kept as a
+fallback for GSIs whose SystemUI uses different tags, and the keyguard is
+refreshed with `dumpsys window policy` every 2 s.
 
 Manual checks, useful when the icon is right but the sensor is silent. Run them
 through `su -c`; a plain adb shell process is not allowed to open the touch
@@ -241,13 +331,32 @@ node.
 su -c '/data/adb/modules/<module>/fod/xiaomi-fod touch 10 3'
 su -c 'dmesg | grep "Mode:FOD"'       # fod_status = 3 while armed, 0 after release
 
-# Local HBM: 2 = on, 1 = off. The HAL normally does this itself.
+# Local HBM: 2 = on, 1 = off. The daemon does this on press; use it to test
+# the panel and the ioctl by hand.
 su -c '/data/adb/modules/<module>/fod/xiaomi-fod hbm 2'
 su -c '/data/adb/modules/<module>/fod/xiaomi-fod hbm 1'
 
 # What the daemon did
 su -c 'cat /data/adb/modules/<module>/fod.log'
 ```
+
+---
+
+## The UDFPS icon colour
+
+`UDFPS_COLOR` in `config.env` sets SystemUI's `config_udfpsColor`, the colour
+the icon and the light behind it are painted with:
+
+```bash
+UDFPS_COLOR="#ffffff"   # #rrggbb or #aarrggbb; the leading # is optional
+```
+
+It is written into the SystemUI overlay, so it needs `HAS_UDFPS=true` and a
+rebuild ([configuration](configuration.md#fingerprint-udfps)). AOSP's default
+is already opaque white, though: if the spot looks grey rather than white, the
+colour is not the problem — local HBM is not on. Check `fod.log` for the
+`local hbm` lines and the node first (see
+[the display node](#the-display-node-the-hal-opens)).
 
 A device without the vendor fingerprint HAL or without `/dev/xiaomi-touch`
 still gets the overlay values only; there is nothing for the helper to drive.

@@ -288,6 +288,44 @@ fi
 PFSEOF
     fi
 
+    # ── Xiaomi optical UDFPS: the display node the vendor HAL opens ──────
+    # libmifpext (the FOD engine inside the Xiaomi fingerprint HAL) opens
+    # /dev/mi_display/disp_feature directly: that is how it registers display
+    # events and switches local HBM on. MIUI's system image creates that path;
+    # a GSI does not, and the kernel only publishes /dev/disp_feature. The HAL
+    # then logs "open /dev/mi_display/disp_feature failed" at every start, never
+    # sees the finger, and never lights the sensor area - the sensor looks dead
+    # although the overlay geometry is right. This runs before the HAL's
+    # late_start service, so the path is there when it opens it.
+    if [ "$HAS_UDFPS" = "true" ]; then
+        cat >> "$target/post-fs-data.sh" << 'PFSEOF'
+# ── Xiaomi optical UDFPS: the display node the fingerprint HAL expects ─────
+# The HAL hardcodes /dev/mi_display/disp_feature. The node is really named
+# /dev/disp_feature, so re-create it under the expected path with the same
+# major:minor, owner and SELinux label (restorecon applies the vendor rule).
+if [ -e /sys/class/mi_display/disp_feature ] \
+   && { [ ! -e /dev/mi_display/disp_feature ] || [ -L /dev/mi_display/disp_feature ]; }; then
+    DEV=$(cat /sys/class/mi_display/disp_feature/dev 2>/dev/null)
+    case "$DEV" in
+        ""|*[!0-9:]*) ;;          # not a major:minor pair
+        *:*)
+            MAJOR=${DEV%%:*}
+            MINOR=${DEV##*:}
+            [ -L /dev/mi_display/disp_feature ] && rm -f /dev/mi_display/disp_feature
+            mkdir -p /dev/mi_display
+            if mknod /dev/mi_display/disp_feature c "$MAJOR" "$MINOR"; then
+                chown system system /dev/mi_display/disp_feature 2>/dev/null || true
+                chmod 0660 /dev/mi_display/disp_feature 2>/dev/null || true
+                restorecon /dev/mi_display/disp_feature 2>/dev/null || true
+                log -t treble-overlay "created /dev/mi_display/disp_feature ($DEV)" 2>/dev/null || true
+            fi
+            ;;
+    esac
+fi
+
+PFSEOF
+    fi
+
     cat >> "$target/post-fs-data.sh" << 'PFSEOF'
 # ── WebUI boot guard ───────────────────────────────────────────────────────
 # A value the page patched into the overlay APKs is loaded by zygote before

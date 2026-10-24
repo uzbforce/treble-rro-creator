@@ -267,6 +267,7 @@ used.
 | `UDFPS_X` | `540` | Sensor center X in px. Optional. |
 | `UDFPS_Y` | `2145` | Sensor center Y in px. Optional. |
 | `UDFPS_RADIUS` | `114` | Sensor radius in px. Optional. |
+| `UDFPS_COLOR` | `"#ffffff"` | Colour of SystemUI's fingerprint icon (`config_udfpsColor`), `#rrggbb` or `#aarrggbb`. Optional; AOSP's default is opaque white. |
 | `CONFIG_BIOMETRIC_SENSORS` | `"0:2:15"` | Override the sensor list (`id:modality:strength`, `;`-separated). |
 | `HAS_SAMSUNG_FINGERPRINT` | `false` | Samsung Goodix sensors (`persist.sys.phh.samsung_fingerprint`). |
 | `HAS_SAMSUNG_FOD` | `false` | Enable Samsung FOD through `/sys/class/sec/tsp/cmd`. |
@@ -287,6 +288,12 @@ sensor location), instead of writing an array with empty items — which makes
 > `persist.sys.udfps.*` is **not** read by AOSP, TrebleDroid or PHH. Older
 > versions of this tool wrote those properties; they are gone. The framework
 > array above is the supported mechanism.
+
+`UDFPS_COLOR` is written into the SystemUI overlay, not the framework one. It
+changes the drawn icon only — a grey instead of white spot on a Xiaomi device
+means the panel's local HBM is not being switched on. The module's helper drives
+it on press; check `fod.log` and see
+[udfps.md](udfps.md#the-udfps-icon-colour).
 
 How to find X / Y / radius: [udfps.md](udfps.md).
 
