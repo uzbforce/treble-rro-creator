@@ -2332,6 +2332,167 @@ async function runUpdate() {
   }
 }
 
+// ------------------------------------------------------------------- udfps --
+// The probe is a script (stuff/scripts/udfps-probe.sh) that answers in JSON;
+// this side only draws the answers and writes the one the user picks. Every row
+// keeps its source visible, because "540, 2198, 89" means nothing without
+// knowing which property or overlay it came from.
+let udfpsReport = null;
+let udfpsPick = -1;
+
+async function probeUDFPS(mode) {
+  const buttons = [$('udfps-detect'), $('udfps-scan')];
+  for (const b of buttons) b.disabled = true;
+  $('udfps-results').hidden = false;
+  $('udfps-rows').textContent = '';
+  $('udfps-warnings').textContent = '';
+  $('udfps-notes').textContent = '';
+  $('udfps-detail').textContent = '';
+  $('udfps-applied').textContent = '';
+  $('udfps-files-fold').hidden = true;
+  $('udfps-log').hidden = true;
+  $('udfps-apply').disabled = true;
+  udfpsReport = null;
+  udfpsPick = -1;
+  $('udfps-summary').textContent = mode === 'firmware' ? 'reading the folder…' : 'asking the phone…';
+
+  try {
+    const res = await api('api/udfps', {
+      method: 'POST',
+      body: {
+        action: 'probe',
+        mode,
+        path: mode === 'firmware' ? $('udfps-path').value.trim() : '',
+      },
+    });
+    udfpsReport = res.report;
+    renderUDFPS(res.log);
+  } catch (err) {
+    $('udfps-summary').textContent = 'nothing came back: ' + err.message;
+    const log = (err.data && err.data.log) || '';
+    if (log) {
+      $('udfps-log').hidden = false;
+      $('udfps-log').textContent = log;
+    }
+  } finally {
+    for (const b of buttons) b.disabled = false;
+  }
+}
+
+function renderUDFPS(log) {
+  const r = udfpsReport;
+  const tbody = $('udfps-rows');
+  tbody.textContent = '';
+
+  if (r.mode === 'firmware') {
+    $('udfps-summary').textContent = 'Scanned ' + (r.firmware || 'the folder');
+  } else if (r.device) {
+    const d = r.device;
+    const parts = [
+      d.model || 'unknown device',
+      d.codename ? '(' + d.codename + ')' : '',
+      d.width && d.height ? d.width + '×' + d.height + ' px' : '',
+      d.rom || '',
+    ];
+    $('udfps-summary').textContent = parts.filter(Boolean).join(' · ');
+  }
+
+  if (!r.candidates.length) {
+    const tr = el('tr');
+    const td = el('td', 'muted', 'No source answered — read the notes below.');
+    td.colSpan = 6;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  const chosen = r.chosen;
+  r.candidates.forEach((c, i) => {
+    if (udfpsPick < 0 && chosen && c.source === chosen.source && c.kind === chosen.kind) {
+      udfpsPick = i;
+    }
+    const tr = el('tr');
+    if (i === udfpsPick) tr.classList.add('is-picked');
+
+    const radioCell = el('td');
+    const radio = el('input');
+    radio.type = 'radio';
+    radio.name = 'udfps-pick';
+    radio.checked = i === udfpsPick;
+    radio.addEventListener('change', () => selectUDFPS(i));
+    radioCell.appendChild(radio);
+
+    tr.appendChild(radioCell);
+    tr.appendChild(el('td', 'udfps-source', c.source));
+    tr.appendChild(el('td', 'num', String(c.x)));
+    tr.appendChild(el('td', 'num', String(c.y)));
+    tr.appendChild(el('td', 'num', 'r=' + c.radius));
+    tr.appendChild(el('td', 'udfps-conf ' + c.confidence, c.confidence));
+    tr.title = c.detail || '';
+    tr.addEventListener('click', () => {
+      radio.checked = true;
+      selectUDFPS(i);
+    });
+    tbody.appendChild(tr);
+  });
+
+  if (udfpsPick < 0 && r.candidates.length) udfpsPick = 0;
+  selectUDFPS(udfpsPick);
+
+  const warnings = $('udfps-warnings');
+  for (const w of r.warnings || []) warnings.appendChild(el('p', 'warn', w));
+  const notes = $('udfps-notes');
+  for (const n of r.notes || []) notes.appendChild(el('p', 'muted small', n));
+
+  if ((r.files || []).length) {
+    const list = $('udfps-files');
+    list.textContent = '';
+    for (const f of r.files) {
+      const row = el('div', 'udfps-file');
+      row.appendChild(el('code', '', f.path));
+      row.appendChild(el('span', 'muted small', f.role || ''));
+      list.appendChild(row);
+    }
+    $('udfps-files-fold').hidden = false;
+  }
+
+  if (log) {
+    $('udfps-log').hidden = false;
+    $('udfps-log').textContent = log;
+  }
+}
+
+function selectUDFPS(i) {
+  const r = udfpsReport;
+  if (!r || !r.candidates.length) return;
+  udfpsPick = i;
+  const rows = $('udfps-rows').querySelectorAll('tr');
+  rows.forEach((tr, n) => {
+    tr.classList.toggle('is-picked', n === i && r.candidates[n] !== undefined);
+  });
+  const c = r.candidates[i];
+  $('udfps-detail').textContent = c.detail || '';
+  $('udfps-apply').disabled = false;
+  $('udfps-applied').textContent = '';
+}
+
+async function applyUDFPS() {
+  const r = udfpsReport;
+  const c = r && r.candidates[udfpsPick];
+  if (!c) return;
+  $('udfps-apply').disabled = true;
+  try {
+    await api('api/udfps', { method: 'POST', body: { action: 'apply', x: c.x, y: c.y, radius: c.radius } });
+    // config.env changed on disk: repaint the form so the Config tab agrees.
+    await refreshState(true);
+    $('udfps-applied').textContent = 'written to config.env: ' + c.x + ' / ' + c.y + ' / r=' + c.radius;
+    status('UDFPS values saved to config.env', 4000);
+  } catch (err) {
+    $('udfps-applied').textContent = 'not written: ' + err.message;
+  } finally {
+    $('udfps-apply').disabled = false;
+  }
+}
+
 // -------------------------------------------------------------------- tabs --
 function switchTab(name) {
   for (const t of document.querySelectorAll('.tab')) {
@@ -2593,6 +2754,13 @@ function bind() {
   for (const b of document.querySelectorAll('[data-extract]')) {
     b.addEventListener('click', () => extract(b.dataset.extract));
   }
+
+  $('udfps-detect').addEventListener('click', () => probeUDFPS('device'));
+  $('udfps-scan').addEventListener('click', () => probeUDFPS('firmware'));
+  $('udfps-apply').addEventListener('click', applyUDFPS);
+  $('udfps-path').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') probeUDFPS('firmware');
+  });
 
   $('docs-body').addEventListener('click', (event) => {
     const target = event.target.closest('button.md-link, button.md-ext');

@@ -272,6 +272,12 @@ used.
 | `HAS_SAMSUNG_FOD` | `false` | Enable Samsung FOD through `/sys/class/sec/tsp/cmd`. |
 | `CONFIG_DOZE_UDFPS_LONG_PRESS_SENSOR_TYPE` | `"org.lineageos.sensor.udfps"` | Optional: sensor type for long-press while the screen is off. |
 
+> The example values above come from a Samsung A90 5G, not from a universal
+default. Using another device's geometry puts the lock-screen icon away from
+the physical sensor. Measure your own device: `bash stuff/scripts/udfps-probe.sh`
+(or the app's **UDFPS** tab) reads it from the phone, or from an extracted
+firmware tree. See [udfps.md](udfps.md) for what each source means.
+
 `UDFPS_X` / `UDFPS_Y` / `UDFPS_RADIUS` are **all-or-nothing**. When all three are
 set, `config_udfps_sensor_props` is written as a three-item integer array. When
 any is missing the array is left alone (the AIDL HAL / SystemUI reports the

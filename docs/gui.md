@@ -206,6 +206,22 @@ so the window no longer opens on a list of files from some earlier run.
     full vendor tarball → `stuff/tools/vendor.tar.gz`. The tarball is **not**
     extracted for you; see [device-extraction.md](device-extraction.md) for why
     it has to be unpacked one level above `src/vendor`.
+- **UDFPS** — the sensor-geometry question on its own, because it is the one
+  value in `config.env` that is a fact about the hardware rather than a taste.
+  **Read from the connected phone** runs `stuff/scripts/udfps-probe.sh`: it
+  reads the vendor FOD properties, follows `cmd overlay dump` to the enabled
+  overlay and dumps that APK's `config_udfps_sensor_props` with `aapt2`, and
+  falls back to the HAL and kernel sources when neither answers. The rows are
+  every answer with its source, confidence and coordinates, plus what was read
+  and anything the probe could not do (no aapt2, an unreadable overlay).
+
+  **Scan folder** does the same against an already extracted firmware tree —
+  overlay APKs, `build.prop` files, VINTF manifests — and explains that a bare
+  `super.img` has to be unpacked before it can be read. **Use the selected
+  values** writes `UDFPS_X` / `UDFPS_Y` / `UDFPS_RADIUS` and switches
+  `HAS_UDFPS` on, through the same line-addressed save as the config form.
+  [udfps.md](udfps.md) explains each source and the arithmetic behind the
+  numbers.
 
 ## Updates
 

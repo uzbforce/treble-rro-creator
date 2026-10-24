@@ -76,6 +76,7 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/adb/install", a.guard("POST", a.handleAdbInstall))
 	mux.HandleFunc(base+"/api/adb/detect", a.guard("POST", a.handleAdbDetect))
 	mux.HandleFunc(base+"/api/extract", a.guard("POST", a.handleExtract))
+	mux.HandleFunc(base+"/api/udfps", a.guard("POST", a.handleUDFPS))
 	mux.HandleFunc(base+"/api/url", a.guard("POST", a.handleURL))
 
 	// The src/ workspace: the file manager, its two editors and the checks behind

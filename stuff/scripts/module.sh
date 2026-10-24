@@ -128,6 +128,28 @@ for dir in /data/vendor/misc /data/vendor/misc/qti_fp /data/vendor/misc/qti_fp/t
 done
 
 SERVEOF
+
+        # ── Xiaomi touch-panel FOD mode ────────────────────────────────────
+        # On Xiaomi optical UDFPS devices the vendor fingerprint HAL only
+        # receives a finger while the touch panel is in FOD mode (touchfeature
+        # mode 10). MIUI's fingerprint extension sets it when authentication
+        # starts; a GSI has no such client, so the HAL never sees the finger.
+        # The helper issues the same ioctl (0x5400 on /dev/xiaomi-touch) and
+        # follows the screen state.
+        cat >> "$target/service.sh" << 'SERVEOF'
+# ── Xiaomi optical UDFPS: touch-panel FOD mode ─────────────────────────────
+if [ -e /dev/xiaomi-touch ] && [ "$(getprop ro.hardware.fp.fod)" = "true" ]; then
+    case "$(getprop ro.product.cpu.abi)" in
+        arm64*) FOD_HELPER="$MODDIR/fod/xiaomi-fod" ;;
+        *)      FOD_HELPER="" ;;
+    esac
+    if [ -n "$FOD_HELPER" ] && [ -x "$FOD_HELPER" ]; then
+        "$FOD_HELPER" daemon </dev/null >> "$MODDIR/fod.log" 2>&1 &
+        log -t treble-overlay "xiaomi FOD touch mode daemon started" 2>/dev/null || true
+    fi
+fi
+
+SERVEOF
     fi
 
     # ── Vendor HAL services ────────────────────────────────────────────────
@@ -363,6 +385,12 @@ ui_print "  Installing ${MODPATH##*/}..."
 
 # ── Overlay APKs ──────────────────────────────────────────────────────────
 set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
+
+# ── Xiaomi FOD helper ─────────────────────────────────────────────────────
+# A zip can lose the executable bit depending on the manager's extractor.
+if [ -f "$MODPATH/fod/xiaomi-fod" ]; then
+    set_perm "$MODPATH/fod/xiaomi-fod" 0 0 0755
+fi
 
 CUSTOMIZE_EOF
 

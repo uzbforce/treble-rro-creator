@@ -959,6 +959,39 @@ button.danger { color: var(--bad); border-color: var(--bad); }
 button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
 .error { color: var(--bad); background: var(--bad-soft); padding: 8px 10px; border-radius: 8px; margin-top: 12px; font-size: 12.5px; }
 
+/* ------------------------------------------------------------------- udfps -- */
+/* A table rather than cards: the interesting thing is how the answers from
+   different sources compare, which only reads when they share columns. */
+.udfps-table-wrap { overflow-x: auto; margin: 10px 0 2px; }
+.udfps-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.udfps-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 8px 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.udfps-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.udfps-table tr { cursor: pointer; }
+.udfps-table tr:hover td { background: var(--panel-2); }
+.udfps-table tr.is-picked td { background: var(--accent-soft); }
+.udfps-table td.num, .udfps-table td.udfps-source { font-family: var(--mono); }
+.udfps-table td.num { white-space: nowrap; }
+.udfps-table input { margin: 2px 0 0; accent-color: var(--accent); }
+.udfps-conf { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.udfps-conf.high { color: var(--ok); }
+.udfps-conf.medium { color: var(--warn); }
+.udfps-conf.guess, .udfps-conf.low { color: var(--bad); }
+.udfps-notes p { margin: 8px 0 0; font-size: 12px; }
+.udfps-notes p.warn { color: var(--warn); }
+.udfps-files { padding: 4px 0 2px; }
+.udfps-file { display: flex; flex-direction: column; gap: 1px; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.udfps-file code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+#udfps-log { margin-top: 10px; max-height: 220px; }
+
 @media (max-width: 760px) {
   .docs { flex-direction: column; }
   .docs-nav { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; }

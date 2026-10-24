@@ -35,6 +35,7 @@
   <button class="tab" data-tab="config" role="tab">config.env</button>
   <button class="tab" data-tab="files" role="tab">Files</button>
   <button class="tab" data-tab="device" role="tab">Device</button>
+  <button class="tab" data-tab="udfps" role="tab">UDFPS</button>
   <button class="tab" data-tab="docs" role="tab">Docs</button>
 </nav>
 
@@ -254,6 +255,71 @@
         <button data-extract="framework-res" type="button">Pull framework-res.apk</button>
         <button data-extract="vendor" type="button">Pull full vendor (root)</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- udfps -->
+  <!-- The in-display fingerprint question is different from the rest of the
+       overlay: the coordinates are not a style choice, they are where the
+       sensor physically is. So this pane asks rather than offers defaults, and
+       it says which source each answer came from. -->
+  <section class="pane" id="pane-udfps" role="tabpanel">
+    <div class="card">
+      <h2>In-display fingerprint</h2>
+      <p class="hint">
+        Writes <code>UDFPS_X</code>, <code>UDFPS_Y</code>, <code>UDFPS_RADIUS</code>
+        and <code>HAS_UDFPS=true</code>. The sensor's geometry is not a style
+        value: a guess puts the lock-screen icon next to the sensor, where no
+        finger can reach it.
+      </p>
+      <div class="row actions">
+        <button class="primary" id="udfps-detect" type="button">Read from the connected phone</button>
+      </div>
+      <p class="hint" id="udfps-device">
+        Works on the OEM ROM and on a GSI. On a GSI the vendor FOD properties
+        and the flashed device overlay usually survive, so they are read from
+        there instead of the system partition.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>From firmware files</h2>
+      <div class="adb-form">
+        <input id="udfps-path" type="text" spellcheck="false" autocomplete="off"
+               placeholder="folder with an unpacked ROM (product/overlay, vendor/…)">
+        <button id="udfps-scan" type="button">Scan folder</button>
+      </div>
+      <p class="hint">
+        Reads the overlay APKs and <code>build.prop</code> files in an already
+        extracted tree. A bare fastboot ROM keeps them inside
+        <code>super.img</code>, which has to be unpacked first with
+        <code>lpunpack</code> — the scan says so instead of guessing.
+      </p>
+    </div>
+
+    <div class="card" id="udfps-results" hidden>
+      <h2>Answers</h2>
+      <p class="muted small" id="udfps-summary"></p>
+      <div class="udfps-table-wrap">
+        <table class="udfps-table">
+          <thead>
+            <tr><th></th><th>Source</th><th>X</th><th>Y</th><th>Radius</th><th>Confidence</th></tr>
+          </thead>
+          <tbody id="udfps-rows"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="udfps-detail"></p>
+      <div class="row actions">
+        <button class="primary" id="udfps-apply" type="button" disabled>Use the selected values</button>
+        <span class="muted small" id="udfps-applied"></span>
+      </div>
+      <div id="udfps-warnings" class="udfps-notes"></div>
+      <div id="udfps-notes" class="udfps-notes"></div>
+      <details class="out-fold" id="udfps-files-fold" hidden>
+        <summary><span class="row-label">What was read</span></summary>
+        <div id="udfps-files" class="udfps-files"></div>
+      </details>
+      <pre id="udfps-log" class="log" hidden></pre>
     </div>
   </section>
 

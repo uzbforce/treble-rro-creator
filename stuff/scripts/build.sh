@@ -820,6 +820,11 @@ MODPATH=${MODPATH:-${0%/*}}
 ui_print "  Installing ${MODPATH##*/}..."
 set_perm_recursive $MODPATH/system/product/overlay 0 0 0755 0644 u:object_r:system_file:s0
 
+# The zip may lose the executable bit depending on the manager's extractor.
+if [ -f "$MODPATH/fod/xiaomi-fod" ]; then
+    set_perm "$MODPATH/fod/xiaomi-fod" 0 0 0755
+fi
+
 # Values saved in the WebUI live outside the module directory (an update
 # replaces this one), so bring them back. The page re-applies them onto the new
 # APKs the next time it is opened.
@@ -869,6 +874,16 @@ else
            -e "s/@MODULE_ID@/${OVERLAY_NAME}/g" \
            "${MODULE_TMP}/service.sh"
     ok "service.sh auto-generated (package: ${OVERLAY_PACKAGE})"
+fi
+
+# Xiaomi touch-panel FOD helper. The binary is built from src/module/fod/main.go
+# for arm64; service.sh starts it only when the device has Xiaomi FOD hardware.
+# Only pack it for UDFPS builds, where service.sh can actually use it.
+if [ "$HAS_UDFPS" = "true" ] && [ -f "$MODULE_DIR/fod/xiaomi-fod" ]; then
+    mkdir -p "${MODULE_TMP}/fod"
+    cp "$MODULE_DIR/fod/xiaomi-fod" "${MODULE_TMP}/fod/xiaomi-fod"
+    chmod 0755 "${MODULE_TMP}/fod/xiaomi-fod"
+    ok "fod/xiaomi-fod included (Xiaomi touch-panel FOD mode)"
 fi
 
 # post-fs-data.sh — set a persist.* match property before zygote starts
