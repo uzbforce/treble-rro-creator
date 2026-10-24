@@ -11,8 +11,8 @@ rem   treble-rro-creator.cmd --release     no console window (the default here)
 rem   treble-rro-creator.cmd --browser     use the default browser instead
 rem   treble-rro-creator.cmd -h            this message
 rem
-rem Requirements: Git for Windows (already needed by build.cmd), and Go the
-rem first time only. See docs/gui.md.
+rem Requirements: Git for Windows (already needed by build.cmd); Go and a
+rem MinGW-w64 gcc are downloaded on the first run. See docs/gui.md.
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
 
@@ -54,6 +54,6 @@ echo   treble-rro-creator.cmd --browser     no window; use the default browser
 echo   treble-rro-creator.cmd -clone PATH   start on a different clone
 echo   treble-rro-creator.cmd -h            this message
 echo.
-echo Builds on the first run (Go is downloaded; MinGW-w64 gcc needed once);
+echo Builds on the first run (Go and MinGW-w64 gcc are downloaded);
 echo later launches open straight away. Full guide: docs\gui.md
 exit /b 0

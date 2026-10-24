@@ -55,7 +55,7 @@ asks first and backs them up.
 git clone https://github.com/uzbforce/treble-rro-creator
 cd treble-rro-creator
 ./treble-rro-creator.sh   # Linux   — builds itself first (Go and missing GTK/WebKitGTK headers are installed for you)
-treble-rro-creator.cmd    # Windows — double-clickable, no console left open; Go is downloaded, MinGW gcc needed once
+treble-rro-creator.cmd    # Windows — double-clickable, no console left open; Go and MinGW-w64 gcc are downloaded
 ```
 
 The first launch builds it and says what is missing if anything is. **Setup**,

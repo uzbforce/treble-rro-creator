@@ -30,16 +30,18 @@ asks for, so nothing has to be installed by hand); the next launch finds that
 copy and does not download again. On Linux the missing GTK/WebKitGTK headers and
 pkg-config come from the distro's own package manager — apt on Debian/Ubuntu,
 pacman on Arch, dnf on Fedora — after your sudo password if one is required. On
-Windows, the MinGW-w64 gcc the window links with is the one piece still
-installed by hand (`pacman -S mingw-w64-x86_64-gcc` in MSYS2). After that it
-starts straight away, and it rebuilds on its own only when the Go sources or the
-UI changed — `./treble-rro-creator.sh --rebuild` forces it.
+Windows, the MinGW-w64 gcc the window links with is downloaded too: a ~260 MB
+WinLibs zip (about 1 GB unpacked) into `stuff/tools/_mingw/`, unpacked with the
+`unzip` Git for Windows already carries, so there is no MSYS2 shell to open and
+no `PATH` to edit. Only Git for Windows itself has to be installed by hand. After that it starts
+straight away, and it rebuilds on its own only when the Go sources or the UI
+changed — `./treble-rro-creator.sh --rebuild` forces it.
 
 The page is **embedded in the executable**, so a build is what makes the window
 match `gui/`: editing `app.js` without relinking changes nothing on screen.
-That relink needs a C compiler (Go it downloads); without it the launcher still
-starts the binary that is already in `gui/bin/`, and says so when that binary is
-older than the sources.
+That relink needs a C compiler (both it and Go are downloaded); without one the
+launcher still starts the binary that is already in `gui/bin/`, and says so when
+that binary is older than the sources.
 
 **No console window stays behind the app.** On Windows the launcher always
 builds the window-only variant (linked without a console) and starts it in the
@@ -249,7 +251,7 @@ way to get a confusing failure (see [windows.md](windows.md)).
 | the **Path** dot is red | hover it: the tooltip says which half is wrong — bash missing (Git for Windows not installed, or `bash.exe` on PATH is WSL's) or the folder not being a clone (no `build.sh` and `stuff/scripts/`) |
 | nothing opens at all | no window can be created: run `./treble-rro-creator.sh --browser`, which serves the same UI on `127.0.0.1` and opens your default browser |
 | window opens, then closes | look for `gui.log` next to the executable |
-| the console stays open behind the window | the binary is a console build and could not be relinked: the window needs a C compiler (Linux: gcc with the GTK/WebKitGTK headers; Windows: MinGW-w64). Install it, then `./treble-rro-creator.sh --rebuild`. `--browser` keeps the console on purpose |
+| the console stays open behind the window | the binary is a console build and could not be relinked: the window needs a C compiler (Linux: gcc with the GTK/WebKitGTK headers; Windows: MinGW-w64, downloaded by the build). Fix what the build reported, then `./treble-rro-creator.sh --rebuild`. `--browser` keeps the console on purpose |
 | a build that works in a terminal fails here | run **Doctor**, then compare with the CLI output: the app adds `-y` and nothing else |
 | "adb was not found" | install platform-tools with the button in the Device tab, or put `adb` on `PATH` yourself |
 | the update dot never turns green | the branch has no upstream, `git fetch` cannot reach the remote, or you are up to date — the dialog says which |

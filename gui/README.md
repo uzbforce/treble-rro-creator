@@ -53,7 +53,7 @@ gui\build.cmd --release     # same from cmd/PowerShell
 
 | Platform | Needs |
 |---|---|
-| Windows | Go 1.23+ (downloaded into `stuff/tools/_go/` when missing), MinGW-w64 gcc on PATH (`pacman -S mingw-w64-x86_64-gcc` in MSYS2), Git for Windows at run time |
+| Windows | Go 1.23+ and MinGW-w64 gcc (both downloaded into `stuff/tools/` when missing), Git for Windows at run time |
 | Linux | Go 1.23+ (downloaded into `stuff/tools/_go/` when missing, or skipped when the distro's is too old), plus gcc, pkg-config and the GTK3/WebKitGTK headers — installed automatically with apt, pacman or dnf when missing (4.1 is shimmed to the 4.0 name webview_go asks for) |
 
 `CGO_ENABLED=0 ./gui/build.sh` builds without a C compiler and without

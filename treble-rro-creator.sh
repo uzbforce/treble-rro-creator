@@ -11,10 +11,10 @@
 #   ./treble-rro-creator.sh --browser        no window; use the default browser
 #   ./treble-rro-creator.sh -clone ~/other   start on a different clone
 #
-# The first launch builds the app, downloading Go into stuff/tools/_go/ when the
-# machine has none; a checkout that already has gui/bin/ filled in runs without
-# a toolchain at all, and the app finds its clone by walking up from where it
-# lives, so no path has to be typed.
+# The first launch builds the app, downloading Go and (on Windows) a MinGW-w64
+# gcc into stuff/tools/ when the machine has none; a checkout that already has
+# gui/bin/ filled in runs without a toolchain at all, and the app finds its
+# clone by walking up from where it lives, so no path has to be typed.
 #
 # Windows: double-click treble-rro-creator.cmd; it finds Git Bash and calls this.
 # =============================================================================

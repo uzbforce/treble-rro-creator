@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -214,8 +215,14 @@ func (a *App) sudoEnv(password string) ([]string, func(), error) {
 		return nil, nil, nil
 	}
 	helper := filepath.Join(a.Root(), "stuff", "scripts", "sudo-askpass.sh")
-	if st, err := os.Stat(helper); err != nil || st.Mode()&0o111 == 0 {
-		return nil, nil, errors.New("the sudo helper is missing or not executable — update the clone (git pull) and try again")
+	st, err := os.Stat(helper)
+	if err != nil {
+		return nil, nil, errors.New("the sudo helper is missing — update the clone (git pull) and try again")
+	}
+	// Windows has no executable bit: every file would fail this check there,
+	// and the helper is never run on Windows anyway (no sudo to ask).
+	if runtime.GOOS != "windows" && st.Mode()&0o111 == 0 {
+		return nil, nil, errors.New("the sudo helper is not executable — update the clone (git pull) and try again")
 	}
 	dir, err := os.MkdirTemp("", "rro-sudo-")
 	if err != nil {

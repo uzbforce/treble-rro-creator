@@ -10,9 +10,9 @@
 #
 # Requirements
 #   A C compiler, because the window is a webview:
-#     Windows  Git for Windows (for bash) + MinGW-w64 gcc on PATH.
-#              "winget install MSYS2.MSYS2" then
-#              "pacman -S mingw-w64-x86_64-gcc" is the shortest route.
+#     Windows  Git for Windows (for bash). MinGW-w64 gcc is downloaded into
+#              stuff/tools/_mingw when the machine has none; one on PATH is
+#              used instead.
 #     Linux    gcc, pkg-config and the GTK/WebKitGTK development headers.
 #              Whatever is missing is installed with the package manager this
 #              distro already has — apt (Debian/Ubuntu), pacman (Arch) or dnf
@@ -36,7 +36,10 @@ for arg in "$@"; do
     case "$arg" in
         --release) release=true ;;
         -h|--help)
-            awk '/^# =====/ { n++; next } n == 1 { sub(/^# ?/, ""); print }' "$self"
+            # The block between the second and third rule: what the script is
+            # for, the two modes and the requirements. The first block is the
+            # title alone.
+            awk '/^# =====/ { n++; next } n == 2 { sub(/^# ?/, ""); print }' "$self"
             exit 0
             ;;
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -356,6 +359,99 @@ else
 fi
 export PATH="$(dirname "$go_cmd"):$PATH"
 
+# ---------------------------------------------------------------------------
+# MinGW-w64: the C compiler a Windows build links the window with
+# ---------------------------------------------------------------------------
+# Windows has no compiler of its own, and sending a fresh clone through MSYS2
+# plus pacman is a second installation just to get gcc. WinLibs publishes the
+# same MinGW-w64 build as a zip, so Git's unzip is enough and there is no
+# installer to run. It lives in stuff/tools/_mingw next to Go, with the same
+# leading underscore so `go test ./...` ignores it.
+local_mingw="$tools_dir/_mingw"
+local_gcc="$local_mingw/bin/gcc.exe"
+
+mingw_usable() {
+    [ -x "$local_gcc" ] && "$local_gcc" --version >/dev/null 2>&1
+}
+
+# The newest release's zip. The API can be rate-limited per IP, and a fresh
+# install should not fail because of that, so a pinned release is the fallback.
+# RRO_MINGW_URL overrides both (a mirror, or a local file in a test).
+mingw_url() {
+    local json url
+    if [ -n "${RRO_MINGW_URL:-}" ]; then
+        echo "$RRO_MINGW_URL"
+        return 0
+    fi
+    json="$(fetch_url "https://api.github.com/repos/brechtsanders/winlibs_mingw/releases/latest" 2>/dev/null)" || json=""
+    url="$(printf '%s\n' "$json" |
+        grep -oE 'https://[^"]+winlibs-x86_64-posix-seh[^"]+mingw-w64ucrt[^"]+\.zip"' |
+        grep -v -- '-llvm-' | head -1 | tr -d '"')"
+    if [ -n "$url" ]; then
+        echo "$url"
+        return 0
+    fi
+    echo "https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-23.1.3-14.0.0-ucrt-r3/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3.zip"
+}
+
+install_mingw() {
+    local url file tmp src
+
+    case "$(uname -m)" in
+        x86_64|amd64) ;;
+        *)
+            echo "No automatic MinGW-w64 for $(uname -m); install one and put its bin on PATH." >&2
+            return 1
+            ;;
+    esac
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "unzip is missing — reinstall Git for Windows (it bundles unzip)." >&2
+        return 1
+    fi
+
+    url="$(mingw_url)"
+    file="${url##*/}"
+    echo "gcc was not found — downloading MinGW-w64 ($file) into stuff/tools/_mingw…"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/mingw-download.XXXXXX")" || return 1
+    if ! fetch_url "$url" "$tmp/$file"; then
+        echo "  The download failed:" >&2
+        echo "  $url" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! unzip -q "$tmp/$file" -d "$tmp/unpack"; then
+        echo "  Could not unpack $file" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    # The archive's top level is mingw64/ (mingw32/ on the 32-bit build).
+    # Finding bin/gcc.exe is more dependable than trusting the name.
+    src="$(find "$tmp/unpack" -path '*/bin/gcc.exe' -print -quit 2>/dev/null)"
+    if [ -z "$src" ]; then
+        echo "  $file does not contain bin/gcc.exe" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    src="$(dirname "$(dirname "$src")")"
+
+    mkdir -p "$tools_dir"
+    rm -rf "$local_mingw"
+    mv "$src" "$local_mingw" || { rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    if ! mingw_usable; then
+        echo "  MinGW unpacked but gcc does not run from $local_gcc" >&2
+        return 1
+    fi
+    echo "installed MinGW-w64 in stuff/tools/_mingw"
+}
+
+# A copy downloaded on an earlier run is found and used again without asking
+# GitHub, the network or the user anything.
+if mingw_usable; then
+    export PATH="$local_mingw/bin:$PATH"
+fi
+
 # Only the CGO build links a window; the browser build needs none of this.
 cgo=1
 if [ "${CGO_ENABLED:-1}" = "0" ]; then
@@ -363,16 +459,29 @@ if [ "${CGO_ENABLED:-1}" = "0" ]; then
 fi
 
 if [ "$cgo" = "1" ] && ! window_deps_ok; then
-    if [ "$(uname -s)" = "Linux" ] && [ "$(pkg_family)" != "unknown" ] && can_install; then
-        echo "the window is missing a C compiler, pkg-config or the GTK/WebKitGTK headers."
-        install_window_deps "$(pkg_family)" || true
-    fi
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            # Windows needs only the compiler, and it is a download rather
+            # than a package manager: no root, no MSYS2 shell, no PATH edit.
+            install_mingw || true
+            if mingw_usable; then
+                export PATH="$local_mingw/bin:$PATH"
+            fi
+            ;;
+        *)
+            if [ "$(uname -s)" = "Linux" ] && [ "$(pkg_family)" != "unknown" ] && can_install; then
+                echo "the window is missing a C compiler, pkg-config or the GTK/WebKitGTK headers."
+                install_window_deps "$(pkg_family)" || true
+            fi
+            ;;
+    esac
     if ! window_deps_ok; then
         case "$(uname -s)" in
             MINGW*|MSYS*|CYGWIN*)
                 echo "A C compiler is missing: the window is built with CGO." >&2
-                echo "  winget install MSYS2.MSYS2          (then, in an MSYS2 shell)" >&2
-                echo "  pacman -S mingw-w64-x86_64-gcc      (and put mingw64\\bin on PATH)" >&2
+                echo "  The automatic MinGW-w64 download failed; check the message above." >&2
+                echo "  Or install one by hand: winget install MSYS2.MSYS2, then" >&2
+                echo "  pacman -S mingw-w64-x86_64-gcc (and put mingw64\\bin on PATH)." >&2
                 ;;
             *)
                 echo "The window's build dependencies are still missing." >&2
