@@ -1,5 +1,8 @@
-# Build output
-build/
+# Build output. Everything the build or the desktop app writes lives under
+# stuff/ (internals, downloaded tools, intermediate files); only the finished
+# APKs and zips are kept at the root, in out/, because that is where you look
+# for them.
+stuff/build/
 out/
 *.apk
 *.apk.idsig
@@ -18,15 +21,33 @@ src/framework/res/values-land/generated.xml
 src/systemui/res/values/generated.xml
 
 # Backups (config.env, module scripts, extracted vendor files)
-backups/
+stuff/backups/
 
 # Extracted vendor files are device-specific and must not be committed.
 # The folder itself keeps a README so a fresh clone still has it.
 src/vendor/*
 !src/vendor/README.md
 
+# Files taken out of the build with the desktop app's Disable button. They are
+# still in the clone (that is the point) but they are not source to commit.
+src/.disabled/
+
 # Downloaded build tools
-tools/
+stuff/tools/
+
+# Desktop app: built binaries, the remembered paths, and the crash log written
+# next to the executable. The root entries cover a release archive unpacked
+# straight into the clone.
+gui/bin/
+gui/dist/
+gui/.pkgconfig/
+# `go build ./gui` from the root drops its binary here (Windows adds the
+# extension; on Linux it refuses to write over the gui/ directory).
+/gui.exe
+/gui.json
+/gui.log
+gui/gui.json
+gui/gui.log
 
 # Legacy top-level paths from older versions (kept ignored so an upgrade
 # never offers to commit leftovers before build.sh moves them)

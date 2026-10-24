@@ -23,6 +23,10 @@ The toolchain is incomplete. Run:
 # or simply re-run the build; it installs what is missing
 ```
 
+In the desktop app, **Setup** does the same install. When sudo needs a password
+the app asks for it in a dialog and repeats the command, so nothing has to be
+typed into a terminal.
+
 On Windows, `build.cmd` needs **Git for Windows** and **JDK 17+**:
 
 ```bat
@@ -31,9 +35,29 @@ winget install EclipseAdoptium.Temurin.17.JDK
 
 Open a **new** terminal after installing Java so `PATH` is refreshed.
 
+### `unable to lock database` / `could not lock database: File exists` (pacman)
+
+pacman refuses to start because `/var/lib/pacman/db.lck` exists. Either another
+package manager is running — wait for it to finish — or an interrupted install
+(a build stopped with the **Stop** button, a closed window, a killed terminal)
+left the lock behind.
+
+When nothing is holding the database, the build removes the stale lock itself
+and continues. If a pacman/paru/yay/pamac process is running it waits instead,
+because deleting a live lock is what corrupts the database. By hand, the same
+recovery is:
+
+```bash
+sudo rm /var/lib/pacman/db.lck
+./build.sh setup
+```
+
+If removing it needs root, the usual sudo path applies — a password dialog in
+the app when sudo asks for one.
+
 ### `cannot execute binary file` / `Exec format error` / `not a valid win32`
 
-A binary for the wrong platform is in `tools/`. This happens when the same
+A binary for the wrong platform is in `stuff/tools/`. This happens when the same
 checkout was set up from both Windows and WSL/Linux. `doctor` names the exact
 file.
 
@@ -48,7 +72,7 @@ On Linux, `./build.sh setup` reinstalls the Linux tooling.
 
 The checkout is on `C:` (or another Windows drive) and you are in a WSL shell —
 typically because VS Code opened the folder with “WSL: …” in the bottom-left.
-Building from WSL would install Linux binaries into the shared `tools/` folder.
+Building from WSL would install Linux binaries into the shared `stuff/tools/` folder.
 
 - Use a Windows terminal / double-click `build.cmd`, **or**
 - clone the project inside the Linux filesystem (`~/treble-rro-creator`) and run
@@ -87,8 +111,8 @@ newer framework — run `./build.sh --allow-unknown-resources`.
 ### `<item> must have a 'type' attribute` / `xml parser error: mismatched tag`
 
 ```
-build/hardware_overlay/<vendor>/<device>/res/values/config.xml:154: error: <item> must have a 'type' attribute.
-build/hardware_overlay/<vendor>/<device>/res/values/config.xml:0: error: xml parser error: mismatched tag.
+stuff/build/hardware_overlay/<vendor>/<device>/res/values/config.xml:154: error: <item> must have a 'type' attribute.
+stuff/build/hardware_overlay/<vendor>/<device>/res/values/config.xml:0: error: xml parser error: mismatched tag.
 ```
 
 The hardware-overlay copy of `config.xml` is malformed: array items ended up
@@ -277,7 +301,7 @@ height = max(status_bar_height_default, displayCutout.safeInsetTop)
 Check what the overlay actually contains and what the device resolved:
 
 ```bash
-# In the built APK (on the PC; Windows: tools/aapt2.exe or build.cmd-style path)
+# In the built APK (on the PC; Windows: stuff/tools/aapt2.exe or build.cmd-style path)
 aapt2 dump resources out/apks/<name>.apk | grep -A1 status_bar_height_default
 
 # On the device: the value the overlay supplies
@@ -516,7 +540,7 @@ allow <hal_type> <device_type>:chr_file rw_file_perms;
 allow <hal_type> <sysfs_type>:file r_file_perms;
 ```
 
-Reference rules: `templates/sepolicy.rule.example`.
+Reference rules: `stuff/templates/sepolicy.rule.example`.
 
 > `sepolicy.rule` is only included in the module when you choose **Include
 > vendor HALs**. Overlay-only builds skip it.
@@ -526,9 +550,9 @@ Reference rules: `templates/sepolicy.rule.example`.
 ## Cleaning up
 
 ```bash
-./build.sh clean            # build/ and out/
+./build.sh clean            # stuff/build/ and out/
 ./build.sh clean --all      # also config.env and device files; restores templates
 ```
 
-`clean --all` backs everything up to `backups/` first. The downloaded toolchain
-is kept; delete `tools/` to remove it.
+`clean --all` backs everything up to `stuff/backups/` first. The downloaded toolchain
+is kept; delete `stuff/tools/` to remove it.

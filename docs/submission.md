@@ -25,7 +25,7 @@ This project already builds that source tree:
 Preview without building:
 
 ```bash
-./scripts/hardware-overlay.sh plan
+./stuff/scripts/hardware-overlay.sh plan
 ```
 
 The [How to create an overlay?](https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F)
@@ -192,7 +192,7 @@ module) is not reused for the submission: its default, 628, is already taken by
 four overlays in the repo.
 
 The build picks a free number from a snapshot of the repo's priorities
-(`scripts/data/treble-overlay-priorities.txt`), starting at a value derived from
+(`stuff/scripts/data/treble-overlay-priorities.txt`), starting at a value derived from
 the device name. Override it with `HW_OVERLAY_PRIORITY` in `config.env` — or take
 the number `tests/tests.sh` prints for you, which is authoritatively up to date.
 
@@ -351,7 +351,7 @@ match property (that is why `Asus/Rog5_5s` is a single folder for the ROG 5 and
   tree. A resource name that only exists on your Android version fails their
   test against AOSP, so it has to be dropped from the submission (the module can
   keep it).
-- `scripts/data/treble-overlay-priorities.txt` is a snapshot. The repo adds
+- `stuff/scripts/data/treble-overlay-priorities.txt` is a snapshot. The repo adds
   overlays continuously; run their `tests/tests.sh` before opening the PR.
 - The repo's resource-name check (`tests/knownKeys`) is maintained by hand and
   is not complete — Doze-off's copy is ahead of upstream's but still missing

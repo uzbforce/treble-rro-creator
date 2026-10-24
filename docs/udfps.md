@@ -16,7 +16,7 @@ If it returns comma-separated numbers (`bottom_mm,?,height_mm,?,?,area_size_mm`)
 
 ```bash
 # Needs ADB connection + root
-python3 scripts/udfps-location.py
+python3 stuff/scripts/udfps-location.py
 ```
 
 It reads the position, gets display properties, and prints the `UDFPS_X` /

@@ -15,6 +15,12 @@ Values are plain shell assignments: `KEY=value` or `KEY="value"`.
 > not "set it to zero". Booleans left out keep the GSI default; numbers left out
 > keep the framework default.
 
+The desktop app shows this file as a form — one row per setting, the switch on
+the left writing exactly that `#`, and the paragraph above the key behind an ⓘ
+button — so none of it has to be typed as bash. It saves only the rows you
+changed; every other line stays as it was. See
+[gui.md](gui.md#the-other-tabs).
+
 ---
 
 ## Checking values before a build
@@ -36,7 +42,7 @@ prints what it finds. `./build.sh check` runs only that preflight:
 
 They are warnings, so the build continues — a value that looks odd can still be
 deliberate. Values that cannot compile at all (a radius of `abc`) are errors in
-[`scripts/resources.sh`](../scripts/resources.sh) and stop the build.
+[`stuff/scripts/resources.sh`](../stuff/scripts/resources.sh) and stop the build.
 
 To see exactly what `config.env` produces without compiling anything:
 
@@ -315,9 +321,9 @@ See [device-extraction.md](device-extraction.md).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `PLATFORM_JAR` | `/usr/share/android-framework-res/framework-res.apk` | Resource dictionary. `build.sh` falls back to `tools/framework-res.apk` automatically. |
-| `PLATFORM_KEY` | `keys/platform.pk8` | Signing key (platform key is shipped). |
-| `PLATFORM_CERT` | `keys/platform.x509.pem` | Certificate matching the key. |
+| `PLATFORM_JAR` | `/usr/share/android-framework-res/framework-res.apk` | Resource dictionary. `build.sh` falls back to `stuff/tools/framework-res.apk` automatically. |
+| `PLATFORM_KEY` | `stuff/keys/platform.pk8` | Signing key (platform key is shipped). |
+| `PLATFORM_CERT` | `stuff/keys/platform.x509.pem` | Certificate matching the key. |
 
 The shipped key is the well-known AOSP test platform key. That is what makes a
 platform-signed overlay work on a GSI; it is not a secret and is not trusted by
@@ -367,7 +373,7 @@ The repo's `tests/tests.sh` rejects a priority that another overlay already
 uses, which is why the submission does not reuse `OVERLAY_PRIORITY` (628 is
 taken). Nothing runs that script for you on the Doze-off fork (its Actions tab
 has no runs), so run it in your clone before opening the pull request. The default is the first free number at or after a device-specific
-start in `scripts/data/treble-overlay-priorities.txt` (a snapshot of the repo);
+start in `stuff/scripts/data/treble-overlay-priorities.txt` (a snapshot of the repo);
 take the number the test script suggests if it differs.
 
 ---
@@ -408,7 +414,7 @@ Anything not in this list can be added to the marked section at the bottom of
 ## Resource audit
 
 Every build checks each generated `type/name` against the resource table in the
-target dictionary (`tools/framework-res.apk`). A name the target does not have
+target dictionary (`stuff/tools/framework-res.apk`). A name the target does not have
 is **not** a compile error — Android silently ignores it — so the build stops
 instead of producing a module that changes nothing:
 
@@ -437,7 +443,7 @@ resources that are present in Android 13 through 16 (for example
 
 `service.sh` and `customize.sh` are generated from `config.env` and your
 `src/vendor/` contents on every build. To add your own post-boot commands, copy
-`templates/service.sh.example` to `src/module/service.sh` and edit it. When that
+`stuff/templates/service.sh.example` to `src/module/service.sh` and edit it. When that
 file exists the build packs it as-is instead of generating one. The same applies
 to `src/module/customize.sh`. Remember to include the generated behaviour you
 still want (overlay enable diagnostics, AOD property, HAL starts) when you take

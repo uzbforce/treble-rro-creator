@@ -119,7 +119,7 @@ Reboot when done.
 - Keep the project inside Termux home. Moving it to `/sdcard` breaks execution
   permissions.
 - `./build.sh clean` frees space; `./build.sh clean --all` starts over for a
-  new device. Backups go to `backups/`.
+  new device. Backups go to `stuff/backups/`.
 - Building needs roughly 300 MB free for the toolchain and intermediates.
 - If Termux is killed during a download, just run `./build.sh` again — already
   downloaded pieces are reused.

@@ -1,14 +1,18 @@
-# Treble Overlay Creator
+# Treble RRO Creator
 
 Build a **Magisk / KernelSU / APatch module** that adapts a GSI (Generic System Image) to
 your phone's hardware: rounded corners, display cutout, brightness curve, UDFPS,
 AOD/doze, 5G/VoLTE — and optional vendor HALs for fingerprint or vibrator.
 
-You edit **one file** (`config.env`) and run **one command**.
+Two ways in, same tool: the **desktop app**, which puts every setting and the
+whole build in a window, or **one command** from a terminal. Both edit the same
+`config.env` and run the same build.
 
 ```bash
-./build.sh          # Linux / Termux / Git Bash
-build.cmd           # Windows (cmd, PowerShell, or double-click)
+treble-rro-creator.cmd    # Windows: the app (double-click it too)
+./treble-rro-creator.sh   # Linux: the app
+./build.sh                # or just build: Linux / Termux / Git Bash
+build.cmd                 #                 Windows
 ```
 
 The first run installs the Android build tools automatically (about 33 MB on
@@ -30,7 +34,39 @@ prints the exact command to run). Every later run goes straight to the build.
 
 ## Quick start
 
-### Windows
+### Desktop app (Windows / Linux)
+
+The window is the same tool: it finds the clone it lives in, edits `config.env`,
+and runs the same `build.sh` commands — **Build**, **Dry run**, **Check**,
+**Doctor**, **Setup**, **Clean** — with the output streaming into a pane.
+Nothing is reimplemented, so the app and the CLI can be mixed freely.
+
+It also covers what used to need a terminal: `config.env` as a form (a switch
+per setting, ⓘ for the note the file already carries, the raw file one click
+away); a **Device** tab with an adb console, the commands worth running on a
+phone, and a button that installs platform-tools if you do not have them; and a
+**Files** tab that is the `src/` workspace — drop a vendor HAL tree in, disable
+a file out of the build without deleting it, and write the SELinux rules and
+VINTF manifests a custom HAL needs, checked as you type. The header tells you
+when a newer release exists, and an update that would overwrite your own edits
+asks first and backs them up.
+
+```bash
+git clone https://github.com/uzbforce/treble-rro-creator
+cd treble-rro-creator
+./treble-rro-creator.sh   # Linux   — builds itself first (Go and missing GTK/WebKitGTK headers are installed for you)
+treble-rro-creator.cmd    # Windows — double-clickable, no console left open; Go and MinGW-w64 gcc are downloaded
+```
+
+The first launch builds it and says what is missing if anything is. **Setup**,
+and the first build, install the Android tools with the distro's package
+manager — when sudo asks for a password, the app asks for it in a dialog and
+repeats the command, so nothing has to be typed into a terminal. Later launches
+open straight away, and a `git pull` only triggers a rebuild when the Go
+sources actually changed. Full guide, including what each button does and what
+to do when no window appears: [docs/gui.md](docs/gui.md).
+
+### Windows (command line)
 
 1. Install **Git for Windows** and **JDK 17+**.
 2. Clone or download this project.
@@ -96,12 +132,13 @@ project is called by them.
 
 | Command | What it does |
 |---|---|
+| `./treble-rro-creator.sh` / `treble-rro-creator.cmd` | **Open the desktop app** — the window for everything below. Builds it on the first run, then just launches it. |
 | `./build.sh` | Build. Installs missing tools first. |
 | `./build.sh setup` | Install or repair the toolchain (menu: distro / resource version) |
 | `./build.sh doctor` | Check the toolchain, install nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
 | `./build.sh --dry-run` | Print the resources `config.env` emits, build nothing |
-| `./build.sh clean` | Remove `build/` and `out/` |
+| `./build.sh clean` | Remove `stuff/build/` and `out/` |
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
 
 Options: `-y` / `--yes` (no prompts), `--with-vendor-hals` (with `--yes`),
@@ -118,7 +155,7 @@ To check the project itself (the WebUI's resource-table writer, the manifest it
 renders from, script syntax, documentation anchors):
 
 ```bash
-bash tests/run.sh          # what CI runs, no Android tools needed
+bash stuff/tests/run.sh    # what CI runs, no Android tools needed
 ```
 
 On Windows, use the same words with `build.cmd`:
@@ -217,7 +254,8 @@ The status bar uses `status_bar_height_default` (Android 12L+), not the old
 
 ```
 .
-├── build.sh / build.cmd        ← the entry points
+├── build.sh / build.cmd        ← the command line
+├── treble-rro-creator.sh/.cmd  ← desktop app: build if stale, then launch
 ├── config.env                  ← your device settings (created on first run)
 ├── config.env.example          ← filled-in Samsung A90 5G example
 ├── src/
@@ -226,16 +264,26 @@ The status bar uses `status_bar_height_default` (Android 12L+), not the old
 │   ├── module/                 optional overrides + sepolicy.rule
 │   ├── webui/                  shared WebUI page + apply.sh (packed as webroot/)
 │   └── vendor/                 optional extracted vendor HALs (git-ignored)
-├── templates/                  reference scripts + clean templates
-├── scripts/                    internals used by build.sh (not run directly)
 ├── docs/                       guides
-├── keys/                       platform signing key (shipped)
-├── windows/                    helpers for build.cmd
-├── tools/                      downloaded toolchain (git-ignored)
-├── build/                      intermediate files (git-ignored)
 ├── out/                        APKs and flashable zips (git-ignored)
-└── backups/                    copies made before clean/rebuild (git-ignored)
+├── gui/                        desktop app sources (+ go.mod at the root)
+└── stuff/                      everything the build uses and you do not
+    ├── scripts/                internals used by build.sh (not run directly)
+    ├── templates/              reference scripts + clean templates
+    ├── keys/                   platform signing key (shipped)
+    ├── windows/                helpers for build.cmd
+    ├── tests/                  the checks CI runs
+    ├── tools/                  downloaded toolchain (git-ignored)
+    ├── build/                  intermediate files (git-ignored)
+    └── backups/                copies made before clean/rebuild (git-ignored)
 ```
+
+The root keeps only what you act on: the two entry points, `config.env`, `src/`
+(the resources you edit), `docs/`, `gui/` and `out/` (where the APKs and zips
+appear). Everything else moved into `stuff/` — one folder instead of nine. The
+signing key, the templates, the tests and the downloaded toolchain all keep
+their own names there, so `keys/platform.pk8` became
+`stuff/keys/platform.pk8`.
 
 ---
 
@@ -257,8 +305,9 @@ still work like this:
 | `systemui_overlay/res/` | `src/systemui/res/` |
 | `customize.sh`, `service.sh`, `sepolicy.rule` | `src/module/` (scripts are generated by default) |
 | `system/vendor/` | `src/vendor/` |
-| `TEMPLATE RECOVERIES (Don't touch)/` | `templates/recoveries/` |
-| `YOUR BACKUPS/` | `backups/` |
+| `TEMPLATE RECOVERIES (Don't touch)/` | `stuff/templates/recoveries/` (fallback for `clean --all` when there is no `.git`) |
+| `YOUR BACKUPS/` | `stuff/backups/` |
+| `keys/`, `scripts/`, `templates/`, `tests/`, `windows/`, `tools/`, `build/`, `backups/` | the same names inside `stuff/` |
 
 `build.sh` moves anything it still finds in the old places into the new layout
 on the next run: the file is copied first and the old location is removed only
