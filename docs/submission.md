@@ -170,6 +170,17 @@ HW_OVERLAY_MATCH_VALUE="what getprop printed"
 every OTA makes the overlay stop matching. An empty `HW_OVERLAY_MATCH_PROP`
 submits an always-active overlay — only sensible for a property-less device.
 
+**Do not assume the vendor property holds your codename.** On the reference
+Xiaomi, `ro.product.vendor.device` is `mivendor` — shared by a whole family of
+Xiaomi builds — while `ro.product.device` is the actual codename `zephyr`. A
+value copied from `DEVICE_CODENAME` would never match, and `mivendor` would
+match other devices. The Config tab's **Match property** card asks the phone and
+ranks what actually works: it reads `ro.product.device`-style properties, drops
+build names like `mivendor`/`generic`/`phh_treble`, weighs whether the property
+survives a GSI against whether zygote can read its SELinux area, and stages
+`HW_OVERLAY_MATCH_PROP`/`_VALUE` for you
+([how it decides](configuration.md#choosing-the-match-property)).
+
 ### 2. Only values the product overlay actually differs on
 
 The GSI already has the vendor overlay; an overlay in this repo only has to

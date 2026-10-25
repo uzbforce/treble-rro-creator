@@ -100,7 +100,8 @@ rm -rf "$restore_tmp"
 step "node tests"
 if command -v node >/dev/null 2>&1; then
     node --test stuff/tests/arsc.test.js stuff/tests/manifest.test.js \
-        stuff/tests/hw-overlay.test.js stuff/tests/gui-ui.test.js || status=1
+        stuff/tests/hw-overlay.test.js stuff/tests/gui-ui.test.js \
+        stuff/tests/adb-device.test.js stuff/tests/udfps-probe.test.js || status=1
 else
     echo "node is not installed — skipping the resource-table tests"
     status=1

@@ -1,32 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    ╔══════════════════════════════════════════════════════════════════════╗
-    ║  POWER PROFILE — MUST BE EXTRACTED FROM YOUR STOCK FIRMWARE        ║
-    ╚══════════════════════════════════════════════════════════════════════╝
-    
-    This file defines CPU cluster speeds, power draw per frequency,
-    battery capacity, and component power consumption for your device.
-    
-    🔴 Using wrong values = inaccurate battery stats, CPU throttling issues
-    
-    TO EXTRACT YOUR DEVICE'S POWER PROFILE:
-      1. Get the stock product overlay APK:
-           /system/product/overlay/framework-res__auto_generated_rro_product.apk
-      2. Decompile it:
-           apktool d framework-res__auto_generated_rro_product.apk -o product_overlay
-      3. Copy the power_profile.xml from:
-           product_overlay/res/xml/power_profile.xml
-      4. Replace this file with the extracted one.
-    
-    If there is NO power profile in the product overlay:
-      - Check the vendor overlay APK at /system/vendor/overlay/
-      - If neither has one, your device uses AOSP defaults — you can DELETE this file
-    
-    Reference: The current file was extracted from Samsung Galaxy A90 5G (SD855),
-    which will NOT work correctly for other devices. DO NOT reuse it.
-    
-    See: https://github.com/TrebleDroid/treble_experimentations/wiki/How-to-create-an-overlay%3F
--->
+<!-- Extracted from the stock firmware by the Detect tab. The build compiles
+     this file into the overlay as res/xml/power_profile.xml. -->
 <device name="Android">
-    <!-- CPU and power values removed — extract from your stock firmware -->
+    <item name="none">0</item>
+    <item name="screen.on">149.73</item>
+    <item name="screen.full">621.14</item>
+    <array name="cpu.clusters.cores">
+        <value>4</value>
+        <value>4</value>
+    </array>
+    <array name="cpu.core_speeds.cluster0">
+        <value>300000</value>
+        <value>691200</value>
+        <value>940800</value>
+        <value>1190400</value>
+        <value>1516800</value>
+        <value>1804800</value>
+        <value>1900800</value>
+    </array>
+    <array name="cpu.core_power.cluster0">
+        <value>3.98</value>
+        <value>6.44</value>
+        <value>10.53</value>
+        <value>14.19</value>
+        <value>26.28</value>
+        <value>33.3</value>
+        <value>37.15</value>
+    </array>
+    <array name="cpu.core_speeds.cluster1">
+        <value>300000</value>
+        <value>806400</value>
+        <value>1056000</value>
+        <value>1344000</value>
+        <value>1766400</value>
+        <value>2208000</value>
+        <value>2400000</value>
+        <value>2592000</value>
+        <value>2803200</value>
+        <value>2918400</value>
+    </array>
+    <array name="cpu.core_power.cluster1">
+        <value>18.11</value>
+        <value>41.28</value>
+        <value>53.54</value>
+        <value>66.03</value>
+        <value>89.63</value>
+        <value>113.12</value>
+        <value>132.51</value>
+        <value>155.62</value>
+        <value>180.32</value>
+        <value>195.32</value>
+    </array>
+    <item name="cpu.active">18.3</item>
+    <item name="cpu.idle">5.46</item>
+    <item name="cpu.suspend">0</item>
+    <item name="cpu.awake">13.47</item>
+    <item name="battery.capacity">7700</item>
+    <item name="wifi.on">0.43</item>
+    <item name="wifi.active">111.62</item>
+    <item name="wifi.scan">28.72</item>
+    <item name="dsp.audio">15.54</item>
+    <item name="dsp.video">70.49</item>
+    <item name="camera.flashlight">102.37</item>
+    <item name="camera.avg">516.41</item>
+    <item name="gps.on">11.80</item>
+    <item name="radio.active">301.40</item>
+    <item name="radio.scanning">39.83</item>
+    <array name="radio.on">
+        <value>85</value>
+        <value>8.5</value>
+    </array>
+    <item name="modem.controller.idle">4.4</item>
+    <item name="modem.controller.rx">168</item>
+    <item name="modem.controller.tx">163</item>
+    <item name="modem.controller.voltage">3700</item>
+    <array name="memory.bandwidths">
+        <value>13.5</value>
+    </array>
+    <item name="wifi.controller.idle">1.22</item>
+    <item name="wifi.controller.rx">121</item>
+    <item name="wifi.controller.tx">156</item>
+    <array name="wifi.controller.tx_levels">1 </array>
+    <item name="wifi.controller.voltage">3700</item>
+    <array name="wifi.batchedscan">
+        <value>.0001</value>
+        <value>.001</value>
+        <value>.01</value>
+        <value>.1</value>
+        <value>1</value>
+    </array>
+    <item name="bluetooth.active">24.07</item>
+    <item name="bluetooth.on">0.68</item>
+    <item name="bluetooth.controller.voltage">3700</item>
 </device>

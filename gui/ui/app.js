@@ -642,15 +642,31 @@ function renderConfig(force = false) {
     return;
   }
 
+  let matchPlaced = false;
   for (const sec of doc.sections) {
     const wrap = el('div', 'cfg-sec');
     if (sec.title) wrap.appendChild(el('div', 'cfg-sec-title', sec.title));
     const entries = sec.entries || [];
     for (const entry of entries) wrap.appendChild(cfgRow(entry));
     if (!sec.title && entries.length === 0) continue;
+    // The match-property card belongs with the activation keys, because a wrong
+    // one is the failure that looks like success: the overlay is enabled and
+    // nothing changes.
+    if (!matchPlaced && isOverlaySection(sec)) {
+      wrap.appendChild(matchCard());
+      matchPlaced = true;
+    }
     box.appendChild(wrap);
   }
+  if (!matchPlaced) box.appendChild(matchCard());
   updateCfgStatus();
+}
+
+function isOverlaySection(sec) {
+  if (/overlay activation/i.test(sec.title || '')) return true;
+  return (sec.entries || []).some((e) =>
+    e.key === 'DEVICE_PROP_NAME' || e.key === 'HW_OVERLAY_MATCH_PROP'
+  );
 }
 
 function cfgRow(entry) {
@@ -727,6 +743,246 @@ function updateCfgStatus() {
   $('cfg-status').textContent = text;
   $('cfg-save').disabled = !dirty || !state || !state.cloneValid;
   $('cfg-revert').disabled = !dirty;
+}
+
+// ------------------------------------------------------- match property --
+// The one mistake in this file that looks like success: a match condition the
+// framework never satisfies. The overlay installs, `cmd overlay list` prints
+// [x], and no resource changes. The phone can answer most of it — which
+// properties carry its codename, which partition each one comes from, and
+// whether zygote can read that SELinux area — so the ranking is read from the
+// device and using a row only stages the two lines, which Save writes.
+let matchReport = null;
+let matchError = '';
+let matchBusy = false;
+let matchBodyEl = null;
+
+function cfgEntry(key) {
+  for (const sec of (state.config && state.config.sections) || []) {
+    for (const entry of sec.entries || []) {
+      if (entry.key === key) return entry;
+    }
+  }
+  return null;
+}
+
+function matchCard() {
+  const card = el('div', 'cfg-match');
+  const head = el('div', 'cfg-match-head');
+  head.appendChild(el('span', 'cfg-match-title', 'Match property'));
+  head.appendChild(el('span', 'muted small', 'HW_OVERLAY_MATCH_PROP / _VALUE'));
+
+  const pick = document.createElement('select');
+  pick.className = 'adb-device-select cfg-match-device';
+  pick.setAttribute('aria-label', 'phone to ask');
+  pick.addEventListener('change', () => {
+    setAdbDevice(pick.value);
+    // The ranking is about one phone: switching phones must not leave the last
+    // phone's answer on screen looking like it belongs to the new one.
+    matchReport = null;
+    matchError = '';
+    renderAdbDevices();
+    refreshMatchBody();
+  });
+
+  const ask = document.createElement('button');
+  ask.type = 'button';
+  ask.textContent = 'Ask the phone';
+  ask.addEventListener('click', askMatchProp);
+
+  head.append(pick, ask);
+  card.appendChild(head);
+  card.appendChild(el('p', 'hint',
+    'Read from the selected phone. A property only works if zygote can read it and the value survives what is installed — the two things that make an overlay show as enabled and do nothing.'));
+  card.appendChild(matchBody());
+  renderAdbDevices();
+  // First paint of the form can happen before the device list has ever been
+  // fetched; fill the picker as soon as it arrives.
+  if (!adbDevices.length) refreshAdbDevices().then(() => renderAdbDevices());
+  return card;
+}
+
+// matchBody() assigns the new node to matchBodyEl as it builds it, so the node
+// being replaced has to be captured first — replacing matchBodyEl with itself
+// after that is a no-op and the answer never reaches the screen.
+function refreshMatchBody() {
+  const old = matchBodyEl;
+  if (!old || !old.isConnected) return;
+  old.replaceWith(matchBody());
+}
+
+function trustLabel(trust) {
+  if (trust === 'high') return 'fits';
+  if (trust === 'medium') return 'partial';
+  return 'risky';
+}
+
+function confidenceLabel(confidence) {
+  if (confidence === 'high') return 'safe pick';
+  if (confidence === 'medium') return 'no perfect pick';
+  return 'nothing usable';
+}
+
+function matchBody() {
+  const body = el('div', 'cfg-match-body');
+  matchBodyEl = body;
+
+  if (matchBusy) {
+    body.appendChild(el('p', 'muted small', 'asking the phone…'));
+    return body;
+  }
+  if (matchError) body.appendChild(el('p', 'cfg-match-error', matchError));
+
+  if (!matchReport) {
+    const cur = { prop: cfgEntry('HW_OVERLAY_MATCH_PROP'), value: cfgEntry('HW_OVERLAY_MATCH_VALUE') };
+    if (cur.prop && cur.prop.value) {
+      body.appendChild(el('p', 'muted small',
+        `config.env matches on ${cur.prop.value} == "${cur.value ? cur.value.value : ''}"${cur.prop.enabled ? '' : ' — that line is commented out'}.`));
+    } else {
+      body.appendChild(el('p', 'muted small', 'No match property is set: the submission would be always active, which is only right for a device that has no name to match.'));
+    }
+    return body;
+  }
+
+  const rep = matchReport;
+  const summary = el('div', 'cfg-match-summary');
+  summary.appendChild(el('span', 'muted small', 'codename '));
+  summary.appendChild(el('code', null, rep.codename || 'not found'));
+  if (rep.model) summary.appendChild(el('span', 'muted small', ' · ' + rep.model));
+  summary.appendChild(el('span', 'cfg-match-badge trust-' + rep.confidence, confidenceLabel(rep.confidence)));
+  body.appendChild(summary);
+
+  // A match condition that does not hold is invisible: the overlay enables and
+  // changes nothing. So unless a property satisfies every rule, the honest
+  // answer is the one that already works — the module's own property.
+  if (rep.confidence !== 'high') body.appendChild(keepCurrentNote(rep));
+
+  const rows = rep.candidates || [];
+  for (const c of rows.slice(0, 3)) body.appendChild(matchRow(c));
+  if (rows.length > 3) {
+    const more = document.createElement('details');
+    const rest = rows.length - 3;
+    more.appendChild(el('summary', 'muted small', `${rest} more candidate${rest === 1 ? '' : 's'}`));
+    for (const c of rows.slice(3)) more.appendChild(matchRow(c));
+    body.appendChild(more);
+  }
+
+  if ((rep.rejected || []).length) {
+    const ruled = document.createElement('details');
+    ruled.appendChild(el('summary', 'muted small', `${rep.rejected.length} propert${rep.rejected.length === 1 ? 'y' : 'ies'} ruled out`));
+    for (const r of rep.rejected) {
+      ruled.appendChild(el('p', 'cfg-match-rejected', `${r.prop} = ${r.value} — ${r.reason}`));
+    }
+    body.appendChild(ruled);
+  }
+
+  if (rep.moduleProp) {
+    body.appendChild(el('p', 'muted small',
+      `The module's own condition stays ${rep.moduleProp} = true: the module sets that property at boot, so it cannot fail to match.`));
+  }
+  return body;
+}
+
+// "Use what already works": the property the module sets itself, which cannot
+// fail to match because the module writes it at boot. Shown whenever no property
+// on the phone satisfies every rule.
+function keepCurrentNote(rep) {
+  const box = el('p', 'cfg-match-warn');
+  const current = (((cfgEntry('DEVICE_PROP_NAME') || {}).value || rep.moduleProp || '')).trim();
+
+  box.appendChild(el('b', null, 'Keep the match you already have. '));
+  box.appendChild(document.createTextNode(rep.confidence === 'low'
+    ? 'Nothing on this phone carries its codename in a property the framework will read, so none of these is a safe pick. '
+    : 'No property here is both readable by zygote and left alone by a GSI, so none of these is a safer bet than what already works. '));
+  if (current) {
+    box.appendChild(document.createTextNode('Leave '));
+    box.appendChild(el('code', null, 'DEVICE_PROP_NAME'));
+    box.appendChild(document.createTextNode(' as '));
+    box.appendChild(el('code', null, current));
+    box.appendChild(document.createTextNode(' — the module sets that property itself, so it always matches. '));
+  }
+  box.appendChild(document.createTextNode('The rows below are only for a submission that ships without the module; check the one you pick with cmd overlay lookup after flashing.'));
+  return box;
+}
+
+function matchRow(c) {
+  const row = el('div', 'cfg-match-row');
+  const head = el('div', 'cfg-match-row-head');
+  head.appendChild(el('code', 'cfg-match-prop', c.prop));
+  head.appendChild(el('span', 'cfg-match-eq', '='));
+  head.appendChild(el('code', 'cfg-match-val', `"${c.value}"`));
+  head.appendChild(el('span', 'cfg-match-badge trust-' + c.trust, trustLabel(c.trust)));
+
+  const use = document.createElement('button');
+  use.type = 'button';
+  use.textContent = 'Use';
+  use.addEventListener('click', () => useMatch(c));
+  head.appendChild(use);
+
+  row.appendChild(head);
+  row.appendChild(el('p', 'cfg-match-why', c.why || ''));
+  if (c.risk) row.appendChild(el('p', 'cfg-match-risk', '⚠ ' + c.risk));
+  return row;
+}
+
+async function askMatchProp() {
+  if (matchBusy) return;
+  await refreshAdbDevices();
+  const pick = adbDeviceChoice();
+  if (pick.blocked) {
+    matchError = `${adbReadyDevices().length} phones are connected — pick one beside the button`;
+    refreshMatchBody();
+    return;
+  }
+  if (!pick.serial && !adbReadyDevices().length) {
+    matchError = 'No phone is ready — plug one in and allow USB debugging.';
+    refreshMatchBody();
+    return;
+  }
+  matchBusy = true;
+  matchError = '';
+  refreshMatchBody();
+  try {
+    matchReport = await api('api/adb/match-prop', { method: 'POST', body: { serial: pick.serial } });
+  } catch (err) {
+    matchReport = null;
+    matchError = err.message;
+  } finally {
+    matchBusy = false;
+    refreshMatchBody();
+  }
+}
+
+// Stages one config line the way the row itself would, so the change shows up in
+// the form and Save sends it. Nothing is written to disk here.
+function stageMatchValue(key, value) {
+  const entry = cfgEntry(key);
+  if (!entry) return false;
+  const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${entry.line}"]`);
+  if (!row) return false;
+  const on = row.querySelector('.cfg-on');
+  const input = row.querySelector('.cfg-value');
+  input.value = value;
+  if (on && !on.checked) {
+    on.checked = true;
+    on.dispatchEvent(new Event('change'));
+  }
+  input.dispatchEvent(new Event('input'));
+  row.classList.add('is-flash');
+  setTimeout(() => row.classList.remove('is-flash'), 1500);
+  return true;
+}
+
+function useMatch(c) {
+  const prop = stageMatchValue('HW_OVERLAY_MATCH_PROP', c.prop);
+  const value = stageMatchValue('HW_OVERLAY_MATCH_VALUE', c.value);
+  if (!prop || !value) {
+    status('config.env has no HW_OVERLAY_MATCH_* lines — add them in the raw editor', 9000);
+    return;
+  }
+  const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${(cfgEntry('HW_OVERLAY_MATCH_PROP') || {}).line}"]`);
+  if (row) row.scrollIntoView({ block: 'center' });
+  status(`staged ${c.prop} = "${c.value}" — Save writes it`, 9000);
 }
 
 async function saveConfig() {
@@ -1890,6 +2146,99 @@ function rememberAdbValues() {
   localStorage.setItem(VALUE_KEYS.manufacturer, adbValue('manufacturer'));
 }
 
+// More than one phone on the desk: adb has no default device and refuses to
+// guess, and neither does the page. /api/adb/devices lists them, the picker
+// picks one, and every request carries that serial — the scripts take
+// --device for the same reason. One phone stays automatic, so the common case
+// needs no clicks.
+let adbDevices = [];
+let adbDevice = localStorage.getItem('adb.device') || '';
+let adbDevicesFetch = null;
+
+function adbReadyDevices() {
+  return adbDevices.filter((d) => d.state === 'device');
+}
+
+// The serial a device-mode request should send, and the reason it cannot start.
+function adbDeviceChoice() {
+  const ready = adbReadyDevices();
+  if (adbDevice && ready.some((d) => d.serial === adbDevice)) return { serial: adbDevice, blocked: '' };
+  if (ready.length === 1) return { serial: ready[0].serial, blocked: '' };
+  if (ready.length <= 1) return { serial: '', blocked: '' };
+  return { serial: '', blocked: `${ready.length} devices are connected — pick one in the device list` };
+}
+
+function setAdbDevice(serial) {
+  adbDevice = serial || '';
+  if (adbDevice) localStorage.setItem('adb.device', adbDevice);
+  else localStorage.removeItem('adb.device');
+}
+
+// Redraws every picker (Device, Detect, UDFPS) from the one list.
+function renderAdbDevices() {
+  const ready = adbReadyDevices();
+  const pick = adbDeviceChoice();
+  // A remembered phone that is gone must not quietly point at another one.
+  if (adbDevice && !ready.some((d) => d.serial === adbDevice)) setAdbDevice('');
+
+  for (const sel of document.querySelectorAll('select.adb-device-select')) {
+    sel.textContent = '';
+    if (!ready.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = adbDevices.length ? 'no device is ready' : 'no device connected';
+      sel.appendChild(opt);
+      sel.disabled = true;
+      continue;
+    }
+    if (!pick.serial && ready.length > 1) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'choose a device…';
+      sel.appendChild(opt);
+    }
+    for (const d of ready) {
+      const opt = document.createElement('option');
+      opt.value = d.serial;
+      opt.textContent = `${d.label} — ${d.serial}`;
+      sel.appendChild(opt);
+    }
+    sel.disabled = ready.length === 1;
+    sel.value = pick.serial || '';
+  }
+
+  const note = $('adb-device-note');
+  const others = adbDevices.length - ready.length;
+  if (!ready.length) note.textContent = others ? `${others} attached but not ready` : '';
+  else if (ready.length === 1) note.textContent = others ? `${others} other attached but not ready` : 'the only connected phone';
+  else note.textContent = pick.serial ? 'commands go to this phone' : 'pick the phone to command';
+  note.title = adbDevices.map((d) => `${d.serial} — ${d.label} (${d.state})`).join('\n');
+
+  renderPresets();
+  renderRunState();
+}
+
+async function refreshAdbDevices() {
+  if (adbDevicesFetch) return adbDevicesFetch;
+  if (!adbReady()) {
+    adbDevices = [];
+    renderAdbDevices();
+    return;
+  }
+  adbDevicesFetch = api('api/adb/devices')
+    .then((res) => {
+      adbDevices = (res && res.devices) || [];
+    })
+    .catch((err) => {
+      adbDevices = [];
+      $('adb-device-note').textContent = err.message;
+      $('adb-device-note').title = err.message;
+    })
+    .finally(() => { adbDevicesFetch = null; });
+  await adbDevicesFetch;
+  renderAdbDevices();
+}
+
 function renderAdb() {
   const adb = (state && state.adb) || {};
   const line = $('adb-status');
@@ -1908,8 +2257,10 @@ function renderAdb() {
 
   seedAdbValues();
   renderPresets();
+  const blocked = adbDeviceChoice().blocked;
   $('adb-input').disabled = !adb.available;
-  $('adb-detect').disabled = !adb.available;
+  $('adb-detect').disabled = !adb.available || !!blocked;
+  $('adb-detect').title = blocked;
   renderRunState();
 }
 
@@ -1952,12 +2303,15 @@ function renderPresets() {
       b.append(cmd, why);
 
       const missing = missingNeeds(p);
-      const blocked = !adbReady() || missing.length > 0;
+      // "adb devices" is about the tool; every other preset is about one phone.
+      const noDevice = p.id === 'devices' ? '' : adbDeviceChoice().blocked;
+      const blocked = !adbReady() || missing.length > 0 || !!noDevice;
       // renderRunState re-disables these from the stored reason while a build
       // or another adb command owns the one job slot.
       b.dataset.blocked = blocked ? '1' : '';
       b.disabled = blocked || running || adbRunning;
       if (running || adbRunning) b.title = 'a command is already running — one job at a time';
+      else if (noDevice) b.title = noDevice;
       else if (missing.length) b.title = `needs ${missing.join(' and ')} — fill it in above`;
       else b.title = p.why;
 
@@ -2075,6 +2429,11 @@ function applyPresetFilter() {
 
 async function runAdb(body) {
   const presetId = body.preset || '';
+  const pick = adbDeviceChoice();
+  if (pick.blocked && presetId && presetId !== 'devices') {
+    adbStatus(pick.blocked, 9000);
+    return;
+  }
   try {
     if (presetId) {
       // The console's last run is not this run, and this run's answer belongs
@@ -2088,6 +2447,7 @@ async function runAdb(body) {
       method: 'POST',
       body: {
         ...body,
+        serial: pick.serial,
         codename: adbValue('codename'),
         manufacturer: adbValue('manufacturer'),
       },
@@ -2134,6 +2494,7 @@ async function installAdb() {
     adbPrint('✗ ' + err.message);
     adbStatus(err.message, 9000);
   }
+  refreshAdbDevices();
 }
 
 // Every property the server tried, in the order it tried them. Detecting is a
@@ -2144,9 +2505,14 @@ let detectCandidates = [];
 let detectAt = 0;
 
 async function detectDevice() {
+  const pick = adbDeviceChoice();
+  if (pick.blocked) {
+    adbStatus(pick.blocked, 9000);
+    return;
+  }
   try {
     adbStatus('asking the phone…', 0);
-    const d = await api('api/adb/detect', { method: 'POST', body: {} });
+    const d = await api('api/adb/detect', { method: 'POST', body: { serial: pick.serial } });
     detectCandidates = (d.candidates || []).filter((c) => c.value);
     detectAt = 0;
     if (d.manufacturer) $('adb-manufacturer').value = d.manufacturer;
@@ -2332,6 +2698,470 @@ async function runUpdate() {
   }
 }
 
+// ------------------------------------------------------------------- udfps --
+// The probe is a script (stuff/scripts/udfps-probe.sh) that answers in JSON;
+// this side only draws the answers and writes the one the user picks. Every row
+// keeps its source visible, because "540, 2198, 89" means nothing without
+// knowing which property or overlay it came from.
+let udfpsReport = null;
+let udfpsPick = -1;
+let udfpsFirmware = null; // what the path turned out to be, when it was a ROM image
+
+// firmwareLine says what the path was: a bare image the app unpacked, or a tree
+// that was already readable. The probe's own answer is the folder it scanned.
+function firmwareLine(fw, scanned) {
+  if (!fw) return 'Scanned ' + (scanned || 'the folder');
+  if (!fw.unpacked) return 'Read ' + (scanned || fw.dir) + ' (already unpacked)';
+  const parts = ['Unpacked ' + shortName(fw.source)];
+  if (fw.partitions) {
+    const ok = fw.partitions.filter((p) => p.fs !== '?').length;
+    parts.push(ok + ' partition' + (ok === 1 ? '' : 's'));
+  }
+  if (fw.kept) parts.push(fw.kept + ' files');
+  if (fw.cached) parts.push('from the cache');
+  return parts.join(' · ') + ' — scanned ' + (scanned || fw.dir);
+}
+
+function shortName(p) {
+  if (!p) return '';
+  const bits = String(p).split(/[\\/]/);
+  return bits[bits.length - 1] || p;
+}
+
+// The firmware path fields open the platform's own chooser, because the page
+// cannot turn a file picker into a path: a webview hands the script a File, and
+// the scan needs a path the unpacker can open — a 9 GB super.img is not going
+// to be uploaded to find out where it is. An empty answer is the user closing
+// the dialog, so the field keeps whatever was typed.
+async function choosePath(button, field, kind) {
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const res = await api('api/pick', { method: 'POST', body: { kind, start: $(field).value.trim() } });
+    if (res && res.path) {
+      $(field).value = res.path;
+      $(field).focus();
+    }
+  } catch (err) {
+    status(err.message, 6000);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function probeUDFPS(mode) {
+  const buttons = [$('udfps-detect'), $('udfps-scan')];
+  for (const b of buttons) b.disabled = true;
+  const pick = adbDeviceChoice();
+  if (mode !== 'firmware' && pick.blocked) {
+    for (const b of buttons) b.disabled = false;
+    $('udfps-summary').textContent = pick.blocked;
+    return;
+  }
+  $('udfps-results').hidden = false;
+  $('udfps-rows').textContent = '';
+  $('udfps-warnings').textContent = '';
+  $('udfps-notes').textContent = '';
+  $('udfps-detail').textContent = '';
+  $('udfps-applied').textContent = '';
+  $('udfps-files-fold').hidden = true;
+  $('udfps-log').hidden = true;
+  $('udfps-apply').disabled = true;
+  udfpsReport = null;
+  udfpsPick = -1;
+  udfpsFirmware = null;
+  $('udfps-summary').textContent = mode === 'firmware' ? 'reading the firmware…' : 'asking the phone…';
+
+  try {
+    const res = await api('api/udfps', {
+      method: 'POST',
+      body: {
+        action: 'probe',
+        mode,
+        serial: pick.serial,
+        path: mode === 'firmware' ? $('udfps-path').value.trim() : '',
+      },
+    });
+    udfpsReport = res.report;
+    udfpsFirmware = res.firmware || null;
+    renderUDFPS(res.log);
+  } catch (err) {
+    $('udfps-summary').textContent = 'nothing came back: ' + err.message;
+    const log = (err.data && err.data.log) || '';
+    if (log) {
+      $('udfps-log').hidden = false;
+      $('udfps-log').textContent = log;
+    }
+  } finally {
+    for (const b of buttons) b.disabled = false;
+  }
+}
+
+function renderUDFPS(log) {
+  const r = udfpsReport;
+  const tbody = $('udfps-rows');
+  tbody.textContent = '';
+
+  if (r.mode === 'firmware') {
+    $('udfps-summary').textContent = firmwareLine(udfpsFirmware, r.firmware);
+  } else if (r.device) {
+    const d = r.device;
+    const parts = [
+      d.model || 'unknown device',
+      d.codename ? '(' + d.codename + ')' : '',
+      d.width && d.height ? d.width + '×' + d.height + ' px' : '',
+      d.rom || '',
+    ];
+    $('udfps-summary').textContent = parts.filter(Boolean).join(' · ');
+  }
+
+  if (!r.candidates.length) {
+    const tr = el('tr');
+    const td = el('td', 'muted', 'No source answered — read the notes below.');
+    td.colSpan = 6;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  const chosen = r.chosen;
+  r.candidates.forEach((c, i) => {
+    if (udfpsPick < 0 && chosen && c.source === chosen.source && c.kind === chosen.kind) {
+      udfpsPick = i;
+    }
+    const tr = el('tr');
+    if (i === udfpsPick) tr.classList.add('is-picked');
+
+    const radioCell = el('td');
+    const radio = el('input');
+    radio.type = 'radio';
+    radio.name = 'udfps-pick';
+    radio.checked = i === udfpsPick;
+    radio.addEventListener('change', () => selectUDFPS(i));
+    radioCell.appendChild(radio);
+
+    tr.appendChild(radioCell);
+    tr.appendChild(el('td', 'udfps-source', c.source));
+    tr.appendChild(el('td', 'num', String(c.x)));
+    tr.appendChild(el('td', 'num', String(c.y)));
+    tr.appendChild(el('td', 'num', 'r=' + c.radius));
+    tr.appendChild(el('td', 'udfps-conf ' + c.confidence, c.confidence));
+    tr.title = c.detail || '';
+    tr.addEventListener('click', () => {
+      radio.checked = true;
+      selectUDFPS(i);
+    });
+    tbody.appendChild(tr);
+  });
+
+  if (udfpsPick < 0 && r.candidates.length) udfpsPick = 0;
+  selectUDFPS(udfpsPick);
+
+  const warnings = $('udfps-warnings');
+  for (const w of r.warnings || []) warnings.appendChild(el('p', 'warn', w));
+  const notes = $('udfps-notes');
+  for (const n of r.notes || []) notes.appendChild(el('p', 'muted small', n));
+
+  if ((r.files || []).length) {
+    const list = $('udfps-files');
+    list.textContent = '';
+    for (const f of r.files) {
+      const row = el('div', 'udfps-file');
+      row.appendChild(el('code', '', f.path));
+      row.appendChild(el('span', 'muted small', f.role || ''));
+      list.appendChild(row);
+    }
+    $('udfps-files-fold').hidden = false;
+  }
+
+  if (log) {
+    $('udfps-log').hidden = false;
+    $('udfps-log').textContent = log;
+  }
+}
+
+function selectUDFPS(i) {
+  const r = udfpsReport;
+  if (!r || !r.candidates.length) return;
+  udfpsPick = i;
+  const rows = $('udfps-rows').querySelectorAll('tr');
+  rows.forEach((tr, n) => {
+    tr.classList.toggle('is-picked', n === i && r.candidates[n] !== undefined);
+  });
+  const c = r.candidates[i];
+  $('udfps-detail').textContent = c.detail || '';
+  $('udfps-apply').disabled = false;
+  $('udfps-applied').textContent = '';
+}
+
+async function applyUDFPS() {
+  const r = udfpsReport;
+  const c = r && r.candidates[udfpsPick];
+  if (!c) return;
+  $('udfps-apply').disabled = true;
+  try {
+    await api('api/udfps', { method: 'POST', body: { action: 'apply', x: c.x, y: c.y, radius: c.radius } });
+    // config.env changed on disk: repaint the form so the Config tab agrees.
+    await refreshState(true);
+    $('udfps-applied').textContent = 'written to config.env: ' + c.x + ' / ' + c.y + ' / r=' + c.radius;
+    status('UDFPS values saved to config.env', 4000);
+  } catch (err) {
+    $('udfps-applied').textContent = 'not written: ' + err.message;
+  } finally {
+    $('udfps-apply').disabled = false;
+  }
+}
+
+// ------------------------------------------------------------------ detect --
+// device-probe.sh answers in JSON; every row keeps its source, because "135"
+// means nothing without knowing whether dumpsys, a framework resource or an
+// OEM overlay said it. Several rows can carry the same setting: those are the
+// sources that disagree, and exactly one of them is written per setting.
+let detectReport = null;
+let detectPick = {}; // setting -> index of the fact that will be written
+let detectFirmware = null; // what the path turned out to be, when it was a ROM image
+
+async function probeDetect(mode) {
+  const buttons = [$('detect-run'), $('detect-scan')];
+  for (const b of buttons) b.disabled = true;
+  const pick = adbDeviceChoice();
+  if (mode !== 'firmware' && pick.blocked) {
+    for (const b of buttons) b.disabled = false;
+    $('detect-summary').textContent = pick.blocked;
+    return;
+  }
+  $('detect-results').hidden = false;
+  $('detect-rows').textContent = '';
+  $('detect-warnings').textContent = '';
+  $('detect-notes').textContent = '';
+  $('detect-detail').textContent = '';
+  $('detect-applied').textContent = '';
+  $('detect-files-fold').hidden = true;
+  $('detect-log').hidden = true;
+  $('detect-apply').disabled = true;
+  detectReport = null;
+  detectPick = {};
+  detectFirmware = null;
+  $('detect-summary').textContent = mode === 'firmware' ? 'reading the firmware…' : 'asking the phone…';
+
+  try {
+    const res = await api('api/detect', {
+      method: 'POST',
+      body: {
+        action: 'probe',
+        mode,
+        serial: pick.serial,
+        path: mode === 'firmware' ? $('detect-path').value.trim() : '',
+      },
+    });
+    detectReport = res.report;
+    detectFirmware = res.firmware || null;
+    renderDetect(res.log);
+  } catch (err) {
+    $('detect-summary').textContent = 'nothing came back: ' + err.message;
+    const log = (err.data && err.data.log) || '';
+    if (log) {
+      $('detect-log').hidden = false;
+      $('detect-log').textContent = log;
+    }
+  } finally {
+    for (const b of buttons) b.disabled = false;
+  }
+}
+
+function renderDetect(log) {
+  const r = detectReport;
+  const tbody = $('detect-rows');
+  tbody.textContent = '';
+
+  if (r.mode === 'firmware') {
+    $('detect-summary').textContent = firmwareLine(detectFirmware, r.firmware);
+  } else if (r.device) {
+    const d = r.device;
+    const parts = [
+      d.model || 'unknown device',
+      d.codename ? '(' + d.codename + ')' : '',
+      d.width && d.height ? d.width + '×' + d.height + ' px' : '',
+      d.density ? d.density + ' dpi' : '',
+      d.rom || '',
+      d.isGsi ? 'GSI' : '',
+    ];
+    $('detect-summary').textContent = parts.filter(Boolean).join(' · ');
+  }
+
+  if (!r.facts.length) {
+    const tr = el('tr');
+    const td = el('td', 'muted', 'No source answered — read the notes below.');
+    td.colSpan = 5;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  // The first row for a setting is its highest-priority source; a second row
+  // means two sources disagree, so only one may be ticked.
+  detectPick = {};
+  r.facts.forEach((f, i) => {
+    if (!(f.key in detectPick) && f.confidence !== 'low') detectPick[f.key] = i;
+
+    const tr = el('tr');
+    tr.dataset.i = String(i);
+
+    const boxCell = el('td');
+    const box = el('input');
+    box.type = 'checkbox';
+    box.checked = detectPick[f.key] === i;
+    box.addEventListener('change', () => {
+      if (box.checked) detectPick[f.key] = i;
+      else if (detectPick[f.key] === i) delete detectPick[f.key];
+      syncDetectPicks();
+    });
+    boxCell.appendChild(box);
+
+    tr.appendChild(boxCell);
+    tr.appendChild(el('td', 'udfps-source', f.key));
+    const shown = f.value.length > 60 ? f.value.slice(0, 59) + '…' : f.value;
+    tr.appendChild(el('td', 'num', shown + (f.unit ? ' ' + f.unit : '')));
+    tr.appendChild(el('td', 'udfps-source', f.source));
+    tr.appendChild(el('td', 'udfps-conf ' + f.confidence, f.confidence));
+    tr.title = f.detail || '';
+    tr.addEventListener('click', (event) => {
+      if (event.target !== box) {
+        box.checked = true;
+        detectPick[f.key] = i;
+        syncDetectPicks();
+      }
+      $('detect-detail').textContent = f.detail || '';
+    });
+    tbody.appendChild(tr);
+  });
+
+  syncDetectPicks();
+
+  const warnings = $('detect-warnings');
+  for (const w of r.warnings || []) warnings.appendChild(el('p', 'warn', w));
+  const notes = $('detect-notes');
+  for (const n of r.notes || []) notes.appendChild(el('p', 'muted small', n));
+
+  if ((r.files || []).length) {
+    const list = $('detect-files');
+    list.textContent = '';
+    for (const f of r.files) {
+      const row = el('div', 'udfps-file');
+      row.appendChild(el('code', '', f.path));
+      row.appendChild(el('span', 'muted small', f.role || ''));
+      list.appendChild(row);
+    }
+    $('detect-files-fold').hidden = false;
+  }
+
+  if (log) {
+    $('detect-log').hidden = false;
+    $('detect-log').textContent = log;
+  }
+}
+
+function syncDetectPicks() {
+  if (!detectReport) return;
+  for (const tr of $('detect-rows').querySelectorAll('tr[data-i]')) {
+    const i = Number(tr.dataset.i);
+    const f = detectReport.facts[i];
+    if (!f) continue;
+    const box = tr.querySelector('input');
+    box.checked = detectPick[f.key] === i;
+    tr.classList.toggle('is-picked', box.checked);
+  }
+  const keys = Object.keys(detectPick);
+  $('detect-apply').disabled = keys.length === 0;
+  if (keys.length) {
+    $('detect-detail').textContent = keys.length + ' setting(s) ticked: ' + keys.join(', ');
+  }
+}
+
+async function applyDetect() {
+  if (!detectReport) return;
+  const values = {};
+  for (const key of Object.keys(detectPick)) {
+    values[key] = detectReport.facts[detectPick[key]].value;
+  }
+  $('detect-apply').disabled = true;
+  try {
+    await api('api/detect', { method: 'POST', body: { action: 'apply', values } });
+    // config.env changed on disk: repaint the form so the Config tab agrees.
+    await refreshState(true);
+    $('detect-applied').textContent = 'written to config.env: ' + Object.keys(values).join(', ');
+    status('Display values saved to config.env', 4000);
+  } catch (err) {
+    $('detect-applied').textContent = 'not written: ' + err.message;
+  } finally {
+    $('detect-apply').disabled = Object.keys(detectPick).length === 0;
+  }
+}
+
+// The power profile is a file rather than a value, so it has its own actions:
+// read (device or folder) returns the converted XML, and save writes it to the
+// source tree after the user has seen it.
+let powerXML = '';
+
+async function readPower(mode) {
+  const buttons = [$('power-read'), $('power-folder')];
+  for (const b of buttons) b.disabled = true;
+  const pick = adbDeviceChoice();
+  if (mode !== 'firmware' && pick.blocked) {
+    for (const b of buttons) b.disabled = false;
+    $('power-summary').textContent = pick.blocked;
+    return;
+  }
+  $('power-save').disabled = true;
+  $('power-saved').textContent = '';
+  $('power-summary').textContent = mode === 'firmware' ? 'reading the folder…' : 'asking the phone…';
+
+  try {
+    const res = await api('api/detect', {
+      method: 'POST',
+      body: {
+        action: 'power',
+        mode,
+        serial: pick.serial,
+        path: mode === 'firmware' ? $('detect-path').value.trim() : '',
+      },
+    });
+    const p = res.profile;
+    powerXML = p.xml;
+    $('power-preview').hidden = false;
+    $('power-preview').textContent = p.xml;
+    $('power-summary').textContent =
+      p.items + ' entries from ' + (p.source || 'the ROM') +
+      (res.log ? ' · ' + res.log : '');
+    $('power-save').disabled = false;
+  } catch (err) {
+    powerXML = '';
+    $('power-summary').textContent = 'nothing came back: ' + err.message;
+    const log = (err.data && err.data.log) || '';
+    if (log) {
+      $('power-preview').hidden = false;
+      $('power-preview').textContent = log;
+    }
+  } finally {
+    for (const b of buttons) b.disabled = false;
+  }
+}
+
+async function savePower() {
+  if (!powerXML) return;
+  $('power-save').disabled = true;
+  try {
+    const res = await api('api/detect', {
+      method: 'POST',
+      body: { action: 'power-save', xml: powerXML },
+    });
+    await refreshState(true);
+    $('power-saved').textContent = 'written: ' + res.path + ' (' + res.items + ' entries)';
+    status('power_profile.xml saved', 4000);
+  } catch (err) {
+    $('power-saved').textContent = 'not written: ' + err.message;
+    $('power-save').disabled = false;
+  }
+}
+
 // -------------------------------------------------------------------- tabs --
 function switchTab(name) {
   for (const t of document.querySelectorAll('.tab')) {
@@ -2340,7 +3170,11 @@ function switchTab(name) {
   for (const p of document.querySelectorAll('.pane')) {
     p.classList.toggle('is-active', p.id === 'pane-' + name);
   }
-  if (name === 'device') renderAdb();
+  if (name === 'device') {
+    renderAdb();
+    refreshAdbDevices();
+  }
+  if (name === 'detect' || name === 'udfps' || name === 'config') refreshAdbDevices();
   if (name === 'config') renderConfig();
   if (name === 'files') loadFiles();
 }
@@ -2550,7 +3384,17 @@ function bind() {
     updateCfgStatus();
   });
 
-  $('adb-refresh').addEventListener('click', () => refreshState(true));
+  $('adb-refresh').addEventListener('click', () => {
+    refreshState(true);
+    refreshAdbDevices();
+  });
+  $('adb-devices-reload').addEventListener('click', () => refreshAdbDevices());
+  for (const sel of document.querySelectorAll('select.adb-device-select')) {
+    sel.addEventListener('change', () => {
+      setAdbDevice(sel.value);
+      renderAdbDevices();
+    });
+  }
   // Clear the text, not the run: the stream keeps writing and a preset's panel
   // keeps its copy.
   $('adb-clear').addEventListener('click', () => { $('adb-console').textContent = ''; });
@@ -2594,6 +3438,27 @@ function bind() {
     b.addEventListener('click', () => extract(b.dataset.extract));
   }
 
+  $('detect-pick').addEventListener('click', () => choosePath($('detect-pick'), 'detect-path', 'file'));
+  $('detect-pick-dir').addEventListener('click', () => choosePath($('detect-pick-dir'), 'detect-path', 'folder'));
+  $('detect-run').addEventListener('click', () => probeDetect('device'));
+  $('detect-scan').addEventListener('click', () => probeDetect('firmware'));
+  $('detect-apply').addEventListener('click', applyDetect);
+  $('power-read').addEventListener('click', () => readPower('device'));
+  $('power-folder').addEventListener('click', () => readPower('firmware'));
+  $('power-save').addEventListener('click', savePower);
+  $('detect-path').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') probeDetect('firmware');
+  });
+
+  $('udfps-pick').addEventListener('click', () => choosePath($('udfps-pick'), 'udfps-path', 'file'));
+  $('udfps-pick-dir').addEventListener('click', () => choosePath($('udfps-pick-dir'), 'udfps-path', 'folder'));
+  $('udfps-detect').addEventListener('click', () => probeUDFPS('device'));
+  $('udfps-scan').addEventListener('click', () => probeUDFPS('firmware'));
+  $('udfps-apply').addEventListener('click', applyUDFPS);
+  $('udfps-path').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') probeUDFPS('firmware');
+  });
+
   $('docs-body').addEventListener('click', (event) => {
     const target = event.target.closest('button.md-link, button.md-ext');
     if (!target) return;
@@ -2627,6 +3492,7 @@ function bind() {
   connectLog();
   connectAdbLog();
   await refreshState(true);
+  await refreshAdbDevices();
   if (!state || !state.cloneValid) openSettings();
   setInterval(refreshState, 20000);
 })();

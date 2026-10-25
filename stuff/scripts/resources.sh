@@ -638,9 +638,27 @@ GENEOF
     sysui_size_entry status_bar_icons_padding_end   "${STATUS_BAR_ICONS_PADDING_END:-}"   STATUS_BAR_ICONS_PADDING_END
     sysui_size_entry ongoing_appops_dot_min_padding "${STATUS_BAR_DOT_MIN_PADDING:-}"     STATUS_BAR_DOT_MIN_PADDING
 
+    # ── UDFPS icon colour ─────────────────────────────────────────────────
+    # config_udfpsColor is what SystemUI paints the fingerprint icon - and the
+    # light behind it - with. AOSP ships opaque white (#ffffffff). A grey spot
+    # is usually the panel's local HBM staying off, not this value; see
+    # docs/udfps.md.
+    local udfps_color="${UDFPS_COLOR:-}"
+    if [ -n "$udfps_color" ] && [[ "$udfps_color" != *"<"* ]]; then
+        case "$udfps_color" in
+            \#*) ;;
+            *)   udfps_color="#${udfps_color}" ;;
+        esac
+        if [[ "$udfps_color" =~ ^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$ ]]; then
+            printf '    <color name="config_udfpsColor">%s</color>\n' "$udfps_color" >> "$gen"
+        else
+            warn "UDFPS_COLOR must be a hex colour (#rrggbb or #aarrggbb) — skipped"
+        fi
+    fi
+
     echo "</resources>" >> "$gen"
 
     local sysui_count
-    sysui_count=$(grep -cE '<(bool|dimen)[[:space:]]+name=' "$gen" 2>/dev/null || true)
+    sysui_count=$(grep -cE '<(bool|dimen|color)[[:space:]]+name=' "$gen" 2>/dev/null || true)
     ok "Generated: ${SYSUI_RES_DIR}/values/generated.xml (${sysui_count:-0} resource entries)"
 }

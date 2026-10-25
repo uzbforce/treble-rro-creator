@@ -214,3 +214,118 @@ func TestHumanBytes(t *testing.T) {
 		t.Fatalf("humanBytes(3MB) = %q", got)
 	}
 }
+
+// `adb devices -l` is not a clean table: the same stream carries the daemon
+// start notice, header and version-mismatch lines, and a phone that is attached
+// but unauthorized has to survive parsing with its state intact.
+func TestParseAdbDevices(t *testing.T) {
+	out := "List of devices attached\n" +
+		"* daemon not running; starting now at tcp:5037\n" +
+		"RFCM90F5BBX            device product:lineage_r3q model:SM_A908N device:r3q transport_id:36\n" +
+		"595648cf1cdc           device product:zephyr_global model:26012RN62A device:zephyr transport_id:37\n" +
+		"0123456789AB           unauthorized usb:1-1 transport_id:3\n" +
+		"emulator-5554          offline\n" +
+		"\n"
+
+	devices := parseAdbDevices(out)
+	if len(devices) != 4 {
+		t.Fatalf("parsed %d devices, want 4: %+v", len(devices), devices)
+	}
+	if devices[0].Serial != "RFCM90F5BBX" || devices[0].Model != "SM_A908N" || devices[0].Product != "lineage_r3q" {
+		t.Fatalf("first device = %+v", devices[0])
+	}
+	if devices[0].Label != "SM_A908N (lineage_r3q)" {
+		t.Fatalf("label = %q", devices[0].Label)
+	}
+	if devices[2].State != "unauthorized" {
+		t.Fatalf("unauthorized state was lost: %+v", devices[2])
+	}
+	if devices[3].State != "offline" || devices[3].Label != "no model reported" {
+		t.Fatalf("offline device = %+v", devices[3])
+	}
+	if got := len(readyAdbDevices(devices)); got != 2 {
+		t.Fatalf("%d ready devices, want 2", got)
+	}
+}
+
+func TestPickAdbSerial(t *testing.T) {
+	devices := []AdbDevice{
+		{Serial: "A90", State: "device", Model: "SM_A908N"},
+		{Serial: "REDMI", State: "device", Model: "26012RN62A"},
+		{Serial: "OLD", State: "unauthorized"},
+	}
+
+	if got, err := pickAdbSerial(devices, "REDMI"); err != nil || got != "REDMI" {
+		t.Fatalf("explicit pick = %q, %v", got, err)
+	}
+	if _, err := pickAdbSerial(devices, ""); err == nil {
+		t.Fatal("two ready devices with no pick was accepted")
+	} else if !strings.Contains(err.Error(), "choose one") {
+		t.Fatalf("error does not say what to do: %v", err)
+	}
+	if _, err := pickAdbSerial(devices, "OLD"); err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("unauthorized pick = %v", err)
+	}
+	if _, err := pickAdbSerial(devices, "GONE"); err == nil || !strings.Contains(err.Error(), "is not attached") {
+		t.Fatalf("stale pick = %v", err)
+	}
+	if _, err := pickAdbSerial(devices, "A90 "); err != nil {
+		t.Fatalf("a trailing space in the pick broke it: %v", err)
+	}
+
+	one := devices[:1]
+	if got, err := pickAdbSerial(one, ""); err != nil || got != "A90" {
+		t.Fatalf("single ready device = %q, %v", got, err)
+	}
+	if _, err := pickAdbSerial(nil, ""); err == nil || !strings.Contains(err.Error(), "no device is connected") {
+		t.Fatalf("empty list = %v", err)
+	}
+	if _, err := pickAdbSerial(devices[2:], ""); err == nil || !strings.Contains(err.Error(), "no device is ready") {
+		t.Fatalf("nothing ready = %v", err)
+	}
+}
+
+func TestAdbArgsHaveSerial(t *testing.T) {
+	if !adbArgsHaveSerial([]string{"-s", "X", "shell", "true"}) {
+		t.Fatal("-s was not recognised")
+	}
+	if adbArgsHaveSerial([]string{"shell", "true"}) {
+		t.Fatal("a command without a selector was treated as one")
+	}
+}
+
+// `adb devices -l` is a stream, not a table: the daemon's chatter and a version
+// warning share it with the list, the same serial can appear twice, and a
+// wireless transport looks like an address. None of that may reach the picker.
+func TestParseAdbDevicesHardening(t *testing.T) {
+	out := "List of devices attached\n" +
+		"adb server version (41) doesn't match this client (39); killing...\n" +
+		"* daemon started successfully *\n" +
+		"192.168.0.31:5555      device product:lineage_r3q model:SM_A908N device:r3q\n" +
+		"RFCM90F5BBX            device product:lineage_r3q model:SM_A908N device:r3q\n" +
+		"RFCM90F5BBX            device product:lineage_r3q model:SM_A908N device:r3q\n" +
+		"595648cf1cdc           unauthorized usb:1-1 transport_id:37\n"
+
+	devices := parseAdbDevices(out)
+	if len(devices) != 3 {
+		t.Fatalf("parsed %d devices, want 3 (chatter dropped, duplicate merged): %+v", len(devices), devices)
+	}
+	if devices[0].Serial != "192.168.0.31:5555" || !strings.Contains(devices[0].Label, "[wireless]") {
+		t.Fatalf("wireless device = %+v", devices[0])
+	}
+	if devices[1].Serial != "RFCM90F5BBX" || strings.Contains(devices[1].Label, "[wireless]") {
+		t.Fatalf("usb device = %+v", devices[1])
+	}
+	if len(readyAdbDevices(devices)) != 2 {
+		t.Fatalf("%d ready devices, want 2", len(readyAdbDevices(devices)))
+	}
+}
+
+func TestAdbConnecting(t *testing.T) {
+	if !adbConnecting([]AdbDevice{{Serial: "X", State: "connecting"}}) {
+		t.Fatal("a connecting device was not noticed")
+	}
+	if adbConnecting([]AdbDevice{{Serial: "X", State: "device"}, {Serial: "Y", State: "offline"}}) {
+		t.Fatal("ready/offline devices were treated as connecting")
+	}
+}

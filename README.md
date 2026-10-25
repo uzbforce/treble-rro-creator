@@ -47,7 +47,12 @@ away); a **Device** tab with an adb console, the commands worth running on a
 phone, and a button that installs platform-tools if you do not have them; and a
 **Files** tab that is the `src/` workspace — drop a vendor HAL tree in, disable
 a file out of the build without deleting it, and write the SELinux rules and
-VINTF manifests a custom HAL needs, checked as you type. The header tells you
+VINTF manifests a custom HAL needs, checked as you type; and a **UDFPS** tab
+that finds the sensor's real geometry on the phone or in an OEM firmware — a
+`super.img`, a Samsung `AP_*.tar.md5` or an extracted tree, all unpacked by the
+app itself — with the source of every answer, instead of asking you to guess
+three numbers.
+The header tells you
 when a newer release exists, and an update that would overwrite your own edits
 asks first and backs them up.
 
@@ -327,7 +332,8 @@ the new one.
 | [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |
 | [docs/termux.md](docs/termux.md) | Building on the phone |
 | [docs/device-extraction.md](docs/device-extraction.md) | Extracting vendor HALs and `power_profile.xml` |
-| [docs/udfps.md](docs/udfps.md) | Finding UDFPS coordinates |
+| [docs/udfps.md](docs/udfps.md) | Finding UDFPS coordinates and enabling the touch-panel FOD mode |
+| [docs/detect.md](docs/detect.md) | Reading the cutout, corner radius, status bar and refresh rate off the device or a ROM |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Doctor, bootloops, SELinux, overlay inactive |
 | [docs/how-it-works.md](docs/how-it-works.md) | RROs, module mechanics, build steps |
 

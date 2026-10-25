@@ -3,8 +3,8 @@
 # ---------------------------------------------------------------------------
 # build.sh calls this on Windows, where Git for Windows ships no `zip` binary.
 # It writes POSIX-style entry names ("system/product/overlay/x.apk") and Unix
-# modes (0100755 for *.sh, 0100644 otherwise), so the result is byte-compatible
-# with what Info-ZIP produces on Linux/Termux.
+# modes (0100755 for *.sh, update-binary and the FOD helper, 0100644 otherwise),
+# so the result is byte-compatible with what Info-ZIP produces on Linux/Termux.
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File windows/zipdir.ps1 `
@@ -50,7 +50,7 @@ try {
             $rel = $f.FullName.Substring($src.Length + 1).Replace('\', '/')
             $entry = $zip.CreateEntry($rel, [System.IO.Compression.CompressionLevel]::Optimal)
             $entry.LastWriteTime = $f.LastWriteTime
-            if ($f.Extension -eq '.sh' -or $f.Name -eq 'update-binary') {
+            if ($f.Extension -eq '.sh' -or $f.Name -eq 'update-binary' -or $rel -eq 'fod/xiaomi-fod') {
                 $entry.ExternalAttributes = 0x81ED -shl 16   # 0100755
             } else {
                 $entry.ExternalAttributes = 0x81A4 -shl 16   # 0100644

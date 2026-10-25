@@ -148,6 +148,11 @@ type App struct {
 	upd     UpdateInfo
 	updWhen time.Time
 	updBusy bool
+
+	// The native file chooser: pickMu keeps one dialog open at a time, and
+	// picker answers it instead in a test (nil means the platform dialog).
+	pickMu sync.Mutex
+	picker func(pickAsk) (string, error)
 }
 
 func newApp(explicitClone string) (*App, error) {

@@ -73,9 +73,14 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/update", a.guard("POST", a.handleUpdate))
 	mux.HandleFunc(base+"/api/config/apply", a.guard("POST", a.handleConfigApply))
 	mux.HandleFunc(base+"/api/adb", a.guard("POST", a.handleAdb))
+	mux.HandleFunc(base+"/api/adb/devices", a.guard("GET", a.handleAdbDevices))
 	mux.HandleFunc(base+"/api/adb/install", a.guard("POST", a.handleAdbInstall))
 	mux.HandleFunc(base+"/api/adb/detect", a.guard("POST", a.handleAdbDetect))
+	mux.HandleFunc(base+"/api/adb/match-prop", a.guard("POST", a.handleMatchProp))
 	mux.HandleFunc(base+"/api/extract", a.guard("POST", a.handleExtract))
+	mux.HandleFunc(base+"/api/udfps", a.guard("POST", a.handleUDFPS))
+	mux.HandleFunc(base+"/api/detect", a.guard("POST", a.handleDetect))
+	mux.HandleFunc(base+"/api/pick", a.guard("POST", a.handlePick))
 	mux.HandleFunc(base+"/api/url", a.guard("POST", a.handleURL))
 
 	// The src/ workspace: the file manager, its two editors and the checks behind
@@ -543,6 +548,7 @@ func (a *App) handleAdb(w http.ResponseWriter, r *http.Request) {
 		Preset       string `json:"preset"`
 		Codename     string `json:"codename"`
 		Manufacturer string `json:"manufacturer"`
+		Serial       string `json:"serial"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -602,11 +608,33 @@ func (a *App) handleAdb(w http.ResponseWriter, r *http.Request) {
 		label = "adb " + strings.Join(args, " ")
 	}
 
+	// Which phone. A typed `-s` is left alone; otherwise the picker's serial is
+	// prepended. Commands that do not talk to a device (version, devices, the
+	// server verbs) accept the selector and ignore it, so no command needs a
+	// special case here.
+	if serial := safeToken(body.Serial); serial != "" && !adbArgsHaveSerial(args) {
+		args = append([]string{"-s", serial}, args...)
+		label = "adb -s " + serial + " " + strings.Join(args[2:], " ")
+	}
+
 	if err := a.adbRunner.Start(root, adb, args, label, true); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusAccepted, a.adbRunner.Snapshot())
+}
+
+// handleAdbDevices is what the picker reads: every attached phone and its state.
+func (a *App) handleAdbDevices(w http.ResponseWriter, r *http.Request) {
+	devices, err := a.adbDevices()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"devices": devices,
+		"ready":   len(readyAdbDevices(devices)),
+	})
 }
 
 // handleAdbInstall downloads platform-tools once. It is the only job that runs
@@ -677,13 +705,24 @@ func detectCodenames(probe func(string) string) []DetectCandidate {
 // handleAdbDetect asks the phone for the values the presets need, so the user
 // does not have to read one command's output and type it into another box.
 func (a *App) handleAdbDetect(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Serial string `json:"serial"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
 	adb := a.adbPath()
 	if adb == "" {
 		writeError(w, http.StatusBadRequest, "adb is not installed yet — use \"Download platform-tools\" first")
 		return
 	}
+	serial, err := a.deviceSerialFor(body.Serial)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	probe := func(prop string) string {
-		out, err := runCapture(adb, "shell", "getprop", prop)
+		out, err := runCapture(adb, "-s", serial, "shell", "getprop", prop)
 		if err != nil {
 			return ""
 		}
@@ -704,6 +743,52 @@ func (a *App) handleAdbDetect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleMatchProp ranks the properties this phone could be matched on, for the
+// Overlay activation section of the Config tab. The two getprop dumps are read
+// from the same selected phone as every other device action; nothing is written
+// here — the page stages the two config.env lines and the user saves them.
+func (a *App) handleMatchProp(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Serial string `json:"serial"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	adb := a.adbPath()
+	if adb == "" {
+		writeError(w, http.StatusBadRequest, "adb is not installed yet — use \"Download platform-tools\" first")
+		return
+	}
+	serial, err := a.deviceSerialFor(body.Serial)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Values and SELinux areas come from two commands: `getprop -Z` prints the
+	// area only, and both streams are one adb round trip each.
+	valuesOut, err := runCapture(adb, "-s", serial, "shell", "getprop")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "the phone did not answer getprop: "+err.Error())
+		return
+	}
+	// The labels are the second-best signal, never required: `getprop -Z` is
+	// missing on old Android, and without it the ranking still works (the card
+	// says readability is unchecked instead of refusing to answer).
+	labels := map[string]string{}
+	if labelsOut, err := runCapture(adb, "-s", serial, "shell", "getprop", "-Z"); err == nil {
+		labels = parseGetpropLabels(labelsOut)
+	}
+
+	report := rankMatchProps(parseGetprop(valuesOut), labels)
+	report.Serial = serial
+	if report.Codename == "" && report.Model == "" {
+		writeError(w, http.StatusBadGateway, "the phone reported no identity properties — is it still connected?")
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 func lookupPreset(id string) (AdbPreset, bool) {

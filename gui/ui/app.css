@@ -64,6 +64,26 @@
 
 * { box-sizing: border-box; }
 
+/* Tell the browser which way the controls should look: without this the scroll
+   bars and the select popups stay light on the dark theme, which is the one
+   piece of native chrome that does not follow the palette below. */
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }
+
+/* One scrollbar for the whole window, the same on every pane that scrolls
+   (config form, log, files): a thin trackless bar in the rule colour. */
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -251,6 +271,7 @@ button.link:hover { color: var(--ink); background: none; }
   font-size: 13px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+  transition: color .12s var(--ease), border-color .12s var(--ease);
 }
 .tab:hover:not(:disabled) { background: none; color: var(--ink); }
 .tab.is-active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
@@ -272,6 +293,7 @@ main { flex: 1; min-height: 0; display: flex; }
   border: 1px solid var(--rule);
   background: var(--panel);
   box-shadow: var(--shadow);
+  transition: border-color .12s var(--ease), background .12s var(--ease), color .12s var(--ease);
 }
 .verb h3 { font-size: 13px; margin-bottom: 2px; }
 .verb p { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
@@ -380,6 +402,7 @@ textarea#cfg {
   padding: 6px 9px;
   font-size: 12.5px;
   color: var(--muted);
+  transition: background .12s var(--ease), color .12s var(--ease);
 }
 .docs-nav button:hover { background: var(--panel-2); color: var(--ink); }
 .docs-nav button.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -572,6 +595,64 @@ textarea#cfg {
   white-space: pre-wrap;
 }
 
+/* ---- match property ------------------------------------------------------- */
+/* The card sits inside the Overlay activation section, between the rows and the
+   next heading. A wrong match condition is invisible in the built module, so it
+   gets more room than a normal setting. */
+.cfg-match {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.cfg-match-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cfg-match-title { font-weight: 600; font-size: 12px; }
+.cfg-match-head select { margin-left: auto; max-width: 320px; min-width: 200px; }
+.cfg-match .hint { margin: 6px 0 8px; }
+.cfg-match-summary { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cfg-match-summary .muted { white-space: nowrap; }
+.cfg-match-row {
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+}
+.cfg-match-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cfg-match-prop { font-size: 12px; }
+.cfg-match-eq { color: var(--muted); }
+.cfg-match-val { font-size: 12px; color: var(--accent); }
+.cfg-match-row-head button { margin-left: auto; }
+.cfg-match-badge {
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  color: var(--muted);
+}
+.cfg-match-badge.trust-high { border-color: var(--ok); color: var(--ok); }
+.cfg-match-badge.trust-medium { border-color: var(--accent); color: var(--accent); }
+.cfg-match-badge.trust-low { opacity: .8; }
+.cfg-match-why { margin: 4px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.cfg-match-risk { margin: 3px 0 0; font-size: 12px; color: var(--warn); line-height: 1.45; }
+.cfg-match-rejected { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.cfg-match-error { margin: 0 0 6px; font-size: 12px; color: var(--bad); }
+.cfg-match-warn {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+}
+.cfg-match details { margin-top: 6px; }
+.cfg-match summary { cursor: pointer; }
+@keyframes cfg-flash {
+  from { background: var(--accent-soft); }
+  to { background: transparent; }
+}
+.cfg-row.is-flash { animation: cfg-flash 1.4s var(--ease); border-radius: 4px; }
+
 /* ------------------------------------------------------------------ device -- */
 .adb-form { display: flex; gap: 8px; margin-bottom: 10px; }
 .adb-form input {
@@ -604,6 +685,32 @@ textarea#cfg {
   font-family: var(--mono);
   font-size: 12px;
   width: 150px;
+}
+/* The device picker: the same field as the inputs above, wide enough for a
+   serial, repeated on the tabs that probe a phone. */
+.adb-values select,
+.device-pick select,
+.cfg-match-head select {
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 12px;
+  max-width: 320px;
+}
+.adb-values select { font-family: var(--mono); }
+.device-row { margin: 10px 0 4px; }
+.device-row > button { align-self: flex-end; }
+.device-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
 }
 
 /* The answer Detect gave, with its caret over the codename box it filled. */
@@ -709,9 +816,7 @@ textarea#cfg {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .preset-out { animation: none; }
-}
+
 .adb-form kbd,
 .hint kbd {
   font-family: var(--mono);
@@ -756,7 +861,7 @@ textarea#cfg {
 }
 .files-tree.is-drop { border-color: var(--accent); background: var(--accent-soft); }
 .files-tree:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.ft-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; }
+.ft-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; transition: background .12s var(--ease), box-shadow .12s var(--ease); }
 .ft-row:hover { background: var(--panel-2); }
 .ft-row.is-target { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .ft-row.is-selected { background: var(--accent-soft); }
@@ -959,6 +1064,39 @@ button.danger { color: var(--bad); border-color: var(--bad); }
 button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
 .error { color: var(--bad); background: var(--bad-soft); padding: 8px 10px; border-radius: 8px; margin-top: 12px; font-size: 12.5px; }
 
+/* ------------------------------------------------------------------- udfps -- */
+/* A table rather than cards: the interesting thing is how the answers from
+   different sources compare, which only reads when they share columns. */
+.udfps-table-wrap { overflow-x: auto; margin: 10px 0 2px; }
+.udfps-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.udfps-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 8px 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.udfps-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; transition: background .12s var(--ease); }
+.udfps-table tr { cursor: pointer; }
+.udfps-table tr:hover td { background: var(--panel-2); }
+.udfps-table tr.is-picked td { background: var(--accent-soft); }
+.udfps-table td.num, .udfps-table td.udfps-source { font-family: var(--mono); }
+.udfps-table td.num { white-space: nowrap; }
+.udfps-table input { margin: 2px 0 0; accent-color: var(--accent); }
+.udfps-conf { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.udfps-conf.high { color: var(--ok); }
+.udfps-conf.medium { color: var(--warn); }
+.udfps-conf.guess, .udfps-conf.low { color: var(--bad); }
+.udfps-notes p { margin: 8px 0 0; font-size: 12px; }
+.udfps-notes p.warn { color: var(--warn); }
+.udfps-files { padding: 4px 0 2px; }
+.udfps-file { display: flex; flex-direction: column; gap: 1px; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.udfps-file code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+#udfps-log { margin-top: 10px; max-height: 220px; }
+
 @media (max-width: 760px) {
   .docs { flex-direction: column; }
   .docs-nav { width: auto; flex-direction: row; flex-wrap: wrap; overflow: visible; }
@@ -967,4 +1105,52 @@ button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--b
   .files-tree { min-height: 120px; max-height: 32vh; }
   .chips { display: none; }
   #sub { max-width: 70vw; }
+}
+
+/* ------------------------------------------------------------------ motion -- */
+/* Short, one-shot, and made of opacity plus a couple of pixels: enough to show
+   that something changed, never enough to watch. Nothing loops and nothing
+   bounces — the tabs, dialogs and answer cards are used dozens of times a
+   session, and a flourish is a tax on every one of them. */
+@keyframes pane-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+.pane.is-active { animation: pane-in .13s var(--ease); }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(-3px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+dialog[open] { animation: dialog-in .15s var(--ease); }
+@keyframes backdrop-in { from { opacity: 0; } }
+dialog[open]::backdrop { animation: backdrop-in .15s ease-out; }
+
+/* The answer cards are unhidden when a scan starts, so the fade is the
+   acknowledgement that the click landed. The power profile is the same. */
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+#udfps-results:not([hidden]),
+#detect-results:not([hidden]),
+#power-preview:not([hidden]) { animation: card-in .15s var(--ease); }
+
+/* A folder dragged over the tree: the border is the target, and it should not
+   snap between states while the pointer crosses it. */
+.files-tree { transition: border-color .12s var(--ease), background .12s var(--ease); }
+
+/* The one-line status next to Run appears and clears on its own; an instant
+   swap draws the eye to the corner it is in. */
+#run-status { transition: opacity .15s var(--ease); }
+#run-status:empty { opacity: 0; }
+
+/* One switch for the people the animations cost something: the app has no
+   animation that carries information, so none of them has to survive this. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
 }

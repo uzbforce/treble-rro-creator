@@ -125,6 +125,16 @@ so the window no longer opens on a list of files from some earlier run.
   for byte, and a row you did not touch is never rewritten at all. **Check**
   saves, then runs `build.sh check`, so a typo is reported by the code that
   actually parses the file rather than by a second parser here.
+
+  Under *Overlay activation* sits **Match property**: it asks the selected phone
+  which properties carry its codename, whether zygote can read them and whether
+  the value survives a GSI, ranks the answers with the reasons, and stages
+  `HW_OVERLAY_MATCH_PROP` / `_VALUE` when you click **Use**. If no property
+  passes all three tests it says so and keeps the working default
+  (`persist.sys.overlay.<codename>`) instead of selling a guess; the rows are
+  still listed with the reasons they fell short (a shared `mivendor`, a GSI
+  `generic`, a `build_prop` that a GSI renames) — see
+  [configuration.md](configuration.md#choosing-the-match-property).
 - **Files** — the `src/` workspace, so placing a HAL never means leaving the
   window. The tree is exactly what the build reads: `framework/` and `systemui/`
   resources, `module/` scripts, the optional `vendor/` HAL tree and `webui/`.
@@ -176,6 +186,15 @@ so the window no longer opens on a list of files from some earlier run.
     downloaded tools). No Android SDK, and nothing else has to be installed to
     unzip it. The line under the heading says which adb is in use and its
     version.
+  - **device** — the phone every command goes to. With one attached there is
+    nothing to choose; with several, the list is filled from `adb devices -l`
+    and the pick is remembered, so a second phone on the desk never silently
+    takes the answer. The same picker sits at the top of the Detect and UDFPS
+    tabs, because that is where the choice matters, and **Reload devices**
+    re-reads the list after a replug. A phone that is attached but not ready is
+    shown with its state (unauthorized, offline, no permissions) instead of
+    being left out — see
+    [detect.md](detect.md#more-than-one-phone).
   - **Command** — one box for anything adb understands: `devices -l`,
     `shell …`, `pull …`. Pipes belong to the *phone's* shell, so
     `shell getprop | grep -i r3q` works as typed, and nothing goes through a
@@ -206,6 +225,88 @@ so the window no longer opens on a list of files from some earlier run.
     full vendor tarball → `stuff/tools/vendor.tar.gz`. The tarball is **not**
     extracted for you; see [device-extraction.md](device-extraction.md) for why
     it has to be unpacked one level above `src/vendor`.
+- **UDFPS** — the sensor-geometry question on its own, because it is the one
+  value in `config.env` that is a fact about the hardware rather than a taste.
+  **Read from the connected phone** runs `stuff/scripts/udfps-probe.sh`: it
+  reads the vendor FOD properties, follows `cmd overlay dump` to the enabled
+  overlay and dumps that APK's `config_udfps_sensor_props` with `aapt2`, and
+  falls back to the HAL and kernel sources when neither answers. The rows are
+  every answer with its source, confidence and coordinates, plus what was read
+  and anything the probe could not do (no aapt2, an unreadable overlay).
+
+  **Scan firmware** does the same against a ROM instead of a phone: give it the
+  fastboot ROM's `super.img`, a Samsung `AP_*.tar.md5`, the ROM folder, or a
+  tree you already unpacked. A bare image is unpacked first, and the answer
+  line says what came out of it (`Unpacked super.img · 8 partitions · 1299
+  files`). **Use the selected values** writes `UDFPS_X` / `UDFPS_Y` /
+  `UDFPS_RADIUS` and switches `HAS_UDFPS` on, through the same line-addressed
+  save as the config form.
+  [udfps.md](udfps.md) explains each source and the arithmetic behind the
+  numbers.
+- **Detect** — the other settings that are facts about the panel or the ROM
+  rather than style: the cutout path, corner radius, status bar height, refresh
+  rates, the six brightness integers, and the `HAS_*` feature flags.
+  **Read from the connected phone** runs `stuff/scripts/device-probe.sh`, which
+  reads the panel geometry from `dumpsys`, the framework resources from
+  `cmd overlay lookup`, and the enabled overlay APKs with `aapt2`; **Scan
+  firmware** takes the same path for a `super.img`, a Samsung `AP_*.tar.md5`,
+  a ROM folder or an extracted tree. Every answer keeps its source and a
+  confidence, and two sources that disagree stay as two rows — that is usually
+  an OEM value next to the GSI's default. Tick the rows you want and **Write the
+  ticked values** saves them through the same line-addressed path as the config
+  form, so comments and the order of the file survive.
+  [detect.md](detect.md) has the source table and the GSI caveats.
+
+  **Power profile** is the same idea for a file instead of a value: **Read from
+  the connected phone** (or **from the folder**) extracts
+  `res/xml/power_profile.xml` from the overlay or `framework-res.apk`, converts
+  the compiled tree back to XML and shows it; **Save** writes
+  `src/framework/res/xml/power_profile.xml`, which is the file the build
+  compiles into the overlay.
+
+### Unpacking a ROM
+
+The three scans share one unpacker, and it is part of the app rather than a
+command it shells out to. Give the path field any of these and it works out
+which one it is:
+
+| You point at | What happens |
+| --- | --- |
+| a tree you unpacked (`system/build.prop`, `product/overlay/…`) | read as it is |
+| a fastboot ROM folder (`images/super.img` inside) | `images/super.img` is unpacked |
+| `super.img` (or a sparse/`lz4`-wrapped one) | LP metadata read, each partition opened |
+| a Samsung `AP_*.tar.md5` (or a plain `.tar`) | the `.img` / `.img.lz4` members are opened |
+| a bare `system.img` / `product.img` | opened directly |
+
+Partitions can be `ext4` or `erofs`; compressed EROFS files (`lz4`, including
+the compacted cluster maps Android writes) are decompressed too, because
+`build.prop` and `init.rc` are usually compressed. So there is nothing to
+install for the unpacking itself — not `lpunpack`, not `simg2img`, not `7z` —
+on Windows, Linux or Termux.
+
+The path fields have **File…** and **Folder…** buttons that open the system's
+own chooser: PowerShell's dialog on Windows, `zenity` or `kdialog` on Linux.
+Typing the path still works, and is the only way on Termux, where the buttons
+say that no chooser is installed.
+
+Only the files the probes actually open are copied out: `*.prop`, overlay APKs,
+`framework-res.apk`, and `etc/**/*.rc|*.xml`. That is a few hundred MB out of a
+9 GB image, and it takes a couple of seconds. The result lands in
+`<temp>/treble-rro-firmware/<name>/` and is cached, keyed on the source file's
+size and mtime, so a second scan does not unpack again. The same code is the
+`-unpack` flag:
+
+```bash
+./treble-rro-creator.sh -unpack path/to/super.img
+./treble-rro-creator.sh -unpack path/to/AP_*.tar.md5 -out ~/rom
+```
+
+On Windows the same flags go through `treble-rro-creator.cmd`.
+
+The scans themselves read the APKs with `aapt2`. If it is not there yet, the app
+runs `./build.sh setup -y` first, which is the installer a build uses: apt on
+Debian/Ubuntu, pacman on Arch, pkg on Termux, and a download into
+`stuff/tools/` on Windows or where no package manager is available.
 
 ## Updates
 

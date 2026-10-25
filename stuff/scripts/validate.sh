@@ -138,13 +138,19 @@ _validate_display() {
         _v_note "status bar landscape (${land}px) is taller than portrait (${sb_height}px)"
     fi
 
+    # A path with no suffix is in px — that is the default the parser uses, and
+    # it is how MIUI stores its own (e.g. "M 0,0 H -29 V 118 H 29 V 0 H 0 Z").
+    # Only an unknown @unit is a mistake; @dp/@left/@right/@top/@bottom are the
+    # documented ones.
     case "${DISPLAY_CUTOUT:-}" in
         "") ;;
         *'<'*) ;;
-        *) case "$DISPLAY_CUTOUT" in
-               *' @dp'*) ;;
-               *) _v_warn "DISPLAY_CUTOUT should end with \" @dp\" (see config.env.example)" ;;
-           esac ;;
+        *'@'*)
+            case "$DISPLAY_CUTOUT" in
+                *@dp|*@px|*@left|*@right|*@top|*@bottom) ;;
+                *) _v_warn "DISPLAY_CUTOUT has an unknown @unit suffix (use @dp, @left, @right, @top, @bottom, or none for px)" ;;
+            esac
+            ;;
     esac
 }
 

@@ -29,8 +29,18 @@ func main() {
 		port    = flag.Int("port", 0, "loopback port for the UI server (0 picks a free one)")
 		browser = flag.Bool("browser", false, "show the UI in the default browser instead of a native window")
 		debug   = flag.Bool("debug", false, "enable the webview developer tools")
+
+		unpack   = flag.String("unpack", "", "unpack a super.img, a Samsung AP tar.md5 or a ROM folder into a readable tree, then exit")
+		unpackTo = flag.String("out", "", "where -unpack writes (default: a folder under the system temp dir)")
+		unpackJS = flag.Bool("json", false, "with -unpack, print the result as JSON")
 	)
 	flag.Parse()
+
+	// -unpack is the Detect tab's unpacking without the window: same code, so a
+	// script and the button cannot disagree about what ends up on disk.
+	if *unpack != "" {
+		os.Exit(unpackCLI(*unpack, *unpackTo, *unpackJS))
+	}
 
 	if !windowReady {
 		fmt.Fprintln(os.Stderr, "built without CGO: opening the UI in the default browser instead of a window")

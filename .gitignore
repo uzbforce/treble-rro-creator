@@ -48,7 +48,10 @@ gui/.pkgconfig/
 /gui.log
 gui/gui.json
 gui/gui.log
-
+# `go build ./...` inside gui/ leaves its binary there (the Linux one has no
+# extension).
+gui/gui.exe
+gui/gui
 # Legacy top-level paths from older versions (kept ignored so an upgrade
 # never offers to commit leftovers before build.sh moves them)
 system/
