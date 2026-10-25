@@ -271,6 +271,7 @@ button.link:hover { color: var(--ink); background: none; }
   font-size: 13px;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+  transition: color .12s var(--ease), border-color .12s var(--ease);
 }
 .tab:hover:not(:disabled) { background: none; color: var(--ink); }
 .tab.is-active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
@@ -292,6 +293,7 @@ main { flex: 1; min-height: 0; display: flex; }
   border: 1px solid var(--rule);
   background: var(--panel);
   box-shadow: var(--shadow);
+  transition: border-color .12s var(--ease), background .12s var(--ease), color .12s var(--ease);
 }
 .verb h3 { font-size: 13px; margin-bottom: 2px; }
 .verb p { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
@@ -400,6 +402,7 @@ textarea#cfg {
   padding: 6px 9px;
   font-size: 12.5px;
   color: var(--muted);
+  transition: background .12s var(--ease), color .12s var(--ease);
 }
 .docs-nav button:hover { background: var(--panel-2); color: var(--ink); }
 .docs-nav button.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -813,9 +816,7 @@ textarea#cfg {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .preset-out { animation: none; }
-}
+
 .adb-form kbd,
 .hint kbd {
   font-family: var(--mono);
@@ -860,7 +861,7 @@ textarea#cfg {
 }
 .files-tree.is-drop { border-color: var(--accent); background: var(--accent-soft); }
 .files-tree:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.ft-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; }
+.ft-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 6px; transition: background .12s var(--ease), box-shadow .12s var(--ease); }
 .ft-row:hover { background: var(--panel-2); }
 .ft-row.is-target { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .ft-row.is-selected { background: var(--accent-soft); }
@@ -1078,7 +1079,7 @@ button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--b
   padding: 0 8px 6px 0;
   border-bottom: 1px solid var(--rule);
 }
-.udfps-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.udfps-table td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; transition: background .12s var(--ease); }
 .udfps-table tr { cursor: pointer; }
 .udfps-table tr:hover td { background: var(--panel-2); }
 .udfps-table tr.is-picked td { background: var(--accent-soft); }
@@ -1104,4 +1105,52 @@ button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--b
   .files-tree { min-height: 120px; max-height: 32vh; }
   .chips { display: none; }
   #sub { max-width: 70vw; }
+}
+
+/* ------------------------------------------------------------------ motion -- */
+/* Short, one-shot, and made of opacity plus a couple of pixels: enough to show
+   that something changed, never enough to watch. Nothing loops and nothing
+   bounces — the tabs, dialogs and answer cards are used dozens of times a
+   session, and a flourish is a tax on every one of them. */
+@keyframes pane-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+.pane.is-active { animation: pane-in .13s var(--ease); }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(-3px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+dialog[open] { animation: dialog-in .15s var(--ease); }
+@keyframes backdrop-in { from { opacity: 0; } }
+dialog[open]::backdrop { animation: backdrop-in .15s ease-out; }
+
+/* The answer cards are unhidden when a scan starts, so the fade is the
+   acknowledgement that the click landed. The power profile is the same. */
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+#udfps-results:not([hidden]),
+#detect-results:not([hidden]),
+#power-preview:not([hidden]) { animation: card-in .15s var(--ease); }
+
+/* A folder dragged over the tree: the border is the target, and it should not
+   snap between states while the pointer crosses it. */
+.files-tree { transition: border-color .12s var(--ease), background .12s var(--ease); }
+
+/* The one-line status next to Run appears and clears on its own; an instant
+   swap draws the eye to the corner it is in. */
+#run-status { transition: opacity .15s var(--ease); }
+#run-status:empty { opacity: 0; }
+
+/* One switch for the people the animations cost something: the app has no
+   animation that carries information, so none of them has to survive this. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
 }
