@@ -30,6 +30,9 @@ for working on the app itself.
 | `icon_windows.go` | `setWindowIcon`: `WM_SETICON` on the window WebView2 created |
 | `icon_other.go` | the same call, doing nothing (the GTK window keeps its own) |
 | `browser.go` | opens the UI in the default browser and waits for Ctrl+C |
+| `pick.go` | the file-chooser endpoint (`/api/pick`) and the path arithmetic behind it |
+| `pick_windows.go` | the Windows dialog, PowerShell's `OpenFileDialog` / `FolderBrowserDialog` |
+| `pick_unix.go` | the Linux dialog: `zenity`, then `kdialog` |
 | `ui/` | one page, one stylesheet, one script; no bundler, no `node_modules` |
 | `*_test.go` | argv, clone discovery, config round trip, adb parsing, update/pull against a temp git repo |
 | `build.sh`, `build.cmd` | build the app |
@@ -99,7 +102,8 @@ any page in the user's browser, and these handlers start a build, so:
 - the endpoint surface is an allow-list (`build.sh` verbs, five flags, three
   open targets, `http(s)` links, and file operations whose paths are relative to
   `src/` and re-validated server-side), not "run this program" or "write this
-  path";
+  path". The file chooser is part of the same list and returns nothing but the
+  path the user clicked, which is what the field would have taken typed;
 - the sudo password from the install dialog is kept in the page's memory,
   written to a `0600` temporary file for the run that needs it, handed to
   `sudo -A` through `stuff/scripts/sudo-askpass.sh`, and deleted when that run

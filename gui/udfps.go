@@ -102,7 +102,7 @@ func (a *App) udfpsScript() string {
 // runProbe executes the script and returns its parsed report. stderr is kept
 // because a failure there is usually the only explanation the user gets: adb's
 // "no devices/emulators found" and aapt2's resource errors both land there.
-func (a *App) runProbe(mode, dir string) (*UDFPSReport, string, error) {
+func (a *App) runProbe(mode, dir, serial string) (*UDFPSReport, string, error) {
 	udfpsMu.Lock()
 	defer udfpsMu.Unlock()
 
@@ -122,6 +122,8 @@ func (a *App) runProbe(mode, dir string) (*UDFPSReport, string, error) {
 	args := []string{"--noprofile", "--norc", script, "--json"}
 	if mode == "firmware" {
 		args = append(args, "--firmware", dir)
+	} else if serial != "" {
+		args = append(args, "--device", serial)
 	}
 	timeout := 3 * time.Minute
 	if mode == "firmware" {
@@ -248,6 +250,7 @@ func (a *App) handleUDFPS(w http.ResponseWriter, r *http.Request) {
 		X      int    `json:"x"`
 		Y      int    `json:"y"`
 		Radius int    `json:"radius"`
+		Serial string `json:"serial"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -259,35 +262,24 @@ func (a *App) handleUDFPS(w http.ResponseWriter, r *http.Request) {
 		if mode == "" {
 			mode = "device"
 		}
-		dir := ""
-		if mode == "firmware" {
-			dir = strings.TrimSpace(body.Path)
-			if dir == "" {
-				writeError(w, http.StatusBadRequest, "point it at the folder that holds the unpacked ROM")
-				return
-			}
-			abs, err := filepath.Abs(dir)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			info, err := os.Stat(abs)
-			if err != nil || !info.IsDir() {
-				writeError(w, http.StatusBadRequest, "not a folder: "+dir)
-				return
-			}
-			dir = abs
-		} else if mode != "device" {
-			writeError(w, http.StatusBadRequest, "unknown mode")
+		dir, fw, err := firmwareDir(mode, body.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		toolLog, err := a.ensureProbeTools(mode)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "log": probeLog(fwLog(fw), toolLog)})
 			return
 		}
 
-		report, log, err := a.runProbe(mode, dir)
+		report, log, err := a.runProbe(mode, dir, safeToken(body.Serial))
+		log = probeLog(fwLog(fw), toolLog, log)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "log": log})
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "log": log, "firmware": fw})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"report": report, "log": log})
+		writeJSON(w, http.StatusOK, map[string]any{"report": report, "log": log, "firmware": fw})
 
 	case "apply":
 		root := a.Root()

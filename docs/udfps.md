@@ -22,16 +22,23 @@ work, keeps the source of each answer, and ignores anything that does not fit
 the panel. It prints a table and the `config.env` lines:
 
 ```bash
-bash stuff/scripts/udfps-probe.sh                 # connected phone
+bash stuff/scripts/udfps-probe.sh                 # the only connected phone
+bash stuff/scripts/udfps-probe.sh --device SERIAL # one of several
 bash stuff/scripts/udfps-probe.sh --json          # machine-readable
 bash stuff/scripts/udfps-probe.sh --write         # put the winner in config.env
 bash stuff/scripts/udfps-probe.sh --firmware DIR  # unpacked OEM firmware
 ```
 
+Both probes pick the phone the same way, through `stuff/scripts/adb-device.sh`:
+one attached is used automatically, several means `--device` or a question on the
+terminal, and a phone that is attached but not ready is named with its state and
+its fix. That shared rule is described in
+[detect.md](detect.md#more-than-one-phone).
+
 The desktop app has the same thing in its **UDFPS** tab: *Read from the
-connected phone*, or *Scan folder* for a firmware tree. Every row keeps its
-source visible, and **Use the selected values** writes the three lines plus
-`HAS_UDFPS=true`.
+connected phone*, or *Scan firmware* for a `super.img`, a Samsung AP, a ROM
+folder or an extracted tree. Every row keeps its source visible, and **Use the
+selected values** writes the three lines plus `HAS_UDFPS=true`.
 
 There are three situations, and the probe says which one it is in.
 
@@ -78,17 +85,30 @@ APKs. It reads:
 
 - every overlay APK it finds for `config_udfps_sensor_props` and
   `config_biometric_sensors` (with `aapt2`),
-- `build.prop` / `prop.default` for the `ro.hardware.fp.fod*` flags,
+- `build.prop` / `prop.default` for the `ro.hardware.fp.fod*` flags **and** for
+  the `persist.vendor.sys.fp.fod.*` rectangle,
 - VINTF manifests and `.rc` files that mention the fingerprint HAL or
   `vendor.xiaomi.hardware.fingerprintextension`.
 
+The rectangle is the one that usually answers. Most Xiaomi ROMs ship
+`config_udfps_sensor_props` empty in `framework-res.apk` and no overlay that
+fills it in: the sensor geometry lives only in `vendor/build.prop`, as the
+factory default the vendor FOD client reads. The probe converts that pair with
+the same arithmetic as the live phone (see
+[Xiaomi FOD properties](#xiaomi-fod-properties-miui--hyperos--poco) below), so
+`--firmware` and `--device` report the same numbers for the same build — for
+example `540, 2198, 89` on `zephyr`.
+
 A stock **fastboot ROM is not enough by itself**: on a dynamic-partition device
-the APKs and props live inside `super.img`. The scan detects that and says so:
+the APKs and props live inside `super.img`. Rather than extracting it by hand,
+let the app do it — **Scan firmware** accepts the `super.img` itself, a Samsung
+`AP_*.tar.md5`, the ROM folder or an extracted tree, and unpacks the partitions
+first (see [gui.md](gui.md#unpacking-a-rom)). From a terminal the same unpacker
+is the `-unpack` flag:
 
 ```bash
-lpunpack super.img out/                    # android-tools / otatools
-sudo mount -o loop,ro out/product.img /mnt
-bash stuff/scripts/udfps-probe.sh --firmware /mnt
+./treble-rro-creator.sh -unpack super.img             # prints the folder it wrote
+bash stuff/scripts/udfps-probe.sh --firmware /tmp/treble-rro-firmware/super
 ```
 
 Recovery-zip ROMs can be scanned after `unzip`, because their files are already

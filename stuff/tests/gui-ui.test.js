@@ -37,6 +37,19 @@ function idsInJs() {
   return ids;
 }
 
+// Two elements may not share an id: getElementById returns the first, so code
+// that meant the second one silently reads (or overwrites) the wrong element.
+// A new <select> placed next to an existing hint paragraph did exactly that and
+// only showed up as a picker that would not stay filled.
+test('no id appears twice in the page', () => {
+  const counts = new Map();
+  for (const id of idsInHtml()) {
+    counts.set(id, html.split(`id="${id}"`).length - 1);
+  }
+  const dupes = [...counts].filter(([, n]) => n > 1).map(([id]) => id);
+  assert.deepEqual(dupes, [], `ids defined more than once: ${dupes.join(', ')}`);
+});
+
 test('every id the script looks up exists in the page', () => {
   const inHtml = idsInHtml();
   const missing = [...idsInJs().keys()].filter((id) => !inHtml.has(id));

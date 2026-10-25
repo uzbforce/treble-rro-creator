@@ -120,6 +120,50 @@ adb shell cmd overlay lookup <package> android:dimen/status_bar_height_default
 # 28.0dip   ← framework default: the overlay is NOT applied
 ```
 
+### The app ranks it from the phone
+
+The **Match property** card in the Config tab (inside *Overlay activation*)
+answers this without guessing. **Ask the phone** reads the selected device's
+`getprop` and `getprop -Z` and ranks every property a static overlay can match
+on, then **Use** stages `HW_OVERLAY_MATCH_PROP` / `HW_OVERLAY_MATCH_VALUE` in the
+form — nothing is written until you press **Save**.
+
+It scores each candidate on the two things that decide whether a condition is
+ever satisfied:
+
+| Evidence | What it means |
+|---|---|
+| the value is the phone's codename | `ro.product.vendor.device`, `…odm.device`, `…bootimage.device`, `ro.product.device`, `…system.device`, `…product.device` are read in that order to establish it |
+| the SELinux area (`getprop -Z`) | `build_prop` and `build_vendor_prop` are readable from zygote; `build_bootimage_prop` and `build_odm_prop` often are not, and the property then reads as empty |
+| the property area | the `vendor`, `odm` and `bootimage` areas keep the OEM value when a GSI is installed; `system`, `product` and `system_ext` are replaced with the GSI's own naming |
+| the value itself | build names (`generic`, `mivendor`, `phh_treble`, `missi`-style ROM names, SoC names, the brand) are ruled out, with the reason shown |
+
+A candidate is only **offered** when all three hold: the value is the codename,
+zygote can read the property, and the property lives in an area a GSI does not
+replace. Anything less is shown with the reason it falls short, and the card
+then says the honest thing instead of recommending it:
+
+> *Keep the match you already have* — `DEVICE_PROP_NAME` =
+> `persist.sys.overlay.<codename>`, which the module sets itself, so it always
+> matches.
+
+That is the case on the reference Xiaomi: `ro.product.vendor.device` is
+`mivendor` (shared by a family of devices), `ro.product.odm.device` and
+`…bootimage.device` carry `zephyr` but are usually denied to zygote, and
+`ro.product.device` is readable but would be renamed by a GSI. On the reference
+Samsung every property says `r3q` and the vendor one wins outright, because it
+survives a GSI *and* `build_vendor_prop` is readable.
+
+A wrong match condition is invisible in the result — the overlay enables and
+changes nothing — so the card never stages a condition it cannot argue for; the
+rows stay there for a submission that ships without the module, to be checked
+with `cmd overlay lookup` after flashing.
+
+This only decides the **submission** pair (`HW_OVERLAY_MATCH_PROP`/`_VALUE`). The
+module's own `DEVICE_PROP_NAME` stays `persist.sys.overlay.<codename>`: the
+module sets that property at boot, so it always matches and needs no evidence
+from the phone.
+
 ---
 
 ## Display

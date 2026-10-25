@@ -58,6 +58,11 @@ usage() {
 }
 
 die() { printf 'udfps-probe: %s\n' "$1" >&2; exit 1; }
+
+# Multi-device selection is shared with the Detect probe.
+ADB_DEVICE_LIB="$(cd "$(dirname "$0")" && pwd)/adb-device.sh"
+[ -f "$ADB_DEVICE_LIB" ] || die "stuff/scripts/adb-device.sh is missing — the checkout is incomplete"
+. "$ADB_DEVICE_LIB"
 note() { notes+=("$1"); }
 warn() { warnings+=("$1"); }
 
@@ -194,6 +199,22 @@ chosen_index() {
     printf '%s' "$best"
 }
 
+# fod_rect LOCATION SIZE prints "cx cy r" for the Xiaomi FOD rectangle, or
+# nothing when the pair is not usable. location.X_Y is the rectangle's top-left
+# corner and size is width,height, so reading the first pair as a centre would
+# put X at 451 instead of 540 on a 1080-wide panel: this arithmetic is the whole
+# reason the values line up, and both modes go through it.
+fod_rect() {
+    local loc="$1" siz="$2" left top w h
+    left="$(printf '%s' "$loc" | cut -d, -f1 | tr -cd '0-9')"
+    top="$(printf '%s' "$loc" | cut -d, -f2 | tr -cd '0-9')"
+    w="$(printf '%s' "$siz" | cut -d, -f1 | tr -cd '0-9')"
+    h="$(printf '%s' "$siz" | cut -d, -f2 | tr -cd '0-9')"
+    [ -n "$left" ] && [ -n "$top" ] && [ -n "$w" ] && [ -n "$h" ] || return 1
+    [ "$w" -gt 0 ] && [ "$h" -gt 0 ] || return 1
+    printf '%s %s %s\n' "$((left + w / 2))" "$((top + h / 2))" "$(( (w < h ? w : h) / 2 ))"
+}
+
 # ---------------------------------------------------------------------------
 # Device mode
 # ---------------------------------------------------------------------------
@@ -213,19 +234,8 @@ shel() { adb_dev shell "$1" 2>/dev/null | tr -d '\r'; }
 
 probe_device() {
     resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
-    if [ -z "$serial" ]; then
-        local list count
-        list="$(adb_dev devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}')"
-        count="$(printf '%s\n' "$list" | grep -c . || true)"
-        if [ "$count" -eq 0 ]; then
-            die "no device in 'adb devices' — plug the phone in and allow USB debugging"
-        elif [ "$count" -gt 1 ]; then
-            printf 'More than one device:\n%s\n' "$list" >&2
-            die "pick one with --device SERIAL"
-        fi
-        serial="$list"
-    fi
-    adb_dev get-state >/dev/null 2>&1 || die "device $serial is not ready"
+    adb_pick_device "$adb" "$serial" "udfps-probe" || exit 1
+    serial="$DEVICE_SERIAL"
 
     local props size dens_out
     props="$(shel getprop)"
@@ -238,8 +248,13 @@ probe_device() {
     DENS="$(printf '%s\n' "$dens_out" | sed -n 's/.*Physical density: \([0-9]*\).*/\1/p' | head -n1)"
     [ -n "$W" ] && [ -n "$H" ] || die "could not read the display size (wm size)"
 
-    MODEL="$(prop ro.product.model)"
-    CODENAME="$(prop ro.product.vendor.device)"
+    # The ODM partition keeps the real name on HyperOS, where the vendor one is
+    # "mivendor" and the model is "Xiaomi for arm64" (measured on a Redmi Note
+    # 17). Same order as device-probe.sh.
+    MODEL="$(prop ro.product.odm.model)"
+    [ -n "$MODEL" ] || MODEL="$(prop ro.product.model)"
+    CODENAME="$(prop ro.product.odm.device)"
+    [ -n "$CODENAME" ] || CODENAME="$(prop ro.product.vendor.device)"
     [ -n "$CODENAME" ] || CODENAME="$(prop ro.product.device)"
 
     local flavor miui hyperos
@@ -261,16 +276,22 @@ probe_device() {
     resolve_aapt2 || warn "aapt2 not found — overlay APKs cannot be read, only the properties"
 
     # ---- 1. overlays that are actually enabled and map the array ----------
-    # `cmd overlay dump` is one call and only prints IDMAP blocks for enabled
-    # overlays, so this is exactly the set the framework is using, in priority
-    # order. Anonymous overlays (fabricated RROs) have no path and are skipped.
-    local dump pairs pkg path
+    # `cmd overlay dump` lists every installed overlay, enabled or not, so the
+    # enabled set has to come from `cmd overlay list` ([x]/[ ]). Without that
+    # filter a disabled OEM overlay's numbers are reported as what the ROM uses.
+    # Anonymous overlays (fabricated RROs) have no path and are skipped.
+    local dump pairs enabled pkg path
     dump="$(shel 'cmd overlay dump')"
-    pairs="$(printf '%s\n' "$dump" | awk '
-        /^IDMAP OF / { pkg = $3; path = "" }
+    enabled="$(shel 'cmd overlay list' | sed -n 's/^\[x\] //p' | sed 's/[[:space:]]*$//')"
+    pairs="$(printf '%s\n' "$dump" | awk -v en="$enabled" '
+        BEGIN {
+            n = split(en, E, "\n")
+            for (i = 1; i <= n; i++) if (E[i] != "") on[E[i]] = 1
+        }
+        /^IDMAP OF / { pkg = $3; path = ""; keep = (pkg in on) }
         /overlay path *:/ { path = $NF }
         /\(array\/config_udfps_sensor_props / {
-            if (path != "" && !seen[path]++) print pkg "|" path
+            if (keep && path != "" && !seen[path]++) print pkg "|" path
         }')"
 
     if [ -n "$pairs" ]; then
@@ -335,26 +356,16 @@ probe_device() {
     fi
 
     # ---- 3. Xiaomi's FOD rectangle ---------------------------------------
-    # location.X_Y is the rectangle's top-left corner, size is width,height.
-    # Reading it as a centre would put X at 451 instead of 540 on this panel,
-    # so the arithmetic below is the whole reason the values line up.
-    local loc siz left top w_rect h_rect loc_key siz_key
+    # A property pair, not an overlay resource; fod_rect turns it into a centre
+    # and both modes share that arithmetic.
+    local loc siz rect loc_key siz_key cx cy cr
     for loc_key in persist.vendor.sys.fp.fod.location.X_Y persist.sys.fp.fod.location.X_Y; do
         siz_key="${loc_key/location.X_Y/size.width_height}"
         loc="$(prop "$loc_key")"
         siz="$(prop "$siz_key")"
         [ -n "$loc" ] && [ -n "$siz" ] || continue
-        left="$(printf '%s' "$loc" | cut -d, -f1 | tr -cd '0-9')"
-        top="$(printf '%s' "$loc" | cut -d, -f2 | tr -cd '0-9')"
-        w_rect="$(printf '%s' "$siz" | cut -d, -f1 | tr -cd '0-9')"
-        h_rect="$(printf '%s' "$siz" | cut -d, -f2 | tr -cd '0-9')"
-        [ -n "$left" ] && [ -n "$top" ] && [ -n "$w_rect" ] && [ -n "$h_rect" ] || continue
-        [ "$w_rect" -gt 0 ] && [ "$h_rect" -gt 0 ] || continue
-        local cx cy cr small
-        cx=$((left + w_rect / 2))
-        cy=$((top + h_rect / 2))
-        small=$((w_rect < h_rect ? w_rect : h_rect))
-        cr=$((small / 2))
+        rect="$(fod_rect "$loc" "$siz")" || continue
+        read -r cx cy cr <<<"$rect"
         add_candidate "props" "xiaomi-fod-props" "Xiaomi FOD rectangle" "$cx" "$cy" "$cr" \
             "high" 92 "$loc_key=$loc  $siz_key=$siz → left+width/2, top+height/2" || true
         break
@@ -447,14 +458,48 @@ probe_firmware() {
     fi
 
     # Properties shipped as text (vendor/build.prop, odm/etc/build.prop, …).
-    local pfile
+    # build.prop comes first: on a Xiaomi ROM the vendor one carries the FOD
+    # rectangle, and a tree has hundreds of per-app *.prop files (system_ext's
+    # cust/*) that would otherwise fill the cap long before it is reached.
+    local pfile key val loc siz rect cx cy cr hit n
     while IFS= read -r pfile; do
         [ -n "$pfile" ] || continue
-        local hit
-        hit="$(grep -iE '^[[:space:]]*(persist\.)?(vendor\.)?sys\.fp\.fod|ro\.hardware\.fp\.fod' "$pfile" 2>/dev/null | head -n4)"
-        [ -n "$hit" ] && files+=("$pfile|FOD properties: $(printf '%s' "$hit" | tr '\n' ' ')")
+        # One pass with the shell's own parser: grep plus two seds per file is
+        # three forks over two hundred files, which is a minute on Windows.
+        loc=""; siz=""; hit=""; n=0
+        while IFS='=' read -r key val; do
+            key="${key%$'\r'}"; val="${val%$'\r'}"
+            case "$key" in
+                persist.vendor.sys.fp.fod.location.X_Y|persist.sys.fp.fod.location.X_Y) loc="$val" ;;
+                persist.vendor.sys.fp.fod.size.width_height|persist.sys.fp.fod.size.width_height) siz="$val" ;;
+            esac
+            case "$key" in
+                *sys.fp.fod*|ro.hardware.fp.fod*)
+                    if [ "$n" -lt 4 ]; then hit="$hit $key=$val"; n=$((n + 1)); fi
+                    ;;
+            esac
+        done < "$pfile" 2>/dev/null
+        [ -n "$hit" ] && files+=("$pfile|FOD properties:$hit")
+
+        # The rectangle is the answer for a phone whose overlay does not set
+        # config_udfps_sensor_props, which is most Xiaomi ROMs: the property is
+        # the vendor client's own definition of the sensor, shipped as the
+        # factory default, and the live phone reports the same numbers.
+        [ -n "$loc" ] && [ -n "$siz" ] || continue
+        rect="$(fod_rect "$loc" "$siz")" || continue
+        read -r cx cy cr <<<"$rect"
+        # Two partitions can carry the same default; the same triple is one
+        # answer, while a differing one stays visible as its own row.
+        have_values "$cx" "$cy" "$cr" && continue
+        add_candidate "props" "firmware-fod-props" "Xiaomi FOD rectangle" "$cx" "$cy" "$cr" \
+            "high" 90 "$pfile: location.X_Y=$loc size.width_height=$siz → left+width/2, top+height/2" || true
     done <<EOF
-$(find "$fwdir" -maxdepth 7 -type f \( -name 'build.prop' -o -name 'prop.default' -o -name '*.prop' \) 2>/dev/null | head -n 40)
+$(
+    {
+        find "$fwdir" -maxdepth 7 -type f \( -name 'build.prop' -o -name 'prop.default' \) 2>/dev/null
+        find "$fwdir" -maxdepth 7 -type f -name '*.prop' 2>/dev/null | head -n 195
+    } | head -n 200
+)
 EOF
 
     # What the ROM's HAL stack looks like — the part an overlay cannot replace.
@@ -480,6 +525,13 @@ EOF
         warn "no APK found under $fwdir"
     else
         notes+=("scanned $count APK(s); pass --all-apks to look inside every APK")
+    fi
+
+    # Say which question was asked and unanswered, instead of leaving the reader
+    # with an empty table. On a phone whose geometry only the running vendor
+    # client knows, the connected-phone mode is the answer.
+    if [ "${#c_x[@]}" -eq 0 ]; then
+        note "no overlay in this ROM maps config_udfps_sensor_props and no FOD rectangle property was found; if the phone has the sensor, Read from the connected phone"
     fi
 }
 

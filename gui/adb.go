@@ -474,6 +474,228 @@ func humanBytes(n int64) string {
 }
 
 // ---------------------------------------------------------------------------
+// More than one phone
+// ---------------------------------------------------------------------------
+// adb has no default device when several are attached: every command fails with
+// "more than one device/emulator" unless it is told which one. The page asks
+// once and every command is prefixed with `-s SERIAL`, the same way the probe
+// scripts take --device.
+
+type AdbDevice struct {
+	Serial  string `json:"serial"`
+	State   string `json:"state"`
+	Model   string `json:"model"`
+	Product string `json:"product"`
+	Label   string `json:"label"`
+}
+
+// adbDevices runs `adb devices -l`. `adb devices` exits 0 even when a phone is
+// unauthorized, so the state is part of the answer rather than a failure.
+//
+// Two things here are about adb as it behaves, not as documented: the daemon's
+// chatter shares the output with the list (stderr is merged, and parseAdbDevices
+// keeps only real device lines), and the first call after the server restarts can
+// come back with no header at all — that is retried before it is believed.
+func (a *App) adbDevices() ([]AdbDevice, error) {
+	adb := a.adbPath()
+	if adb == "" {
+		return nil, errors.New("adb is not installed yet — use \"Download platform-tools\" first")
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		out, err := runAdbDevices(adb)
+		if err != nil {
+			return nil, err
+		}
+		if strings.Contains(out, "List of devices attached") {
+			return parseAdbDevices(out), nil
+		}
+		lastErr = fmt.Errorf("adb did not list anything: %s", strings.TrimSpace(out))
+		time.Sleep(700 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = errors.New("adb did not list anything")
+	}
+	return nil, lastErr
+}
+
+func runAdbDevices(adb string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, adb, "devices", "-l")
+	setProcAttr(cmd)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", errors.New("adb did not answer within 15s — run adb kill-server, then try again")
+	}
+	if err != nil && len(out) == 0 {
+		return "", fmt.Errorf("adb devices failed: %w", err)
+	}
+	return string(out), nil
+}
+
+func parseAdbDevices(out string) []AdbDevice {
+	devices := []AdbDevice{}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		fields := strings.Fields(line)
+		// Header ("List of devices attached"), daemon chatter ("* daemon
+		// started ...") and version-mismatch notices all end up here.
+		if len(fields) < 2 || !adbDeviceState(fields[1]) {
+			continue
+		}
+		// A serial can be listed twice (a stale entry next to a live one). The
+		// picker should offer it once.
+		if seen[fields[0]] {
+			continue
+		}
+		seen[fields[0]] = true
+		d := AdbDevice{Serial: fields[0], State: fields[1]}
+		for _, f := range fields[2:] {
+			if v, ok := strings.CutPrefix(f, "model:"); ok {
+				d.Model = v
+			}
+			if v, ok := strings.CutPrefix(f, "product:"); ok {
+				d.Product = v
+			}
+		}
+		d.Label = adbDeviceLabel(d)
+		devices = append(devices, d)
+	}
+	return devices
+}
+
+// The states adb reports on the second column of `devices`. Anything else is
+// noise from the server (a version mismatch, a daemon start) and is skipped.
+func adbDeviceState(s string) bool {
+	switch s {
+	case "device", "offline", "unauthorized", "bootloader", "recovery", "sideload",
+		"rescue", "host", "connecting", "no":
+		return true
+	}
+	return false
+}
+
+func adbDeviceLabel(d AdbDevice) string {
+	label := "no model reported"
+	switch {
+	case d.Model != "" && d.Product != "":
+		label = fmt.Sprintf("%s (%s)", d.Model, d.Product)
+	case d.Model != "":
+		label = d.Model
+	case d.Product != "":
+		label = d.Product
+	}
+	// A TCP/mDNS serial means wireless adb: the same phone can be listed twice,
+	// once over USB and once over the network, and the entries are identical
+	// except for this.
+	if strings.Contains(d.Serial, ":") {
+		label += " [wireless]"
+	}
+	return label
+}
+
+func readyAdbDevices(devices []AdbDevice) []AdbDevice {
+	ready := []AdbDevice{}
+	for _, d := range devices {
+		if d.State == "device" {
+			ready = append(ready, d)
+		}
+	}
+	return ready
+}
+
+// describeAdbDevices is the list the errors carry, with the state when it is not
+// "device": "unauthorized" is the answer the user needs, not the serial.
+func describeAdbDevices(devices []AdbDevice) string {
+	parts := make([]string, 0, len(devices))
+	for _, d := range devices {
+		if d.State == "device" {
+			parts = append(parts, d.Serial+" "+d.Label)
+		} else {
+			parts = append(parts, d.Serial+" "+d.Label+" ("+d.State+")")
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// pickAdbSerial decides which phone a device-mode action runs against, with the
+// same rules as stuff/scripts/adb-device.sh: a requested serial must be attached
+// and ready, one ready device is used automatically, and several without a
+// request is an error rather than a guess.
+func pickAdbSerial(devices []AdbDevice, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	ready := readyAdbDevices(devices)
+
+	if requested != "" {
+		for _, d := range devices {
+			if d.Serial != requested {
+				continue
+			}
+			if d.State != "device" {
+				return "", fmt.Errorf("%s is attached but %s", d.Serial, d.State)
+			}
+			return d.Serial, nil
+		}
+		if len(devices) == 0 {
+			return "", fmt.Errorf("%s is not attached — no device is connected", requested)
+		}
+		return "", fmt.Errorf("%s is not attached. Connected: %s", requested, describeAdbDevices(devices))
+	}
+
+	switch len(ready) {
+	case 0:
+		if len(devices) == 0 {
+			return "", errors.New("no device is connected — plug one in and allow USB debugging")
+		}
+		return "", fmt.Errorf("no device is ready to talk to (%s)", describeAdbDevices(devices))
+	case 1:
+		return ready[0].Serial, nil
+	}
+	return "", fmt.Errorf("%d devices are connected — choose one first (%s)", len(ready), describeAdbDevices(ready))
+}
+
+// deviceSerialFor is the handler-side wrapper: list, then decide.
+//
+// A phone that was just plugged in — or a wireless one — spends a moment in
+// "connecting", which would otherwise turn the first click after plugging in
+// into "no device is ready". It is waited for, briefly.
+func (a *App) deviceSerialFor(requested string) (string, error) {
+	devices, err := a.adbDevices()
+	if err != nil {
+		return "", err
+	}
+	for waited := 0; adbConnecting(devices) && waited < 25; waited++ {
+		time.Sleep(200 * time.Millisecond)
+		if devices, err = a.adbDevices(); err != nil {
+			break
+		}
+	}
+	return pickAdbSerial(devices, requested)
+}
+
+func adbConnecting(devices []AdbDevice) bool {
+	for _, d := range devices {
+		if d.State == "connecting" {
+			return true
+		}
+	}
+	return false
+}
+
+// adbArgsHaveSerial is true when the user typed their own selector, which is
+// then left alone instead of being copied.
+func adbArgsHaveSerial(args []string) bool {
+	for _, a := range args {
+		if a == "-s" || a == "--serial" || strings.HasPrefix(a, "-s") {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
 // Running a command the user typed
 // ---------------------------------------------------------------------------
 // adb is executed directly with an argv — never through a shell — so a typo or

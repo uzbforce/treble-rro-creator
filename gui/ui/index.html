@@ -36,6 +36,7 @@
   <button class="tab" data-tab="files" role="tab">Files</button>
   <button class="tab" data-tab="device" role="tab">Device</button>
   <button class="tab" data-tab="udfps" role="tab">UDFPS</button>
+  <button class="tab" data-tab="detect" role="tab">Detect</button>
   <button class="tab" data-tab="docs" role="tab">Docs</button>
 </nav>
 
@@ -183,6 +184,16 @@
     <div class="card">
       <h2>adb</h2>
       <p class="muted" id="adb-status">not checked yet</p>
+      <!-- adb refuses to guess when two phones are attached, so this picker is
+           what every command is told. It is repeated on the two tabs that
+           probe a device, because that is where the choice matters. -->
+      <div class="adb-values device-row">
+        <label>device
+          <select id="adb-device" class="adb-device-select"></select>
+        </label>
+        <button id="adb-devices-reload" type="button">Reload devices</button>
+        <span class="muted small" id="adb-device-note"></span>
+      </div>
       <div class="row actions">
         <button id="adb-install" type="button" hidden>Download platform-tools</button>
         <button id="adb-refresh" type="button">Refresh</button>
@@ -274,6 +285,7 @@
       </p>
       <div class="row actions">
         <button class="primary" id="udfps-detect" type="button">Read from the connected phone</button>
+        <label class="device-pick">device <select id="udfps-device-pick" class="adb-device-select"></select></label>
       </div>
       <p class="hint" id="udfps-device">
         Works on the OEM ROM and on a GSI. On a GSI the vendor FOD properties
@@ -286,14 +298,18 @@
       <h2>From firmware files</h2>
       <div class="adb-form">
         <input id="udfps-path" type="text" spellcheck="false" autocomplete="off"
-               placeholder="folder with an unpacked ROM (product/overlay, vendor/…)">
-        <button id="udfps-scan" type="button">Scan folder</button>
+               placeholder="super.img, a Samsung AP file, or a ROM folder">
+        <button id="udfps-pick" type="button" class="pick" title="Choose a super.img, a Samsung AP file, or a partition image">File…</button>
+        <button id="udfps-pick-dir" type="button" class="pick" title="Choose the ROM folder or a tree you already unpacked">Folder…</button>
+        <button id="udfps-scan" type="button">Scan firmware</button>
       </div>
       <p class="hint">
-        Reads the overlay APKs and <code>build.prop</code> files in an already
-        extracted tree. A bare fastboot ROM keeps them inside
-        <code>super.img</code>, which has to be unpacked first with
-        <code>lpunpack</code> — the scan says so instead of guessing.
+        Point it at a fastboot ROM's <code>super.img</code>, a Samsung
+        <code>AP_*.tar.md5</code>, the ROM folder, or a tree you already
+        unpacked. A bare image is unpacked first — <code>super</code>,
+        <code>sparse</code>, <code>lz4</code>, <code>erofs</code> and
+        <code>ext4</code> are read by the app itself, so nothing has to be
+        downloaded or installed for it.
       </p>
     </div>
 
@@ -320,6 +336,99 @@
         <div id="udfps-files" class="udfps-files"></div>
       </details>
       <pre id="udfps-log" class="log" hidden></pre>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------------- detect -->
+  <!-- The values the overlay copies from the panel: cutout, corner radius,
+       status bar height, refresh rates. Unlike a style, each is a fact about
+       this phone, and the page shows which source said so — dumpsys, a
+       framework resource, an OEM overlay, or an unpacked ROM. -->
+  <section class="pane" id="pane-detect" role="tabpanel">
+    <div class="card">
+      <h2>Automatic detection</h2>
+      <p class="hint">
+        Reads the display settings the overlay has to match and offers each
+        answer with its source. Tick the ones to keep and write them to
+        <code>config.env</code>. Nothing is written until you do.
+      </p>
+      <div class="row actions">
+        <button class="primary" id="detect-run" type="button">Read from the connected phone</button>
+        <label class="device-pick">device <select id="detect-device-pick" class="adb-device-select"></select></label>
+      </div>
+      <p class="hint" id="detect-device">
+        Works on the OEM ROM and on a GSI: the panel's corner radius and refresh
+        rates come from the display hardware, the cutout and status bar also
+        have to be read from the ROM — on a GSI the OEM's own values are gone
+        with the OEM system partition.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>From firmware files</h2>
+      <div class="adb-form">
+        <input id="detect-path" type="text" spellcheck="false" autocomplete="off"
+               placeholder="super.img, a Samsung AP file, or a ROM folder">
+        <button id="detect-pick" type="button" class="pick" title="Choose a super.img, a Samsung AP file, or a partition image">File…</button>
+        <button id="detect-pick-dir" type="button" class="pick" title="Choose the ROM folder or a tree you already unpacked">Folder…</button>
+        <button id="detect-scan" type="button">Scan firmware</button>
+      </div>
+      <p class="hint">
+        The only source that still has the OEM's cutout path and landscape
+        status bar when a GSI has replaced the system partition. Point it at a
+        fastboot ROM's <code>super.img</code>, a Samsung
+        <code>AP_*.tar.md5</code>, the ROM folder, or a tree you already
+        unpacked: a bare image is unpacked first, by the app, with no
+        <code>lpunpack</code> or <code>simg2img</code> to install.
+      </p>
+    </div>
+
+    <div class="card" id="detect-results" hidden>
+      <h2>Answers</h2>
+      <p class="muted small" id="detect-summary"></p>
+      <div class="udfps-table-wrap">
+        <table class="udfps-table detect-table">
+          <thead>
+            <tr><th></th><th>Setting</th><th>Value</th><th>Source</th><th>Confidence</th></tr>
+          </thead>
+          <tbody id="detect-rows"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="detect-detail"></p>
+      <div class="row actions">
+        <button class="primary" id="detect-apply" type="button" disabled>Write the ticked values</button>
+        <span class="muted small" id="detect-applied"></span>
+      </div>
+      <div id="detect-warnings" class="udfps-notes"></div>
+      <div id="detect-notes" class="udfps-notes"></div>
+      <details class="out-fold" id="detect-files-fold" hidden>
+        <summary><span class="row-label">What was read</span></summary>
+        <div id="detect-files" class="udfps-files"></div>
+      </details>
+      <pre id="detect-log" class="log" hidden></pre>
+    </div>
+
+    <!-- power_profile.xml is a file, not a value: the tab extracts it and hands
+         it back as source XML, so it can be reviewed before it replaces the
+         placeholder the build ships. -->
+    <div class="card">
+      <h2>Power profile</h2>
+      <p class="hint">
+        Reads <code>res/xml/power_profile.xml</code> from the enabled overlay or
+        <code>framework-res.apk</code> and turns the compiled form back into a
+        source file. The build compiles it as-is; without it the ROM's own
+        profile is used, which on a GSI is the GSI's.
+      </p>
+      <div class="row actions">
+        <button class="primary" id="power-read" type="button">Read from the connected phone</button>
+        <button id="power-folder" type="button">Read from the folder</button>
+      </div>
+      <p class="muted small" id="power-summary"></p>
+      <pre id="power-preview" class="log" hidden></pre>
+      <div class="row actions">
+        <button class="primary" id="power-save" type="button" disabled>Save to src/framework/res/xml/power_profile.xml</button>
+        <span class="muted small" id="power-saved"></span>
+      </div>
     </div>
   </section>
 

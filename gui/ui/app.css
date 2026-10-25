@@ -64,6 +64,26 @@
 
 * { box-sizing: border-box; }
 
+/* Tell the browser which way the controls should look: without this the scroll
+   bars and the select popups stay light on the dark theme, which is the one
+   piece of native chrome that does not follow the palette below. */
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }
+
+/* One scrollbar for the whole window, the same on every pane that scrolls
+   (config form, log, files): a thin trackless bar in the rule colour. */
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -572,6 +592,64 @@ textarea#cfg {
   white-space: pre-wrap;
 }
 
+/* ---- match property ------------------------------------------------------- */
+/* The card sits inside the Overlay activation section, between the rows and the
+   next heading. A wrong match condition is invisible in the built module, so it
+   gets more room than a normal setting. */
+.cfg-match {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.cfg-match-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cfg-match-title { font-weight: 600; font-size: 12px; }
+.cfg-match-head select { margin-left: auto; max-width: 320px; min-width: 200px; }
+.cfg-match .hint { margin: 6px 0 8px; }
+.cfg-match-summary { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cfg-match-summary .muted { white-space: nowrap; }
+.cfg-match-row {
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+}
+.cfg-match-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cfg-match-prop { font-size: 12px; }
+.cfg-match-eq { color: var(--muted); }
+.cfg-match-val { font-size: 12px; color: var(--accent); }
+.cfg-match-row-head button { margin-left: auto; }
+.cfg-match-badge {
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  color: var(--muted);
+}
+.cfg-match-badge.trust-high { border-color: var(--ok); color: var(--ok); }
+.cfg-match-badge.trust-medium { border-color: var(--accent); color: var(--accent); }
+.cfg-match-badge.trust-low { opacity: .8; }
+.cfg-match-why { margin: 4px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.cfg-match-risk { margin: 3px 0 0; font-size: 12px; color: var(--warn); line-height: 1.45; }
+.cfg-match-rejected { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.cfg-match-error { margin: 0 0 6px; font-size: 12px; color: var(--bad); }
+.cfg-match-warn {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-left: 2px solid var(--warn);
+  color: var(--warn);
+}
+.cfg-match details { margin-top: 6px; }
+.cfg-match summary { cursor: pointer; }
+@keyframes cfg-flash {
+  from { background: var(--accent-soft); }
+  to { background: transparent; }
+}
+.cfg-row.is-flash { animation: cfg-flash 1.4s var(--ease); border-radius: 4px; }
+
 /* ------------------------------------------------------------------ device -- */
 .adb-form { display: flex; gap: 8px; margin-bottom: 10px; }
 .adb-form input {
@@ -604,6 +682,32 @@ textarea#cfg {
   font-family: var(--mono);
   font-size: 12px;
   width: 150px;
+}
+/* The device picker: the same field as the inputs above, wide enough for a
+   serial, repeated on the tabs that probe a phone. */
+.adb-values select,
+.device-pick select,
+.cfg-match-head select {
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 12px;
+  max-width: 320px;
+}
+.adb-values select { font-family: var(--mono); }
+.device-row { margin: 10px 0 4px; }
+.device-row > button { align-self: flex-end; }
+.device-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
 }
 
 /* The answer Detect gave, with its caret over the codename box it filled. */
