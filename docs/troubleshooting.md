@@ -254,7 +254,10 @@ Check, in this order:
 
    If it is missing, the module was not mounted. On KernelSU / KSU Next install
    **Magic Mount** (or Hybrid Mount set to magic mount). Do **not** use
-   OverlayFS.
+   OverlayFS: it mounts the module fine, but a mistake in a vendor build's
+   `sepolicy.rule` or VINTF manifests is fatal there — a bootloop instead of the
+   ignored file magic mount gives you. See
+   [how-it-works.md](how-it-works.md#why-a-module-is-needed).
 
 5. **Did idmap fail?**
 
