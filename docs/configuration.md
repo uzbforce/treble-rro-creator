@@ -78,6 +78,9 @@ Java and no signing keys, so it is the quickest way to check a change.
 | `OVERLAY_PACKAGE_SYSTEMUI` | `…r3q.systemui` | Package name of the SystemUI overlay. Auto-derived. |
 | `OVERLAY_PRIORITY` | `628` | Framework overlay priority. Higher wins against other overlays. |
 | `OVERLAY_PRIORITY_SYSTEMUI` | `9999` | SystemUI overlay priority. |
+| `OVERLAY_VERSION` | `1.0` | Version name of the module and both APKs (`module.prop`, `android:versionName`). |
+| `OVERLAY_VERSION_CODE` | `1` | Version code (`module.prop`, `android:versionCode`). Integer; bump it per release. |
+| `MODULE_AUTHOR` | `samsung` | `author=` in `module.prop`. Empty or a placeholder falls back to `DEVICE_MANUFACTURER`. |
 
 ### Choosing the match property
 

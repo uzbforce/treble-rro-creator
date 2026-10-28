@@ -258,6 +258,37 @@ func TestRealConfigRoundTrips(t *testing.T) {
 	}
 }
 
+// The module version and author are settings, not build constants, so the form
+// has to offer them like any other key — otherwise they can only be changed by
+// editing the raw file, which is what the tab exists to avoid.
+func TestRealConfigExposesModuleMetadata(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "config.env"))
+	if err != nil {
+		t.Skip("config.env not found; running outside the clone")
+	}
+	doc, err := parseConfig(string(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"OVERLAY_VERSION", "OVERLAY_VERSION_CODE", "MODULE_AUTHOR"} {
+		found := false
+		for _, s := range doc.Sections {
+			for _, e := range s.Entries {
+				if e.Key != key {
+					continue
+				}
+				found = true
+				if !e.Enabled {
+					t.Errorf("%s is commented out in config.env — the form shows it, the build would not read it", key)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s is missing from config.env — the config tab cannot offer it", key)
+		}
+	}
+}
+
 func TestConfigDocLookupIgnoresPlaceholders(t *testing.T) {
 	doc, _ := parseConfig(sampleConfig)
 	if got := doc.Lookup("DEVICE_CODENAME"); got != "r3q" {

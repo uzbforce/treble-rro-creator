@@ -292,6 +292,8 @@ echo -e "    Device:        ${DEVICE_MANUFACTURER} ${DEVICE_MODEL} (${DEVICE_COD
 echo -e "    Overlay:       ${OVERLAY_NAME}"
 echo -e "    Package:       ${OVERLAY_PACKAGE}"
 echo -e "    Match:         ${CONDITION_DESC}"
+echo -e "    Version:       ${OVERLAY_VERSION} (${OVERLAY_VERSION_CODE})"
+echo -e "    Author:        ${MODULE_AUTHOR}"
 echo -e ""
 echo -e "  ${BOLD}Display:${NC}"
 [ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] && echo -e "    Rounded corners: ${ROUNDED_CORNER_RADIUS}px"
@@ -549,8 +551,8 @@ ok "AndroidManifest.xml generated"
 cat > "$BUILD_REL/systemui/AndroidManifest.xml" << MANIFEST_SYSTEMUI
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="${OVERLAY_PACKAGE_SYSTEMUI}"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="${OVERLAY_VERSION_CODE}"
+    android:versionName="${OVERLAY_VERSION}">
 
     <application
         android:extractNativeLibs="false"
@@ -589,7 +591,7 @@ id=${OVERLAY_NAME}
 name=Treble Overlay - ${DEVICE_MANUFACTURER} ${DEVICE_MODEL}
 version=${OVERLAY_VERSION}
 versionCode=${OVERLAY_VERSION_CODE}
-author=${DEVICE_MANUFACTURER}
+author=${MODULE_AUTHOR}
 description=${DESCRIPTION}
 MODPROP
 ok "module.prop generated"
