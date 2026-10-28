@@ -64,12 +64,26 @@ depend on the manager's module format.
 | Padding start / end | `com.android.systemui:dimen/status_bar_padding_start` / `_end` | px |
 | Blank display after doze | `android:bool/config_displayBlanksAfterDoze` | bool |
 
+Content padding is AOSP's own knob for the same gap, but a GSI was measured
+ignoring it while the two SystemUI paddings moved the clock 1:1 — set all three
+when you move the content
+([configuration.md](configuration.md#status-bar-content-padding-start--end)).
+
 The page loads the module's build-time values from `webui-defaults.conf` into
 the sliders and separately reads what the device currently resolves
 (`cmd overlay lookup`) for the `active …` label under each field. Values you
 change are stored in `webui.conf`; **Apply** sends the whole visible set, so
 pressing it without moving a slider simply re-applies the current values
 instead of doing nothing.
+
+That second read is in whatever unit the resource declares: the module writes
+px, so its own values come back as `113.0px`, while a ROM whose framework value
+is 28dp answers `28.0dip`. `apply.sh` scales a dp answer with the display
+density (`wm density`, an override first) and reports px, because the sliders
+and the APK are px. Before that, `28.0dip` was read as `28` and an Apply that
+only touched the content padding also wrote a 28px status bar — the bar
+collapsed and the clock and icons jumped to the top. Without a readable
+density a dp answer is reported as `—`, not as a number.
 
 A value that the build does not carry — the optional padding resources
 (`rounded_corner_content_padding`, `status_bar_padding_start/_end`) are only in
@@ -103,6 +117,48 @@ the page cannot write them.
 
 A rebuild from a `config.env` that leaves the padding keys commented out does
 revert them until the page adds the entries again on the next Apply.
+
+---
+
+## Addons
+
+The **Addons** card is the other half of the module. **Live** addons are
+Settings values written with `settings put`: the volume panel side, the screen
+timeout, hiding the status-bar clock and the captive-portal probe. **Overlay**
+addons are resources: upside-down rotation, the navigation-bar padding, a
+transparent status-bar background and the masked-out notch.
+
+A live control is not part of **Apply**: it applies the moment it changes,
+because changing a Setting needs no framework restart and no APK is touched. The
+choice is written to `addons.conf` in the module, and `service.sh` applies that
+file on every boot — so a value set here sticks.
+
+An overlay control is part of **Apply**, because its value is a resource in the
+overlay APK. The row shows what is in the installed APK (**in this APK**, or
+**ROM default** when it is not applied); changing it turns the line into **apply
+to write**, and Apply writes the entry into `resources.arsc` with the same
+writer the sliders use — a boolean, a dimension, or a colour for the status-bar
+drawable. The density-qualified `status_background` is written once per density,
+for the same reason the build writes it that way. Nothing is visible until the
+framework reloads, exactly like a slider.
+
+**Use default** is the per-row way out: the control goes back to the default,
+Apply removes the entry from the APK (so the ROM's own resource is used again)
+and the line leaves `addons.conf`. On a live addon it applies at once. The addon
+can be chosen and saved again later — Apply writes it back.
+
+Only the addons that differ from the default are kept in the file; picking one
+back to its default removes the line and hands that setting back to the ROM.
+**Reset addons** restores the live defaults; overlay lines stay, because the
+installed APK still carries them — use **Use default** on the row, then Apply, to
+take one out. The line under each live control is what the phone resolves right
+now, and it turns into `saved left · phone right` when a saved value did not
+take.
+
+The catalog is `webroot/addons.sh` — one script that the page, the desktop app
+and `service.sh` all run — so the addon list here and in the app cannot drift.
+The full list, what each one writes, and how to add one:
+[addons.md](addons.md).
 
 ---
 

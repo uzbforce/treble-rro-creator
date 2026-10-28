@@ -236,6 +236,26 @@ fi
 
 SERVEOF
 
+    # ── Module addons ──────────────────────────────────────────────────────
+    # Settings values the overlay cannot express (the volume panel side, the
+    # screen timeout, ...). addons.conf holds only the addons that were
+    # actually chosen, so an untouched install is left exactly as the ROM left
+    # it. The page on the phone and the desktop app's Addons tab write the file.
+    cat >> "$target/service.sh" << 'SERVEOF'
+# ── Module addons ──────────────────────────────────────────────────────────
+MODPATH=${MODPATH:-${0%/*}}
+[ -d "$MODPATH/webroot" ] || MODPATH="/data/adb/modules/@MODULE_ID@"
+if [ -f "$MODPATH/webroot/addons.sh" ] && [ -f "$MODPATH/addons.conf" ]; then
+    out=$(sh "$MODPATH/webroot/addons.sh" apply 2>&1)
+    rc=$?
+    printf '%s\n' "$out" | while IFS= read -r line; do
+        [ -n "$line" ] && log -t treble-overlay "addons: $line" 2>/dev/null
+    done
+    [ "$rc" -eq 0 ] || log -t treble-overlay "addons: apply failed" 2>/dev/null || true
+fi
+
+SERVEOF
+
     cat >> "$target/service.sh" << 'SERVEOF'
 # ── Done ───────────────────────────────────────────────────────────────────
 log -t treble-overlay "treble overlay service finished" 2>/dev/null || true
@@ -500,6 +520,14 @@ CUSTOMIZE_VINTF
 # them back into the new install; the page re-applies them onto the new APKs.
 if [ -f "$MODPATH/webroot/apply.sh" ]; then
     sh "$MODPATH/webroot/apply.sh" restore-conf >/dev/null 2>&1 || true
+fi
+
+# ── Module addons ─────────────────────────────────────────────────────────
+# Same folder, same reason: the choices survive the update, and applying them
+# here means a rebuild takes effect without waiting for the next boot.
+if [ -f "$MODPATH/webroot/addons.sh" ]; then
+    sh "$MODPATH/webroot/addons.sh" restore-conf >/dev/null 2>&1 || true
+    sh "$MODPATH/webroot/addons.sh" apply >/dev/null 2>&1 || true
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────

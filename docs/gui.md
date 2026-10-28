@@ -135,6 +135,21 @@ so the window no longer opens on a list of files from some earlier run.
   still listed with the reasons they fell short (a shared `mivendor`, a GSI
   `generic`, a `build_prop` that a GSI renames) — see
   [configuration.md](configuration.md#choosing-the-match-property).
+- **Addons** — choices the module owns, separate from `config.env`. **Live**
+  ones are Settings values the module writes itself (volume panel side, screen
+  timeout, hiding the status-bar clock, the captive-portal probe); they apply at
+  boot and can be changed from the phone without a rebuild. **Overlay** ones are
+  resources the build bakes into the APK (upside-down rotation, no
+  navigation-bar padding, a transparent status-bar background, the notch masked
+  out of the display); their rows say **next build** because the app only
+  writes the file, and a flash is when they happen (the phone's WebUI can write
+  them into the installed APK without one). **Save addons** writes
+  `src/module/addons.conf`, and the next **Build** packs it. **default** on a
+  row drops it back to its default, which removes the line (and, for an overlay,
+  stops the build emitting the resource). A key stays out of the file while it
+  holds its default, which is what keeps an untouched install from enforcing
+  anything. A phone is not needed here — the file is the whole job. Full list
+  and limits: [addons.md](addons.md).
 - **Files** — the `src/` workspace, so placing a HAL never means leaving the
   window. The tree is exactly what the build reads: `framework/` and `systemui/`
   resources, `module/` scripts, the optional `vendor/` HAL tree and `webui/`.

@@ -83,6 +83,17 @@ test("dimens and bools the sliders do not cover are editable", () => {
   assert.ok(editable.some((k) => k === "sui:bool/doze_display_state_supported"), "a SystemUI bool");
 });
 
+test("the waterfall band reaches the page per edge", () => {
+  const left = manifest.resources.find((r) => r.res === "fw:dimen/waterfall_display_left_edge_size");
+  assert.ok(left, "WATERFALL_EDGE_LEFT is in the manifest");
+  assert.strictEqual(left.value, "40px");
+  assert.strictEqual(left.ro, false, "a waterfall edge is editable from the page");
+  assert.strictEqual(left.group, "Waterfall edges");
+  // Only the edge that is set is emitted; the other three keep the ROM's value.
+  assert.ok(!manifest.resources.some((r) => r.res === "fw:dimen/waterfall_display_right_edge_size"),
+    "an unset edge must not be written");
+});
+
 test("a value that is a resource reference is read-only", () => {
   for (const r of manifest.resources) {
     if (/^[@?]/.test(r.value)) assert.strictEqual(r.ro, true, r.res + " references another resource");

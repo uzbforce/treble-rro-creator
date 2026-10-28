@@ -54,6 +54,17 @@ size_xml() {
     printf '%s%s' "$SIZE_VALUE" "$SIZE_UNIT"
 }
 
+# addon_choice <id>  -> the value saved in src/module/addons.conf, empty if the
+# addon was never chosen. The file is the Addons tab's output; addons.sh reads
+# the same ids for the Settings ones at boot, while the overlay addons are
+# resources and only exist once the build emits them below.
+addon_choice() {
+    local conf="${MODULE_DIR}/addons.conf"
+    [ -f "$conf" ] || return 0
+    awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { printf "%s", v }' \
+        "$conf" 2>/dev/null
+}
+
 # list_ints <space-separated>  -> true when every entry is an integer.
 list_ints() {
     local v
@@ -393,6 +404,31 @@ GENEOF
 GENEOF
     fi
 
+    # ── Waterfall cutout band (dimens) ───────────────────────────────────
+    # A waterfall panel curves down the sides, so the framework reserves a band
+    # there and every window keeps its content out of it - the gutter apps show
+    # on the left and right of a button or a list. The band is these four
+    # dimens, collected by the array config_mainBuiltInDisplayWaterfallCutout
+    # and returned as DisplayCutout.getWaterfallInsets(). Left unset, the ROM's
+    # own values stay; the array references the dimens, so overriding a dimen
+    # changes the insets without touching the array.
+    for pair in \
+        "WATERFALL_EDGE_LEFT:waterfall_display_left_edge_size" \
+        "WATERFALL_EDGE_TOP:waterfall_display_top_edge_size" \
+        "WATERFALL_EDGE_RIGHT:waterfall_display_right_edge_size" \
+        "WATERFALL_EDGE_BOTTOM:waterfall_display_bottom_edge_size"; do
+        wf_key=${pair%%:*}
+        wf_res=${pair#*:}
+        wf_val="${!wf_key}"
+        [ -n "$wf_val" ] || continue
+        [[ "$wf_val" == *"<"* ]] && continue
+        if ! normalize_size "$wf_val"; then
+            err "${wf_key} must be a number in px or dp (e.g. 40 or 24dp), got: ${wf_val}"
+            exit 1
+        fi
+        printf '    <dimen name="%s">%s</dimen>\n' "$wf_res" "$(size_xml)" >> "$gen"
+    done
+
     # ── Optional Stock Bools (config.env OPTIONAL STOCK VALUES) ────────────
     # These are extracted from the user's stock product overlay APK.
     # They are commented out in config.env by default.
@@ -572,6 +608,59 @@ GENEOF
         fi
     fi
 
+    # ── Module addons that are overlay resources ─────────────────────────
+    # Chosen in the app's Addons tab, which writes src/module/addons.conf. The
+    # live addons in the same file are applied by addons.sh at boot; these ones
+    # only exist as resources, so the build is where they are baked. The
+    # phone's page can write the same names into the installed APK with Apply
+    # (ADDON_RESOURCES in src/webui/index.html mirrors this list), and the
+    # default emits nothing, which is what keeps an untouched install exactly
+    # like the ROM.
+    if [ "$(addon_choice any_rotation)" = "on" ]; then
+        cat >> "$gen" << GENEOF
+    <bool name="config_allowAllRotations">true</bool>
+
+GENEOF
+        info "Addon any_rotation: 180° rotation allowed (config_allowAllRotations)"
+    fi
+
+    if [ "$(addon_choice nav_bar_padding)" = "off" ]; then
+        # navigation_bar_height is the inset every app lays out inside; the
+        # frame height is the bar's own window, which is what draws (and
+        # catches the swipe for) the pill. Shrinking only the inset removes the
+        # padding while leaving the pill over the content.
+        cat >> "$gen" << GENEOF
+    <dimen name="navigation_bar_height">0dp</dimen>
+    <dimen name="navigation_bar_height_landscape">0dp</dimen>
+    <dimen name="navigation_bar_frame_height">48dp</dimen>
+    <dimen name="navigation_bar_frame_height_landscape">48dp</dimen>
+
+GENEOF
+        info "Addon nav_bar_padding=off: gesture inset 0dp, pill frame kept at 48dp"
+    fi
+
+    if [ "$(addon_choice hide_notch)" = "on" ]; then
+        # Masking is not filling: with config_maskMainBuiltInDisplayCutout the
+        # logical display itself is inset by the cutout's safe insets
+        # (LogicalDisplay.getMaskingInsets), and the DisplayCutout is reported
+        # as null to apps. The strip above the display is therefore black and
+        # outside every window - apps, the status bar and games all start
+        # below the notch, and nothing can draw under the camera.
+        #
+        # It needs a cutout the framework knows about: this build defines one
+        # from DISPLAY_CUTOUT. Without it the ROM's own path, if any, is what
+        # gets masked - an empty one masks nothing.
+        cat >> "$gen" << GENEOF
+    <bool name="config_maskMainBuiltInDisplayCutout">true</bool>
+
+GENEOF
+        if [ -n "${DISPLAY_CUTOUT:-}" ] && [[ "${DISPLAY_CUTOUT}" != *"<"* ]]; then
+            info "Addon hide_notch: display masked to ${DISPLAY_CUTOUT} - everything starts below it"
+        else
+            warn "Addon hide_notch=on but DISPLAY_CUTOUT is empty - there is no cutout to mask"
+        fi
+    fi
+
     # Close resources
     echo "</resources>" >> "$gen"
 
@@ -656,9 +745,52 @@ GENEOF
         fi
     fi
 
+    # ── Module addons that are SystemUI resources ─────────────────────────
+    # status_bar_background=off: the collapsed bar draws a fading black
+    # gradient (R.drawable.status_background, 9-patch into the alpha ramp)
+    # through PhoneStatusBarTransitions. A drawable can be replaced with a
+    # colour, so pointing it at transparent removes the shade without touching
+    # the layout: the icons and the bar's swipe area are unchanged.
+    local sb_bg
+    sb_bg=$(addon_choice status_bar_background)
+    if [ "$sb_bg" = "off" ]; then
+        cat >> "$gen" << 'GENEOF'
+    <item name="status_background" type="drawable">@android:color/transparent</item>
+
+GENEOF
+        info "Addon status_bar_background=off: no shade behind the status bar"
+    fi
+
     echo "</resources>" >> "$gen"
 
+    # status_background in the ROM is a 9-patch, and a 9-patch is density
+    # qualified: drawable-{mdpi,hdpi,xhdpi,xxhdpi}-v4. AssetManager only takes
+    # an overlay entry whose configuration is equal to or better than the
+    # entry it found in the target (AssetManager2::FindEntry compares the two
+    # configs), so the single default entry above loses to the ROM's density
+    # entry on every device and the shade would stay. The same item is written
+    # into the densities the ROM uses, -v4 included, so one of them matches.
+    # The directories go away again when the addon is not off: a stale copy is
+    # a shade the previous build removed still being removed by this one.
+    local sb_density sb_dir
+    for sb_density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+        sb_dir="${SYSUI_RES_DIR}/values-${sb_density}-v4"
+        if [ "$sb_bg" = "off" ]; then
+            mkdir -p "$sb_dir"
+            cat > "$sb_dir/generated.xml" << 'GENEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto-generated by build.sh from config.env - DO NOT EDIT BY HAND. -->
+<resources>
+    <item name="status_background" type="drawable">@android:color/transparent</item>
+</resources>
+GENEOF
+        else
+            rm -f "$sb_dir/generated.xml"
+            rmdir "$sb_dir" 2>/dev/null || true
+        fi
+    done
+
     local sysui_count
-    sysui_count=$(grep -cE '<(bool|dimen|color)[[:space:]]+name=' "$gen" 2>/dev/null || true)
+    sysui_count=$(grep -cE '<(bool|dimen|color|item)[[:space:]]+name=' "$gen" 2>/dev/null || true)
     ok "Generated: ${SYSUI_RES_DIR}/values/generated.xml (${sysui_count:-0} resource entries)"
 }

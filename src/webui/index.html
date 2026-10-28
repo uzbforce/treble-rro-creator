@@ -493,6 +493,55 @@
   }
 
   /* ---------------------------------------------------------------------
+     Addons
+     --------------------------------------------------------------------- */
+  .addon-rows { display: flex; flex-direction: column; }
+  .addon-row {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 12px 0 13px;
+    border-top: 1px solid var(--rule);
+  }
+  .addon-row:first-child { border-top: 0; }
+  .addon-row[data-dirty="true"] .addon-text { opacity: .65; }
+  .addon-text { flex: 1; min-width: 0; }
+  .addon-text .row-label { font-size: 14px; }
+  .addon-summary {
+    margin: 3px 0 0;
+    font-size: 12px; line-height: 1.5;
+    color: var(--muted);
+  }
+  .addon-control { display: flex; align-items: center; gap: 12px; flex: none; }
+  /* "Use default" is the way out of an addon: it removes the line (and, for
+     an overlay, the resource), so the ROM's own value is what is left. */
+  .addon-default {
+    margin: 7px 0 0; padding: 0;
+    border: 0; background: none; color: var(--muted);
+    font: inherit; font-size: 11.5px;
+    text-decoration: underline; text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .addon-default:hover:not(:disabled) { background: none; color: var(--ink); }
+  .addon-default[hidden] { display: none; }
+  .addon-live {
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .addon-live[data-diff="true"] { color: var(--accent); }
+  .addon-select {
+    min-width: 104px; max-width: 160px;
+    padding: 7px 10px;
+    border: 1px solid var(--rule-strong); border-radius: 9px;
+    background: var(--panel); color: var(--ink);
+    font: inherit; font-size: 13px;
+  }
+  .addon-foot {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--rule);
+  }
+  .addon-note { font-size: 12px; color: var(--muted); }
+
+  /* ---------------------------------------------------------------------
      Diagnostics
      --------------------------------------------------------------------- */
   .diag {
@@ -886,6 +935,31 @@
       </div>
     </section>
 
+    <!-- Module addons, both kinds: a live pick is a Settings value the module
+         writes itself and applies the moment it is made (and again on every
+         boot); an overlay pick is a resource, written into the installed APK
+         by Apply together with the sliders. -->
+    <section class="card" id="addonsCard">
+      <div class="card-head">
+        <h2><span class="idx">05</span>Addons</h2>
+        <span class="meta">module</span>
+      </div>
+      <p class="adv-hint">
+        These are module addons. A live pick is a Settings value the module
+        writes itself: it applies as soon as you make it, and again on every
+        boot so it sticks. An overlay pick is a resource in the APK this build
+        shipped: Apply writes it into that APK (with the sliders), and a reload
+        makes the framework read it. <b>Use default</b> removes an addon — the
+        line leaves addons.conf and, for an overlay, the resource leaves the
+        APK, so the ROM's own value is used again.
+      </p>
+      <div id="rows-addons" class="addon-rows"></div>
+      <div class="addon-foot">
+        <button class="btn quiet small" id="addonsResetBtn" type="button">Reset addons</button>
+        <span class="addon-note" id="addonsNote"></span>
+      </div>
+    </section>
+
     <details class="diag" id="adv">
       <summary>
         <span>All resources</span>
@@ -967,7 +1041,8 @@
     { key: "SB_HEIGHT",   group: "framework", label: "Status bar height",
       hint: "Height of the bar above apps",               min: 0, max: 240 },
     { key: "PAD_CONTENT", group: "framework", label: "Content padding",
-      hint: "Moves the clock and icons off the corners",  min: 0, max: 160 },
+      hint: "Framework inset — many ROMs ignore it; set the pair below too",
+                                                          min: 0, max: 160 },
     { key: "PAD_START",   group: "systemui",  label: "Padding start",
       hint: "Space before the clock",                     min: 0, max: 160 },
     { key: "PAD_END",     group: "systemui",  label: "Padding end",
@@ -1017,7 +1092,10 @@
     extraNodes: {},       // "type/name" -> { row, input, unit }
     patched: 0,           // APKs that still carry a patch (from status)
     failed: false,        // the boot guard undid the last patch
-    autoDone: false       // the saved values were re-applied this session
+    autoDone: false,      // the saved values were re-applied this session
+    addons: null,         // addons.sh list: catalog, saved and live values
+    addonPicks: {},       // id -> the value the card shows
+    addonBase: {}         // id -> what the list read when it was loaded
   };
 
   function $(id) { return document.getElementById(id); }
@@ -1269,6 +1347,39 @@
     if (state.useSu) {
       // The host shell is not root; re-enter through su. The whole command is
       // passed as one argument so the bridge cannot split it.
+      cmd = (state.suBin || "su") + " -c " +
+            quote("PATH=/sbin:/system/sbin:/system/bin:/system/xbin:$PATH; " + cmd);
+    }
+    return exec(cmd, timeoutMs).then(function (r) {
+      addLog(cmd, r);
+      return r;
+    });
+  }
+
+  // The addon helper sits next to apply.sh. Resolving the module folder once
+  // means both scripts come from the same installed module instead of two glob
+  // searches that could pick different ones.
+  function buildFindScript(script) {
+    var exact = moduleScript();
+    var parts = [];
+    parts.push(exact ? "M=" + quote(exact) : "M=");
+    parts.push('[ -f "$M" ] || M=$(ls -d /data/adb/modules/treble-overlay-*/webroot/apply.sh 2>/dev/null | head -n 1)');
+    parts.push('[ -f "$M" ] || M=$(ls -d /data/adb/modules/*/webroot/apply.sh 2>/dev/null | head -n 1)');
+    parts.push('[ -f "$M" ] || { echo "MODULE_NOT_FOUND" >&2; exit 127; }');
+    parts.push('W=${M%/*}');
+    parts.push('[ -f "$W/' + script + '" ] || { echo "MISSING_' + script + '" >&2; exit 127; }');
+    parts.push('sh "$W/' + script + '"');
+    return parts.join("; ");
+  }
+
+  // Same calling convention as run(), one script over: the addons are a module
+  // feature too, so they are read and written by the module's own helper.
+  function runAddons(args, timeoutMs) {
+    var cmd = buildFindScript("addons.sh");
+    if (args && args.length) {
+      cmd += " " + args.map(quote).join(" ");
+    }
+    if (state.useSu) {
       cmd = (state.suBin || "su") + " -c " +
             quote("PATH=/sbin:/system/sbin:/system/bin:/system/xbin:$PATH; " + cmd);
     }
@@ -1627,6 +1738,240 @@
   }
 
   /* -------------------------------------------------------------------
+     Addons
+
+     Two kinds in one card, because they are one catalog (webroot/addons.sh):
+
+       setting  written with `settings put` the moment it is picked, and again
+                every boot. Nothing goes through Apply.
+       overlay  a resource in the APK this module ships. A pick only changes
+                the plan; Apply writes it into resources.arsc with the same
+                writer the sliders use, and a reload makes the framework read
+                it. "Use default" removes the entry instead of writing one,
+                so the ROM's own value is what the device resolves.
+     ------------------------------------------------------------------- */
+
+  function addonIsSwitch(a) {
+    return a.choices.length === 2 && a.choices[0] === "on" && a.choices[1] === "off";
+  }
+
+  function addonBase(a) {
+    var base = state.addonBase && state.addonBase[a.id];
+    return base != null ? base : (a.saved ? a.value : a.default);
+  }
+
+  function addonPick(a) {
+    var pick = state.addonPicks && state.addonPicks[a.id];
+    return pick != null ? pick : a.value;
+  }
+
+  // "saved but still X" is the one worth shouting about: the module did not
+  // manage to apply it. Without a saved value, a phone value that differs from
+  // the default is simply the phone's own setting, not a failure.
+  function addonLiveText(a) {
+    var pick = addonPick(a);
+    if (a.kind === "overlay") {
+      if (pick !== addonBase(a)) return "apply to write";
+      return a.saved ? "in this APK" : "ROM default";
+    }
+    if (!a.live) return "";
+    if (a.saved && a.live !== a.value) return "saved " + a.value + " · phone " + a.live;
+    return "phone: " + a.live;
+  }
+
+  function loadAddons() {
+    return runAddons(["list"], 20000).then(function (r) {
+      var note = $("addonsNote");
+      if (r.errno !== 0) {
+        var why = firstProblem(r.stderr || r.stdout) || "the module has no addon helper";
+        note.textContent = "Addons unavailable: " + why;
+        state.addons = null;
+        state.addonPicks = {};
+        state.addonBase = {};
+        $("rows-addons").textContent = "";
+        $("addonsResetBtn").disabled = true;
+        return null;
+      }
+      var doc = null;
+      try { doc = JSON.parse(r.stdout); } catch (e) { doc = null; }
+      state.addons = doc;
+      // What the card shows, and what it showed when the list was read: a
+      // changed overlay row compares the two to know it still has to be
+      // written by Apply (and a changed live row is already applied).
+      state.addonPicks = {};
+      state.addonBase = {};
+      if (doc && doc.addons) doc.addons.forEach(function (a) {
+        state.addonPicks[a.id] = a.value;
+        state.addonBase[a.id] = a.saved ? a.value : a.default;
+      });
+      note.textContent = doc && doc.conf === "yes"
+        ? "Live picks apply at once and on every boot. Overlay picks are written into the APK by Apply; reload to load them."
+        : "Nothing is enforced yet — every addon follows the ROM.";
+      $("addonsResetBtn").disabled = !(doc && doc.conf === "yes");
+      renderAddons();
+      return doc;
+    }).catch(function () {
+      $("addonsNote").textContent = "Addons unavailable on this host.";
+    });
+  }
+
+  function setAddonPick(a, value, row) {
+    state.addonPicks[a.id] = value;
+    if (a.kind === "overlay") {
+      // Written by Apply, not now: the APK is one write with the sliders, and
+      // the boot guard covers all of them together.
+      paintAddon(a, row);
+      return null;
+    }
+    return saveAddon(a.id, value, row);
+  }
+
+  function paintAddon(a, row) {
+    var pick = addonPick(a), base = addonBase(a);
+    row.dataset.dirty = pick !== base ? "true" : "false";
+    var live = row.querySelector(".addon-live");
+    if (live) {
+      live.textContent = addonLiveText(a);
+      live.dataset.diff = (a.kind !== "overlay" && a.saved && a.live &&
+                           a.live !== a.value) ? "true" : "false";
+    }
+    var def = row.querySelector(".addon-default");
+    if (def) def.hidden = base === a.default && pick === a.default;
+  }
+
+  function renderAddons() {
+    var box = $("rows-addons");
+    box.textContent = "";
+    var doc = state.addons;
+    if (!doc || !doc.addons || !doc.addons.length) {
+      box.textContent = "The module did not report any addons.";
+      return;
+    }
+
+    doc.addons.forEach(function (a) {
+      var row = document.createElement("div");
+      row.className = "addon-row";
+      row.dataset.id = a.id;
+
+      var text = document.createElement("div");
+      text.className = "addon-text";
+      var label = document.createElement("label");
+      label.className = "row-label";
+      label.setAttribute("for", "addon-" + a.id);
+      label.appendChild(document.createTextNode(a.label));
+      var tag = document.createElement("small");
+      tag.textContent = a.id + (a.kind === "overlay" ? " · overlay" : "");
+      label.appendChild(tag);
+      text.appendChild(label);
+
+      var summary = document.createElement("p");
+      summary.className = "addon-summary";
+      summary.textContent = a.summary;
+      text.appendChild(summary);
+
+      // Back to "not applied": no line in addons.conf and no resource in the
+      // APK. The control keeps the default value, so it can be chosen and
+      // saved again whenever the addon is wanted back.
+      var def = document.createElement("button");
+      def.type = "button";
+      def.className = "addon-default";
+      def.textContent = "use default";
+      def.title = a.kind === "overlay"
+        ? "Remove this addon from the APK: the ROM's own resource is used again."
+        : "Hand this value back to the ROM: no line is enforced at boot.";
+      def.addEventListener("click", function () { setAddonPick(a, a.default, row); });
+      text.appendChild(def);
+      row.appendChild(text);
+
+      var control = document.createElement("div");
+      control.className = "addon-control";
+
+      var live = document.createElement("span");
+      live.className = "addon-live";
+      control.appendChild(live);
+
+      if (addonIsSwitch(a)) {
+        var wrap = document.createElement("label");
+        wrap.className = "switch";
+        var input = document.createElement("input");
+        input.type = "checkbox";
+        input.id = "addon-" + a.id;
+        var track = document.createElement("span");
+        track.className = "track";
+        var thumb = document.createElement("span");
+        thumb.className = "thumb";
+        input.addEventListener("change", function () {
+          setAddonPick(a, input.checked ? "on" : "off", row);
+        });
+        wrap.appendChild(input);
+        wrap.appendChild(track);
+        wrap.appendChild(thumb);
+        control.appendChild(wrap);
+        row._setControl = function (v) { input.checked = v === "on"; };
+      } else {
+        var pick = document.createElement("select");
+        pick.id = "addon-" + a.id;
+        pick.className = "addon-select";
+        a.choices.forEach(function (choice) {
+          var opt = document.createElement("option");
+          opt.value = choice;
+          opt.textContent = choice;
+          pick.appendChild(opt);
+        });
+        pick.addEventListener("change", function () {
+          setAddonPick(a, pick.value, row);
+        });
+        control.appendChild(pick);
+        row._setControl = function (v) { pick.value = v; };
+      }
+
+      row.appendChild(control);
+      box.appendChild(row);
+      row._setControl(addonPick(a));
+      paintAddon(a, row);
+    });
+  }
+
+  function saveAddon(id, value, row) {
+    row.dataset.dirty = "true";
+    return runAddons(["set", id + "=" + value], 20000).then(function (r) {
+      if (r.errno !== 0) {
+        showSnack("Could not apply " + id + ": " +
+                  (firstProblem(r.stderr || r.stdout) || "no answer"), "error");
+      } else {
+        showSnack("Addon saved: " + id + " = " + value, "ok");
+      }
+      return loadAddons();
+    });
+  }
+
+  // The overlay picks an Apply has to remember. Only a changed row is written:
+  // the file and the APK already agree about everything else.
+  function changedOverlayAddons() {
+    var out = [];
+    ((state.addons && state.addons.addons) || []).forEach(function (a) {
+      if (a.kind !== "overlay") return;
+      var pick = addonPick(a);
+      if (pick === addonBase(a)) return;
+      out.push(a.id + "=" + pick);
+    });
+    return out;
+  }
+
+  function saveAddonPicks(skip) {
+    var pairs = changedOverlayAddons().filter(function (pair) {
+      return !skip || skip.indexOf(pair.split("=")[0]) < 0;
+    });
+    if (!pairs.length) return Promise.resolve(null);
+    return runAddons(["set"].concat(pairs), 20000).then(function (r) {
+      if (r.errno !== 0) {
+        throw new Error(firstProblem(r.stderr || r.stdout) || "could not save addons.conf");
+      }
+      return r;
+    });
+  }
+
+  /* -------------------------------------------------------------------
      Overlay APK patcher
 
      `cmd overlay fabricate` accepts data types 16..31 only (int, colour,
@@ -1925,10 +2270,21 @@
     return out;
   }
 
-  // addEntries(table, model, adds, extraStrings) -> a new resource table with
-  // `adds` in it. Each add is { type, name, dataType, data }. extraStrings are
-  // appended to the global value pool (a string value is an index into it).
-  function addEntries(b, arsc, adds, extraStrings) {
+  // writeTable(b, arsc, ops, extraStrings) -> a new resource table with `ops`
+  // applied. Each op is { type, name, dataType, data, remove?, configs? }.
+  //
+  //   remove   drops the entry from every configuration, so the target's own
+  //            value is what the device reads again. This is the "stop
+  //            applying this addon" state - there is nothing to write in its
+  //            place, and a rebuild would not emit the entry either.
+  //   configs  adds the entry to these configurations instead of the default
+  //            one. A density-qualified drawable (status_background) only
+  //            loses to the ROM when the overlay has an entry for the same
+  //            density; a lone default entry maps to nothing.
+  //
+  // extraStrings are appended to the global value pool (a string value is an
+  // index into it).
+  function writeTable(b, arsc, ops, extraStrings) {
     var pkg = arsc.pkg;
     if (u16(b, 0) !== 0x0002) throw new Error("not a resource table");
     if (pkg.offset !== arsc.poolAt + arsc.poolSize) throw new Error("the package does not follow the value pool");
@@ -1946,51 +2302,110 @@
     var replace = {}, tail = [];
 
     var groups = [], byType = {};
-    adds.forEach(function (a) {
-      if (!byType[a.type]) { byType[a.type] = { name: a.type, items: [] }; groups.push(byType[a.type]); }
-      byType[a.type].items.push(a);
+    ops.forEach(function (op) {
+      if (!byType[op.type]) { byType[op.type] = { name: op.type, ops: [] }; groups.push(byType[op.type]); }
+      byType[op.type].ops.push(op);
     });
 
     groups.forEach(function (g) {
+      var adds = [], drops = [], i, c;
+      g.ops.forEach(function (op) { (op.remove ? drops : adds).push(op); });
+
       var typeId = types.indexOf(g.name) + 1;
+      if (typeId === 0 && !adds.length) return;       // nothing to remove
       if (typeId === 0) { types.push(g.name); typeId = types.length; typeChanged = true; }
 
-      var chunk = null, spec = null, i, c;
+      var spec = null, chunks = [];
       for (i = 0; i < pkg.chunks.length; i++) {
         c = pkg.chunks[i];
         if (c.typeId !== typeId) continue;
-        if (c.type === 0x0201 && c.isDefault) chunk = c;
         if (c.type === 0x0202) spec = c;
+        if (c.type === 0x0201) chunks.push(c);
       }
 
-      var entries = [], headerSize = 84, config;
-      if (chunk) {
-        headerSize = chunk.headerSize;
-        if (headerSize !== 20 + chunk.configSize) throw new Error("unusual type chunk header");
-        config = chunk.config;
-        chunk.entries.forEach(function (e) {
+      // Every configuration of the type is rebuilt, not only the default one:
+      // a density-qualified entry has to be dropped (or written) where the ROM
+      // keeps it. Chunks that are not touched come back byte for byte.
+      var model = chunks.map(function (ch) {
+        if (ch.headerSize !== 20 + ch.configSize) throw new Error("unusual type chunk header");
+        var entries = [];
+        ch.entries.forEach(function (e) {
           if (e.complex) throw new Error("'" + g.name + "' holds an array or a map");
           while (entries.length < e.index) entries.push(null);
           entries[e.index] = { key: e.key, dataType: e.dataType, data: e.data };
         });
-      } else {
-        config = new Uint8Array(64);             // the default configuration
-        setU32(config, 0, 64);
-      }
-
-      g.items.forEach(function (a) {
-        var ki = keys.indexOf(a.name);
-        if (ki < 0) { keys.push(a.name); ki = keys.length - 1; keyChanged = true; }
-        var at = -1, j;
-        for (j = 0; j < entries.length; j++) if (entries[j] && entries[j].key === ki) at = j;
-        if (at >= 0) entries[at] = { key: ki, dataType: a.dataType, data: a.data };
-        else entries.push({ key: ki, dataType: a.dataType, data: a.data });
+        return { chunk: ch, config: ch.config, entries: entries, touched: false };
       });
 
-      var specBytes = buildTypeSpec(typeId, entries.length);
-      var typeBytes = buildTypeChunk(typeId, headerSize, config, entries);
-      if (spec) replace[spec.offset] = specBytes; else tail.push(specBytes);
-      if (chunk) replace[chunk.offset] = typeBytes; else tail.push(typeBytes);
+      var def = null;
+      for (i = 0; i < model.length; i++) if (model[i].chunk.isDefault) { def = model[i]; break; }
+      if (!def) {
+        var blank = new Uint8Array(64);             // the default configuration
+        setU32(blank, 0, 64);
+        def = { chunk: null, config: blank, entries: [], touched: false };
+        model.push(def);
+      }
+
+      drops.forEach(function (op) {
+        var ki = keys.indexOf(op.name);
+        if (ki < 0) return;
+        model.forEach(function (m) {
+          var hit = false;
+          // A hole, not a shorter list: every entry after this one keeps its
+          // index, and so its resource id. Renumbering would hand another
+          // resource's id to code that still refers to this one.
+          for (var j = 0; j < m.entries.length; j++) {
+            if (m.entries[j] && m.entries[j].key === ki) {
+              m.entries[j] = null;
+              hit = true;
+            }
+          }
+          if (hit) m.touched = true;
+        });
+      });
+
+      adds.forEach(function (op) {
+        var ki = keys.indexOf(op.name);
+        if (ki < 0) { keys.push(op.name); ki = keys.length - 1; keyChanged = true; }
+        var put = function (m) {
+          var at = -1, j;
+          for (j = 0; j < m.entries.length; j++) if (m.entries[j] && m.entries[j].key === ki) at = j;
+          if (at >= 0) {
+            if (m.entries[at].dataType === op.dataType && m.entries[at].data === op.data) return;
+            m.entries[at] = { key: ki, dataType: op.dataType, data: op.data };
+          } else {
+            m.entries.push({ key: ki, dataType: op.dataType, data: op.data });
+          }
+          m.touched = true;
+        };
+        if (!op.configs || !op.configs.length) { put(def); return; }
+        op.configs.forEach(function (want) {
+          var hit = null, j;
+          for (j = 0; j < model.length; j++) if (sameConfig(model[j].config, want)) { hit = model[j]; break; }
+          if (!hit) { hit = { chunk: null, config: want, entries: [], touched: false }; model.push(hit); }
+          put(hit);
+        });
+      });
+
+      var count = 0, added = [];
+      model.forEach(function (m) {
+        if (m.entries.length > count) count = m.entries.length;
+        // A chunk nothing targeted is copied byte for byte: a remove that
+        // found nothing must not grow an APK.
+        if (!m.touched) return;
+        var bytes = buildTypeChunk(typeId, m.chunk ? m.chunk.headerSize : 84, m.config, m.entries);
+        if (m.chunk) replace[m.chunk.offset] = bytes; else added.push(bytes);
+      });
+      // The spec has to grow when an entry went past it - a key appended to a
+      // chunk that already exists grows the type without adding a chunk. A
+      // rebuild at the same size would move bytes for no reason.
+      if (spec && count > spec.count) {
+        replace[spec.offset] = buildTypeSpec(typeId, count);
+      } else if (!spec && added.length) {
+        // A new type goes last, and its spec must still come before its chunks.
+        tail.push(buildTypeSpec(typeId, count));
+      }
+      Array.prototype.push.apply(tail, added);
     });
 
     var typePool = typeChanged
@@ -2031,6 +2446,19 @@
     setU32(out, pkgAt + 268, typePoolAt - pkgAt);      // typeStrings
     setU32(out, pkgAt + 276, keyPoolAt - pkgAt);       // keyStrings
     return out;
+  }
+
+  // Two ResTable_config blobs name the same configuration. The chunks this
+  // page adds are built from a 64-byte config, the same size aapt2 writes.
+  function sameConfig(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  // The old name the rest of the page (and its tests) use for adding entries.
+  function addEntries(b, arsc, adds, extraStrings) {
+    return writeTable(b, arsc, adds, extraStrings);
   }
 
   /* ---- zip ------------------------------------------------------------ */
@@ -2149,6 +2577,155 @@
     { key: "PAD_START", apk: "sui", res: ["dimen/status_bar_padding_start"] },
     { key: "PAD_END", apk: "sui", res: ["dimen/status_bar_padding_end"] }
   ];
+
+  /* -------------------------------------------------------------------
+     Overlay addons
+
+     The four "overlay" rows in the Addons card are resources, not Settings,
+     so the same writer that moves a slider can write them: a bool, a dimen,
+     and a drawable replaced by a transparent colour. Turning one off is not
+     a value - it is the absence of the entry, so the ROM's own resource is
+     read again. writeTable() drops it from every configuration for that.
+
+     The names and the values are what stuff/scripts/resources.sh emits when
+     the addon is chosen at build time; a rebuild and this page must agree on
+     them, or a reinstall would quietly undo what the page wrote.
+     ------------------------------------------------------------------- */
+  // ResTable_config: the size is at 0, the density at 14 and the API level at
+  // 24. The build writes values-<density>-v4, so a density is all that is set.
+  function densityConfig(dpi) {
+    var cfg = new Uint8Array(64);
+    setU32(cfg, 0, 64);
+    setU16(cfg, 14, dpi);
+    return cfg;
+  }
+
+  function defaultConfig() {
+    var cfg = new Uint8Array(64);
+    setU32(cfg, 0, 64);
+    return cfg;
+  }
+
+  var ADDON_RESOURCES = {
+    // config_allowAllRotations: the 180° rotation Android normally refuses.
+    any_rotation: { apk: "fw", res: [
+      { type: "bool", name: "config_allowAllRotations", dataType: 0x12, data: 0xffffffff }] },
+    // config_maskMainBuiltInDisplayCutout: the display is inset by the cutout.
+    hide_notch: { apk: "fw", res: [
+      { type: "bool", name: "config_maskMainBuiltInDisplayCutout", dataType: 0x12, data: 0xffffffff }] },
+    // The gesture inset goes to 0dp while the bar's own 48dp frame (which
+    // draws and catches the swipe for the pill) stays.
+    nav_bar_padding: { apk: "fw", res: [
+      { type: "dimen", name: "navigation_bar_height", dataType: 0x05, data: 0 },
+      { type: "dimen", name: "navigation_bar_height_landscape", dataType: 0x05, data: 0 },
+      { type: "dimen", name: "navigation_bar_frame_height", dataType: 0x05, data: (48 << 8) | 1 },
+      { type: "dimen", name: "navigation_bar_frame_height_landscape", dataType: 0x05, data: (48 << 8) | 1 }] },
+    // A drawable replaced by a transparent colour. The ROM keeps
+    // status_background only at the density configurations, so the entry has
+    // to be written there too (see writeTable's `configs`).
+    status_bar_background: { apk: "sui", res: [
+      { type: "drawable", name: "status_background", dataType: 0x1c, data: 0,
+        configs: [defaultConfig(), densityConfig(160), densityConfig(240),
+                  densityConfig(320), densityConfig(480), densityConfig(640)] }] }
+  };
+
+  // The operations the picks ask for in one APK. Only a pick that differs from
+  // what the page loaded is written: an untouched addon does not rewrite the
+  // APK on every Apply, and the build's own choice stays authoritative until
+  // the user changes it here.
+  function addonOpsFor(list, picks, which) {
+    var ops = [];
+    (list || []).forEach(function (a) {
+      if (!a || a.kind !== "overlay") return;
+      var spec = ADDON_RESOURCES[a.id];
+      if (!spec || spec.apk !== which) return;
+      var base = a.saved ? a.value : a.default;
+      var pick = picks && picks[a.id] != null ? picks[a.id] : a.value;
+      if (pick === base) return;
+      var write = pick !== a.default;
+      spec.res.forEach(function (res) {
+        ops.push({
+          id: a.id, type: res.type, name: res.name,
+          dataType: res.dataType, data: res.data, configs: res.configs,
+          remove: !write
+        });
+      });
+    });
+    return ops;
+  }
+
+  function configIsDefault(cfg) {
+    for (var i = 4; i < cfg.length; i++) if (cfg[i]) return false;
+    return true;
+  }
+
+  function addonEntries(table, op) {
+    var out = [], typeId = table.pkg.types.indexOf(op.type) + 1;
+    if (!typeId) return out;
+    table.pkg.chunks.forEach(function (c) {
+      if (c.type !== 0x0201 || c.typeId !== typeId) return;
+      c.entries.forEach(function (e) {
+        if (e && !e.complex && table.pkg.keys[e.key] === op.name) {
+          out.push({ isDefault: c.isDefault, config: c.config, entry: e });
+        }
+      });
+    });
+    return out;
+  }
+
+  function sameBytes(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  // The table is parsed again before the APK is written: an addon that did not
+  // come back would otherwise only show up as a missing shade or a notch that
+  // reappears after a reload.
+  function verifyAddonOps(table, ops) {
+    ops.forEach(function (op) {
+      var found = addonEntries(table, op);
+      if (op.remove) {
+        if (found.length) throw new Error(op.name + " is still in the table after removing it");
+        return;
+      }
+      var wants = op.configs && op.configs.length ? op.configs : [null];
+      wants.forEach(function (cfg) {
+        var hit = false;
+        found.forEach(function (f) {
+          if (hit) return;
+          if (cfg ? sameConfig(f.config, cfg) : f.isDefault) {
+            if (f.entry.dataType === op.dataType && f.entry.data === op.data) hit = true;
+          }
+        });
+        if (!hit) throw new Error(op.name + " did not keep the new value");
+      });
+    });
+  }
+
+  function patchAddonApk(bytes, which) {
+    var ops = addonOpsFor((state.addons && state.addons.addons) || [], state.addonPicks, which);
+    if (!ops.length) return { bytes: bytes, changed: false, count: 0 };
+
+    var entry = zipEntry(bytes, "resources.arsc");
+    if (!entry) throw new Error("this APK has no resources.arsc");
+    if (entry.method !== 0) {
+      throw new Error("resources.arsc is compressed in this APK (aapt2 stores it, so this build is odd)");
+    }
+    var arsc = bytes.subarray(entry.offset, entry.offset + entry.size);
+    var table = readArsc(arsc);
+    if (!table) throw new Error("resources.arsc is not a single-package table this page can extend");
+
+    var next = writeTable(arsc, table, ops, null);
+    if (sameBytes(next, arsc)) return { bytes: bytes, changed: false, count: ops.length };
+
+    var out = rewriteZip(bytes, "resources.arsc", next);
+    var done = zipEntry(out, "resources.arsc");
+    var table2 = readArsc(out.subarray(done.offset, done.offset + done.size));
+    if (!table2) throw new Error("the rewritten resources.arsc does not parse");
+    verifyAddonOps(table2, ops);
+    return { bytes: out, changed: true, count: ops.length };
+  }
 
   /* -------------------------------------------------------------------
      All resources — the part of the page that is not hard-coded
@@ -2548,7 +3125,11 @@
   // { files, patched, added, missing: [{key, name}], other: [{key, name}], problem }.
   function patchOverlays() {
     var plan = planPatches();
-    var result = { files: 0, patched: 0, added: 0, missing: [], other: [], bad: [], problem: "" };
+    var list = (state.addons && state.addons.addons) || [];
+    var addonOps = { fw: addonOpsFor(list, state.addonPicks, "fw"),
+                     sui: addonOpsFor(list, state.addonPicks, "sui") };
+    var result = { files: 0, patched: 0, added: 0, addons: 0,
+                   missing: [], other: [], bad: [], addonMissing: [], problem: "" };
 
     return run(["apks"], 15000).then(function (r) {
       if (r.errno !== 0) throw new Error(errorText(r));
@@ -2557,7 +3138,18 @@
         throw new Error("cannot write to the overlay directory (uid " + (info.uid || "?") + ")");
       }
       var paths = { fw: info.fw, sui: info.sui };
-      var order = ["fw", "sui"].filter(function (w) { return plan[w].length && paths[w]; });
+      var seen = {};
+      ["fw", "sui"].forEach(function (w) {
+        if (paths[w] || !addonOps[w].length) return;
+        addonOps[w].forEach(function (op) {
+          if (seen[op.id]) return;
+          seen[op.id] = true;
+          result.addonMissing.push(op.id);
+        });
+      });
+      var order = ["fw", "sui"].filter(function (w) {
+        return (plan[w].length || addonOps[w].length) && paths[w];
+      });
 
       return order.reduce(function (chain, which) {
         return chain.then(function () {
@@ -2580,11 +3172,16 @@
               (res.bad || []).forEach(function (n) { result.bad.push(n); });
               if (res.problem) result.problem = res.problem;
               var payload = res.bytes || bytes;
-              if (!res.patched.length && !res.added.length) return;
+              // The addon resources go through the same writer, on the result
+              // of the slider pass.
+              var add = patchAddonApk(payload, which);
+              payload = add.bytes;
+              if (!res.patched.length && !res.added.length && !add.changed) return;
               return writeApk(paths[which], toB64(payload), payload.length).then(function () {
                 result.files++;
                 result.patched += res.patched.length;
                 result.added += res.added.length;
+                if (add.changed) result.addons += add.count;
               });
             });
         });
@@ -2642,6 +3239,9 @@
 
   function load(report) {
     setBusy(true);
+    // Addons are independent of the overlay (the module writes them itself), so
+    // a failure there must not keep the overlay card from loading.
+    loadAddons();
     return Promise.all([
       run(["get"]), run(["status"]), run(["conf"], 15000), run(["manifest"], 15000)
     ]).then(function (results) {
@@ -2862,9 +3462,19 @@
       return patchOverlays();
     }).then(function (r) {
       report = r;
+      // The overlay addons are in the APKs now; the file is their memory for
+      // the next reinstall and for `addons.sh list`. An addon whose APK is
+      // missing (a build without the SystemUI overlay) is not saved: it would
+      // claim to be applied. A failure here must not hide the write that did
+      // happen, so it is reported with the rest.
+      return saveAddonPicks(report.addonMissing).then(function () { return null; }, function (err) {
+        report.addonSaveError = String(err && err.message || err);
+        return null;
+      });
+    }).then(function () {
       // Arm the boot guard before anything can load these APKs: if the boot
       // that follows never completes, apply.sh puts the build's APKs back.
-      if (report.patched || report.added) return run(["arm"], 10000);
+      if (report.patched || report.added || report.addons) return run(["arm"], 10000);
       return null;
     }).then(function () {
       // The boolean is the only value left that can be fabricated - fabricate
@@ -2885,6 +3495,12 @@
       report.bad.forEach(function (n) {
         problems.push("x " + n + ": the value is not valid for its type");
       });
+      report.addonMissing.forEach(function (id) {
+        problems.push("x " + id + ": this build has no overlay APK to write it into");
+      });
+      if (report.addonSaveError) {
+        problems.push("x addons.conf: " + report.addonSaveError);
+      }
 
       if (problems.length) {
         var text = problems.join("\n");
@@ -2901,11 +3517,13 @@
       if (restart) return reloadFramework();
 
       var done = report.patched;
+      var bits = [];
+      if (done) bits.push("Applied " + done + " " + plural(done, "resource"));
+      if (report.added) bits.push(report.added + " added");
+      if (report.addons) bits.push(report.addons + " addon " + plural(report.addons, "resource"));
       showSnack(problems.length
         ? "Saved · " + report.missing.length + " could not be written"
-        : (done ? "Applied " + done + " " + plural(done, "resource") +
-                  (report.added ? " (" + report.added + " added)" : "") + " · reload to load"
-                : "Saved"),
+        : (bits.length ? bits.join(" · ") + " · reload to load" : "Saved"),
         problems.length ? "error" : "ok");
       return sleep(300).then(function () { return load(false); });
     }).catch(function (e) {
@@ -2990,6 +3608,10 @@
       zipEntry: zipEntry, poolStrings: poolStrings, crc32: crc32,
       planPatches: planPatches, indexManifest: indexManifest,
       resetExtras: resetExtras, changedExtras: changedExtras,
+      writeTable: writeTable, patchAddonApk: patchAddonApk,
+      addonOpsFor: addonOpsFor, ADDON_RESOURCES: ADDON_RESOURCES,
+      densityConfig: densityConfig, configIsDefault: configIsDefault,
+      rewriteZip: rewriteZip,
       state: state, PATCH_TARGETS: PATCH_TARGETS
     };
   }
@@ -3006,6 +3628,17 @@
     if (!bridge) bridge = findBridge();
     if (bridge) { bridgeProbe = null; bridgeMode = null; scriptPath = null; }
     load(true);
+  });
+  $("addonsResetBtn").addEventListener("click", function () {
+    $("addonsResetBtn").disabled = true;
+    runAddons(["reset"], 20000).then(function (r) {
+      if (r.errno !== 0) {
+        showSnack("Reset failed: " + (firstProblem(r.stderr || r.stdout) || "no answer"), "error");
+      } else {
+        showSnack("Addons reset — live choices are back to the ROM", "ok");
+      }
+      return loadAddons();
+    });
   });
   $("applyQuiet").addEventListener("click", function () { apply(false); });
   $("applyRestart").addEventListener("click", function () { apply(true); });

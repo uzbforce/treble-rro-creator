@@ -669,26 +669,44 @@ function isOverlaySection(sec) {
   );
 }
 
+// Keys whose value is a string even when it reads like a boolean: a device name
+// or a match value can be "true" today and a codename tomorrow, so those keep
+// their text field.
+const CFG_STRING_KEYS = new Set([
+  'DEVICE_PROP_NAME', 'DEVICE_PROP_VALUE',
+  'HW_OVERLAY_MATCH_PROP', 'HW_OVERLAY_MATCH_VALUE',
+]);
+
 function cfgRow(entry) {
   const row = el('div', 'cfg-row');
   row.dataset.line = String(entry.line);
+  // A value of true/false is one bit, so it gets one control: the switch is the
+  // value (on = true, off = false). The row is still dimmed while the line is
+  // commented out; touching the switch uncomments it.
+  const isBool = !CFG_STRING_KEYS.has(entry.key) &&
+    (entry.value === 'true' || entry.value === 'false');
   row.classList.toggle('is-off', !entry.enabled);
 
   const on = document.createElement('input');
   on.type = 'checkbox';
   on.className = 'cfg-on';
-  on.checked = entry.enabled;
-  on.title = entry.enabled ? 'on — click to comment this line out' : 'off — click to enable';
+  on.checked = isBool ? entry.value === 'true' : entry.enabled;
+  on.title = isBool
+    ? (on.checked ? 'true — click to write false' : 'false — click to write true')
+    : (entry.enabled ? 'on — click to comment this line out' : 'off — click to enable');
 
   const key = el('code', 'cfg-key', entry.key);
   key.title = entry.key;
 
-  const value = document.createElement('input');
-  value.className = 'cfg-value';
-  value.value = entry.value;
-  value.spellcheck = false;
-  value.autocomplete = 'off';
-  value.setAttribute('aria-label', entry.key);
+  // A boolean needs no text field: `true` and `false` are the switch.
+  const field = isBool ? null : document.createElement('input');
+  if (field) {
+    field.className = 'cfg-value';
+    field.value = entry.value;
+    field.spellcheck = false;
+    field.autocomplete = 'off';
+    field.setAttribute('aria-label', entry.key);
+  }
 
   const info = el('button', 'cfg-info', 'i');
   info.type = 'button';
@@ -701,15 +719,21 @@ function cfgRow(entry) {
   note.hidden = true;
 
   const sync = () => {
-    const changed = on.checked !== entry.enabled || value.value !== entry.value;
+    const next = isBool ? (on.checked ? 'true' : 'false') : field.value;
+    // For a boolean the switch cannot also mean "commented out", so any change
+    // there makes the line active.
+    const enabled = isBool ? true : on.checked;
+    const changed = isBool
+      ? (next !== entry.value || !entry.enabled)
+      : (next !== entry.value || on.checked !== entry.enabled);
     row.classList.toggle('is-dirty', changed);
-    row.classList.toggle('is-off', !on.checked);
+    row.classList.toggle('is-off', isBool ? (!entry.enabled && !changed) : !on.checked);
     if (changed) {
       cfgEdits.set(entry.line, {
         line: entry.line,
         key: entry.key,
-        value: value.value,
-        enabled: on.checked,
+        value: next,
+        enabled,
       });
     } else {
       cfgEdits.delete(entry.line);
@@ -718,7 +742,7 @@ function cfgRow(entry) {
   };
 
   on.addEventListener('change', sync);
-  value.addEventListener('input', sync);
+  if (field) field.addEventListener('input', sync);
   info.addEventListener('click', () => {
     note.hidden = !note.hidden;
     info.setAttribute('aria-expanded', String(!note.hidden));
@@ -726,7 +750,7 @@ function cfgRow(entry) {
 
   // ⓘ leads the row: it is the first thing to reach for when a setting is
   // unfamiliar, and a leading column keeps every row's ⓘ in the same place.
-  row.append(info, on, key, value, note);
+  row.append(info, on, key, ...(field ? [field] : []), note);
   return row;
 }
 
@@ -962,6 +986,8 @@ function stageMatchValue(key, value) {
   if (!row) return false;
   const on = row.querySelector('.cfg-on');
   const input = row.querySelector('.cfg-value');
+  // The match keys are strings; a boolean row has no text field to stage.
+  if (!input) return false;
   input.value = value;
   if (on && !on.checked) {
     on.checked = true;
@@ -3162,6 +3188,196 @@ async function savePower() {
   }
 }
 
+// ----------------------------------------------------------------- addons --
+// An addon is a tweak the module owns: a Settings value it writes on the phone
+// (the volume panel side, the screen timeout) or, for the overlay addons, a
+// resource the build bakes into the APK. The catalog and the rules live in
+// src/webui/addons.sh, so this pane is only a form over it: what it saves is
+// src/module/addons.conf, the file the build packs, the module applies the live
+// ones from at every boot, and resources.sh reads the overlay ones from.
+let addonDoc = null;          // GET api/addons: the helper's own JSON
+let addonPicks = {};          // id -> the value the control shows
+let addonSaved = {};          // id -> the value already in the file
+const addonStateLines = new Map();    // id -> the row's state line
+const addonDefaultBtns = new Map();   // id -> the "back to the default" link
+
+function takeAddonDoc(doc) {
+  addonDoc = doc;
+  addonPicks = {};
+  addonSaved = {};
+  addonStateLines.clear();
+  addonDefaultBtns.clear();
+  for (const a of doc.addons || []) {
+    addonPicks[a.id] = a.value;
+    if (a.saved) addonSaved[a.id] = a.value;
+  }
+  renderAddons();
+  updateAddons();
+}
+
+async function loadAddons() {
+  try {
+    takeAddonDoc(await api('api/addons'));
+  } catch (err) {
+    addonDoc = null;
+    addonPicks = {};
+    addonSaved = {};
+    addonStateLines.clear();
+    addonDefaultBtns.clear();
+    const box = $('addons-list');
+    box.textContent = '';
+    box.appendChild(el('p', 'hint', 'Could not read the addons: ' + err.message));
+    $('addons-save').disabled = true;
+    $('addons-status').textContent = '';
+  }
+}
+
+function renderAddons() {
+  const box = $('addons-list');
+  box.textContent = '';
+  const list = (addonDoc && addonDoc.addons) || [];
+  if (!list.length) {
+    box.appendChild(el('p', 'hint',
+      'This clone has no addon catalog (src/webui/addons.sh) — update it with git pull.'));
+    return;
+  }
+
+  for (const a of list) {
+    const row = el('div', 'addon-row');
+    row.dataset.id = a.id;
+
+    const main = el('div', 'addon-main');
+    main.appendChild(el('span', 'addon-label', a.label));
+    main.appendChild(el('code', 'addon-key', a.id));
+    if (a.kind === 'overlay') main.appendChild(el('span', 'addon-tag', 'overlay'));
+    main.appendChild(el('p', 'addon-summary', a.summary));
+    row.appendChild(main);
+
+    const side = el('div', 'addon-side');
+    // "Remove" for a single addon: back to the default, so the line leaves the
+    // file and the module stops enforcing it. The control keeps the default
+    // value, so it can be chosen again (and saved) whenever it is wanted.
+    const defBtn = el('button', 'link addon-default', 'default');
+    defBtn.type = 'button';
+    defBtn.title = a.kind === 'overlay'
+      ? 'stop baking this into the APK — back to the ROM default'
+      : 'hand this value back to the ROM — back to the default';
+    defBtn.addEventListener('click', () => {
+      addonPicks[a.id] = a.default;
+      renderAddons();
+      updateAddons();
+    });
+    side.appendChild(defBtn);
+    addonDefaultBtns.set(a.id, defBtn);
+
+    if (a.choices.length === 2 && a.choices[0] === 'on' && a.choices[1] === 'off') {
+      // on/off is a switch: it is the same control the config form uses for a
+      // boolean line, so it reads the same way in both places.
+      const wrap = el('label', 'addon-switch');
+      const sw = document.createElement('input');
+      sw.type = 'checkbox';
+      sw.className = 'cfg-on';
+      sw.checked = addonPicks[a.id] === 'on';
+      sw.title = sw.checked ? 'on — click to turn off' : 'off — click to turn on';
+      sw.addEventListener('change', () => {
+        addonPicks[a.id] = sw.checked ? 'on' : 'off';
+        sw.title = sw.checked ? 'on — click to turn off' : 'off — click to turn on';
+        updateAddons();
+      });
+      wrap.appendChild(sw);
+      side.appendChild(wrap);
+    } else {
+      const pick = document.createElement('select');
+      for (const choice of a.choices) {
+        const opt = document.createElement('option');
+        opt.value = choice;
+        opt.textContent = choice;
+        pick.appendChild(opt);
+      }
+      pick.value = addonPicks[a.id];
+      pick.setAttribute('aria-label', a.label);
+      pick.addEventListener('change', () => {
+        addonPicks[a.id] = pick.value;
+        updateAddons();
+      });
+      side.appendChild(pick);
+    }
+
+    const line = el('span', 'addon-state');
+    addonStateLines.set(a.id, line);
+    side.appendChild(line);
+
+    row.appendChild(side);
+    box.appendChild(row);
+  }
+}
+
+function updateAddons() {
+  const list = (addonDoc && addonDoc.addons) || [];
+  let dirty = 0;
+  for (const a of list) {
+    const saved = addonSaved[a.id];
+    const pick = addonPicks[a.id];
+    const changed = pick !== (saved || a.default);
+    if (changed) dirty += 1;
+
+    const row = document.querySelector(`.addon-row[data-id="${a.id}"]`);
+    if (row) row.classList.toggle('is-dirty', changed);
+
+    const defBtn = addonDefaultBtns.get(a.id);
+    if (defBtn) defBtn.hidden = !saved && pick === a.default;
+
+    const line = addonStateLines.get(a.id);
+    if (!line) continue;
+    const bits = [saved ? 'saved' : 'default'];
+    if (a.kind === 'overlay') {
+      // No phone value to compare: an overlay addon exists only once the build
+      // has baked it into the APK.
+      bits.push('next build');
+      line.textContent = bits.join(' · ');
+      line.dataset.diff = 'false';
+      continue;
+    }
+    const phone = addonDoc.device === 'yes' && a.live;
+    if (phone) bits.push('phone: ' + a.live);
+    line.textContent = bits.join(' · ');
+    // Highlighted only when a *saved* addon is not what the phone resolves:
+    // that is the module saying it did not apply it. An unsaved addon whose
+    // phone value differs from the default is just the phone's own setting.
+    line.dataset.diff = saved && phone && a.live !== saved ? 'true' : 'false';
+  }
+
+  $('addons-save').disabled = dirty === 0;
+  $('addons-status').textContent = dirty
+    ? `${dirty} unsaved change${dirty === 1 ? '' : 's'}`
+    : (addonDoc && addonDoc.conf === 'yes'
+        ? 'saved in src/module/addons.conf — the next build packs it'
+        : 'nothing chosen — the module changes nothing');
+}
+
+async function saveAddons() {
+  const values = {};
+  for (const a of (addonDoc && addonDoc.addons) || []) values[a.id] = addonPicks[a.id];
+  $('addons-save').disabled = true;
+  try {
+    takeAddonDoc(await api('api/addons/save', { method: 'POST', body: { values } }));
+  } catch (err) {
+    $('addons-status').textContent = 'not saved: ' + err.message;
+    $('addons-save').disabled = false;
+  }
+}
+
+async function clearAddons() {
+  $('addons-clear').disabled = true;
+  try {
+    takeAddonDoc(await api('api/addons/save', { method: 'POST', body: { reset: true } }));
+  } catch (err) {
+    $('addons-status').textContent = 'not cleared: ' + err.message;
+  } finally {
+    $('addons-clear').disabled = false;
+  }
+}
+
 // -------------------------------------------------------------------- tabs --
 function switchTab(name) {
   for (const t of document.querySelectorAll('.tab')) {
@@ -3176,6 +3392,7 @@ function switchTab(name) {
   }
   if (name === 'detect' || name === 'udfps' || name === 'config') refreshAdbDevices();
   if (name === 'config') renderConfig();
+  if (name === 'addons') loadAddons();
   if (name === 'files') loadFiles();
 }
 
@@ -3362,6 +3579,9 @@ function bind() {
     }
     runUpdate();
   });
+
+  $('addons-save').addEventListener('click', saveAddons);
+  $('addons-clear').addEventListener('click', clearAddons);
 
   $('cfg-save').addEventListener('click', saveConfig);
   $('cfg-mode').addEventListener('click', () => setConfigMode(!cfgRaw));

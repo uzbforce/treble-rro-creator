@@ -15,7 +15,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -72,6 +74,8 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/doc", a.guard("GET", a.handleDoc))
 	mux.HandleFunc(base+"/api/update", a.guard("POST", a.handleUpdate))
 	mux.HandleFunc(base+"/api/config/apply", a.guard("POST", a.handleConfigApply))
+	mux.HandleFunc(base+"/api/addons", a.guard("GET", a.handleAddons))
+	mux.HandleFunc(base+"/api/addons/save", a.guard("POST", a.handleAddonsSave))
 	mux.HandleFunc(base+"/api/adb", a.guard("POST", a.handleAdb))
 	mux.HandleFunc(base+"/api/adb/devices", a.guard("GET", a.handleAdbDevices))
 	mux.HandleFunc(base+"/api/adb/install", a.guard("POST", a.handleAdbInstall))
@@ -535,6 +539,152 @@ func (a *App) handleConfigApply(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, _ := parseConfig(next)
 	writeJSON(w, http.StatusOK, map[string]any{"config": doc, "text": next})
+}
+
+// ---------------------------------------------------------------------------
+// Addons
+// ---------------------------------------------------------------------------
+// An addon is a tweak the module owns: either a Settings value it writes on the
+// phone (the volume panel side, the screen timeout) or, for the overlay addons,
+// a resource the build bakes into the APK. Either way the choice lives in
+// src/module/addons.conf instead of config.env, which is why the tab is
+// separate from the config form.
+//
+// The catalog and the rules are in src/webui/addons.sh — the same file the
+// module ships as webroot/addons.sh and the phone's page runs — so this tab is
+// a form over that script rather than a second list to keep in sync. The script
+// is told where the clone's src/module/addons.conf is, which is the file
+// build.sh packs into the module.
+const addonsScript = "src/webui/addons.sh"
+
+// The script validates both; these only keep a request from being turned into
+// shell syntax. The page can only send what it rendered, but a request is not
+// the page.
+var (
+	addonID     = regexp.MustCompile(`^[a-z0-9_]+$`)
+	addonChoice = regexp.MustCompile(`^[a-z0-9]+$`)
+)
+
+// addonsEnv points the helper at the clone instead of an installed module.
+// Paths are POSIX: Git Bash on Windows reads a backslash as an escape.
+func (a *App) addonsEnv() []string {
+	root := filepath.ToSlash(a.Root())
+	return []string{
+		"ADDONS_DIR=" + root,
+		"ADDONS_CONF=" + root + "/src/module/addons.conf",
+	}
+}
+
+func (a *App) runAddons(args ...string) ([]byte, error) {
+	root := a.Root()
+	if !isClone(root) {
+		return nil, errors.New("no clone selected")
+	}
+	bash := a.Bash()
+	if !fileExists(bash) {
+		return nil, errors.New("bash was not found — pick it with the Path chip")
+	}
+	// Short on purpose: six `settings` calls on a phone, and no work at all in
+	// the clone.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bash, append([]string{addonsScript}, args...)...)
+	// Hide the console Windows would otherwise flash for this child. The tab
+	// runs the helper on open and on every save, so an un-hidden window is a
+	// black rectangle blinking at the user each time.
+	setProcAttr(cmd)
+	cmd.Dir = root
+	// A stale ADDONS_* in the app's own environment would otherwise win over
+	// the paths below (Windows keeps the first duplicate in the block).
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ADDONS_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, a.addonsEnv()...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, errors.New(msg)
+	}
+	return out, nil
+}
+
+// addonsDoc is the helper's own JSON, passed through: the page renders exactly
+// what the module will enforce.
+func (a *App) addonsDoc() (map[string]any, error) {
+	out, err := a.runAddons("list")
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		return nil, fmt.Errorf("the addons helper did not return JSON: %v", err)
+	}
+	return doc, nil
+}
+
+func (a *App) handleAddons(w http.ResponseWriter, r *http.Request) {
+	doc, err := a.addonsDoc()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+// handleAddonsSave stores the choices, which is also what applies them: the
+// script's `set` writes the file and makes the values true on the phone when
+// there is one. A phone is not required — the file is what the build packs.
+func (a *App) handleAddonsSave(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Values map[string]string `json:"values"`
+		Reset  bool              `json:"reset"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+
+	if body.Reset {
+		if _, err := a.runAddons("reset"); err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	} else {
+		pairs := make([]string, 0, len(body.Values))
+		for id, value := range body.Values {
+			if !addonID.MatchString(id) {
+				writeError(w, http.StatusBadRequest, "not an addon id: "+id)
+				return
+			}
+			if !addonChoice.MatchString(value) {
+				writeError(w, http.StatusBadRequest, "not an addon value: "+value)
+				return
+			}
+			pairs = append(pairs, id+"="+value)
+		}
+		sort.Strings(pairs)
+		if len(pairs) > 0 {
+			if _, err := a.runAddons(append([]string{"set"}, pairs...)...); err != nil {
+				writeError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
+	}
+
+	doc, err := a.addonsDoc()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 // ---------------------------------------------------------------------------

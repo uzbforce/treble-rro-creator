@@ -27,8 +27,9 @@ for f in build.sh treble-rro-creator.sh gui/build.sh stuff/scripts/*.sh stuff/te
     [ -f "$f" ] || continue
     if bash -n "$f"; then :; else echo "bash -n failed: $f"; status=1; fi
 done
-# apply.sh and the module scripts run under Android's mksh (/system/bin/sh).
-for f in src/webui/apply.sh src/module/*.sh stuff/templates/*.sh stuff/templates/recoveries/*.sh; do
+# apply.sh, addons.sh and the module scripts run under Android's mksh
+# (/system/bin/sh).
+for f in src/webui/apply.sh src/webui/addons.sh src/module/*.sh stuff/templates/*.sh stuff/templates/recoveries/*.sh; do
     [ -f "$f" ] || continue
     if command -v sh >/dev/null 2>&1; then
         if sh -n "$f"; then :; else echo "sh -n failed: $f"; status=1; fi
@@ -101,7 +102,8 @@ step "node tests"
 if command -v node >/dev/null 2>&1; then
     node --test stuff/tests/arsc.test.js stuff/tests/manifest.test.js \
         stuff/tests/hw-overlay.test.js stuff/tests/gui-ui.test.js \
-        stuff/tests/adb-device.test.js stuff/tests/udfps-probe.test.js || status=1
+        stuff/tests/adb-device.test.js stuff/tests/udfps-probe.test.js \
+        stuff/tests/apply-sh.test.js stuff/tests/addons-sh.test.js || status=1
 else
     echo "node is not installed — skipping the resource-table tests"
     status=1

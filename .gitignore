@@ -19,6 +19,7 @@ Android.mk
 src/framework/res/values/generated.xml
 src/framework/res/values-land/generated.xml
 src/systemui/res/values/generated.xml
+src/systemui/res/values-*-v4/generated.xml
 
 # Backups (config.env, module scripts, extracted vendor files)
 stuff/backups/

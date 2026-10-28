@@ -73,6 +73,7 @@ PREFIX="treble_webui"
 
 # WEBUI_CMD only exists so the script can be exercised off-device.
 CMD=${WEBUI_CMD:-/system/bin/cmd}
+DENSITY=""
 
 KEYS="RADIUS SB_HEIGHT PAD_CONTENT PAD_START PAD_END DOZE_BLANK"
 
@@ -291,9 +292,43 @@ lookup_raw() { # <query-package> <target> <type/name>
 # lookup_px / lookup_bool take the resource as "dimen/name" or "bool/name".
 # The target package is repeated in the resource id (android:dimen/...).
 
+# The display density in dpi, cached. `wm` prints an override only when one is
+# set; the override is what the framework resolves dp with, so it wins.
+density_dpi() {
+    if [ -z "$DENSITY" ]; then
+        d=$(wm density 2>/dev/null || /system/bin/wm density 2>/dev/null)
+        DENSITY=$(printf '%s\n' "$d" | sed -n 's/.*Override density:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+        [ -n "$DENSITY" ] || DENSITY=$(printf '%s\n' "$d" | sed -n 's/.*Physical density:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+        [ -n "$DENSITY" ] || DENSITY=$(getprop ro.sf.lcd_density 2>/dev/null | tr -dc '0-9')
+        case "$DENSITY" in ''|*[!0-9]*) DENSITY="" ;; esac
+    fi
+    printf '%s' "$DENSITY"
+}
+
+# `cmd overlay lookup` answers with the unit the resource declares: this
+# module's own value comes back as "113.0px", but a ROM whose framework value is
+# 28dp answers "28.0dip". The page works in px, so a dp answer has to be scaled
+# by the density - reading "28.0dip" as 28px made the page apply a 28px status
+# bar the next time anything was applied (the clock and icons jumped to the top).
 lookup_px() { # <query-package> <target> <dimen/name> -> integer px, empty on failure
-    printf '%s' "$(lookup_raw "$1" "$2" "$3")" | \
-        sed -n 's/^[[:space:]]*\(-\{0,1\}[0-9][0-9]*\).*/\1/p'
+    raw=$(lookup_raw "$1" "$2" "$3")
+    # A lookup can answer with the reference it followed: "@17105807 -> 118.0px".
+    case "$raw" in *'-> '*) raw=${raw##*'-> '} ;; esac
+    case "$raw" in
+        *dip) num=${raw%dip} ; unit=dp ;;
+        *dp)  num=${raw%dp}  ; unit=dp ;;
+        *px)  num=${raw%px}  ; unit=px ;;
+        *)    num=$raw      ; unit=px ;;
+    esac
+    case "$num" in ''|*[!0-9.-]*) return 0 ;; esac
+    if [ "$unit" = "dp" ]; then
+        dpi=$(density_dpi)
+        # No density, no honest answer: a dp value reported as px is the bug.
+        [ -n "$dpi" ] || return 0
+        printf '%s' "$num" | awk -v d="$dpi" '{ printf "%d", $1 * d / 160 + 0.5 }'
+    else
+        printf '%s' "$num" | awk '{ printf "%d", $1 + 0.5 }'
+    fi
 }
 
 lookup_bool() { # <query-package> <target> <bool/name>
