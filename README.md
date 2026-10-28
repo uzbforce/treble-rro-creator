@@ -198,7 +198,10 @@ The zip is a standard module: the same file works in all four managers (the
 the shared `webroot/` page.
 
 > ⚠️ **KernelSU / KSU Next:** use **Magic Mount** (or Hybrid Mount with magic
-> mount). **Do not use OverlayFS** — it can bootloop the device.
+> mount). **Do not use OverlayFS** — it mounts the module fine, but a single
+> mistake in your own `sepolicy.rule` or VINTF manifests then bootloops the
+> device, where magic mount ignores the bad file and boots anyway.
+> Why: [docs/how-it-works.md](docs/how-it-works.md#why-a-module-is-needed).
 >
 > ⚠️ Do not copy APKs into `/system/product/overlay/` by hand. Dynamic
 > partitions do not keep them, and they miss the permissions the module sets.

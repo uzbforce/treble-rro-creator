@@ -110,7 +110,9 @@ Reboot when done.
 
 > **KernelSU / KSU Next:** install **Magic Mount** (or Hybrid Mount configured
 > for magic mount) before flashing overlay modules.
-> **Never use OverlayFS** — it can bootloop the device.
+> **Never use OverlayFS** — it mounts fine, but a mistake in a vendor build's
+> `sepolicy.rule` or VINTF manifests then bootloops the device; magic mount
+> ignores the bad file and boots.
 
 ---
 

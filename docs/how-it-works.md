@@ -33,8 +33,21 @@ A KernelSU / KSU Next / APatch / Magisk module solves both:
    spot a wrong match property or a broken mount.
 
 This is also why **Magic Mount** is required on KernelSU: without a mount
-mechanism the files never reach `/system`. OverlayFS is discouraged because it
-interacts badly with SELinux policies and VINTF manifests for modules like this.
+mechanism the files never reach `/system`.
+
+OverlayFS is discouraged for a narrower reason than "it does not work": it does
+mount, and the overlay applies normally. What changes is the cost of a mistake
+in **your** files. A module that carries vendor HALs also ships `sepolicy.rule`
+and VINTF manifest fragments under `system/vendor/`. Under magic mount the
+module is applied file by file, so a rule that does not parse or a fragment that
+is wrong is effectively inert — the device boots and that one HAL simply never
+starts. Under OverlayFS the module's tree is layered over the partition as a
+whole and read by init and the VINTF check during boot, before anything can fall
+back, so the same bad rule or fragment keeps the boot from completing at all.
+
+That is the trade: a feature that did not work, versus a bootloop. While you are
+still writing your own rules and manifests, magic mount is what keeps the
+mistakes cheap.
 
 ---
 
