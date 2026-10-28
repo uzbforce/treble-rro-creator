@@ -2699,6 +2699,14 @@ async function runUpdate() {
       method: 'POST',
       body: { action: 'pull', backup: (u.clash || []).length > 0 },
     });
+    // The file list and the clash warning describe a pull that has just
+    // happened: keeping them above the result buries what the update actually
+    // did, and the head line was still counting commits that no longer exist.
+    $('upd-files').hidden = true;
+    $('upd-files-label').hidden = true;
+    $('upd-clash').hidden = true;
+    $('upd-head').textContent = `updated${u.upstream ? ' from ' + u.upstream : ''}`;
+
     $('upd-output').hidden = false;
     $('upd-output').textContent = (res.output || 'updated') +
       (res.backedUp && res.backedUp.length ? '\n\nbacked up:\n' + res.backedUp.join('\n') : '') +

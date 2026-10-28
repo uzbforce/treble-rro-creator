@@ -1075,7 +1075,26 @@ button.ft-caret:hover:not(:disabled) { background: none; color: var(--accent); }
   color: var(--muted);
   margin: 12px 0 5px;
 }
-#upd-files, #upd-clash-files, #upd-output { max-height: 150px; margin: 0; }
+/* The same dark pane as the build console. `overflow: auto` is what the 150px
+   cap needs: a `<pre>` clips nothing by default, so a long file list kept
+   painting past its box and landed on top of the pull output and the buttons
+   below it. */
+.device-log {
+  margin: 0;
+  max-height: 150px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--console-rule);
+  border-radius: 8px;
+  background: var(--console);
+  color: var(--console-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+}
 
 /* ------------------------------------------------------------------ dialog -- */
 dialog {
@@ -1085,6 +1104,10 @@ dialog {
   color: var(--ink);
   padding: 20px 22px 16px;
   width: min(560px, 92vw);
+  /* A dialog taller than the window is centred, so its heading ends up off the
+     top edge with no way to scroll back to it. Cap it and let it scroll. */
+  max-height: calc(100vh - 48px);
+  overflow: auto;
   box-shadow: 0 30px 70px -40px rgba(0, 0, 0, .6);
 }
 dialog::backdrop { background: rgba(23, 24, 15, .45); }
