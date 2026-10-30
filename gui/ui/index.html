@@ -33,6 +33,7 @@
 <nav class="tabs" role="tablist">
   <button class="tab is-active" data-tab="build" role="tab">Build</button>
   <button class="tab" data-tab="config" role="tab">config.env</button>
+  <button class="tab" data-tab="addons" role="tab">Addons</button>
   <button class="tab" data-tab="files" role="tab">Files</button>
   <button class="tab" data-tab="device" role="tab">Device</button>
   <button class="tab" data-tab="udfps" role="tab">UDFPS</button>
@@ -101,6 +102,37 @@
       in front is off — the switch on the left does that for you, keeping the
       comment and the order intact. <b>Check</b> runs <code>build.sh check</code>.
     </p>
+  </section>
+
+  <!-- --------------------------------------------------------------- addons -->
+  <!-- The other half of the module, separate from config.env: live addons are
+       Settings values the module writes at boot (the volume panel side, the
+       screen timeout); overlay addons are resources the build bakes into the
+       APK (180° rotation, the navigation bar inset). Both are chosen here and
+       saved to src/module/addons.conf, which the build packs; the module's own
+       page can still change the live ones on the phone without a rebuild. -->
+  <section class="pane" id="pane-addons" role="tabpanel">
+    <p class="hint addons-intro">
+      <b>Module addons.</b> Choices the module owns, not keys in
+      <code>config.env</code>. <b>Live</b> addons are Settings values the
+      module writes on the phone at every boot — the overlay APK alone does
+      not apply them, and the module's page on the phone can change them later.
+      <b>Overlay</b> addons are baked into the APK, so from here they take
+      effect at the next build and flash — the phone's WebUI can write the same
+      entries into the installed APK without a rebuild. Only what is listed in
+      <code>src/module/addons.conf</code> is enforced, so an addon you leave
+      alone keeps behaving the way the ROM shipped it. <b>default</b> on a row
+      drops it, which is how an addon is removed.
+    </p>
+
+    <div class="addons" id="addons-list"></div>
+
+    <div class="row actions">
+      <button class="primary" id="addons-save" type="button" disabled>Save addons</button>
+      <button id="addons-clear" type="button">Clear all</button>
+      <span class="spacer"></span>
+      <span class="muted small" id="addons-status"></span>
+    </div>
   </section>
 
   <!-- ---------------------------------------------------------------- files -->

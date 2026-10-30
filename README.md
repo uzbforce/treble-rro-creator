@@ -237,6 +237,22 @@ new APKs the next time the page is opened), and if a patch ever prevents a
 complete boot the next boot restores the build's APKs automatically. Details
 and limits: [docs/webui.md](docs/webui.md).
 
+### Module addons (things `config.env` does not cover)
+
+The **Addons** tab is the module's own feature set: tweaks that are neither a
+`config.env` key nor a plain overlay resource. **Live** addons are Settings
+values the module writes itself — the volume panel side, a screen that never
+sleeps, hiding the status-bar clock, the captive-portal probe. **Overlay**
+addons are resources the build bakes in — upside-down rotation, a navigation bar
+with no padding but the pill kept, a status bar with no background, and a notch
+the display is masked away from so nothing can draw under the camera. Pick them
+in the app and they are packed into the module (`src/module/addons.conf`). From
+the module's WebUI both kinds can be changed: live ones immediately (and they are
+re-applied on every boot), overlay ones by **Apply**, which writes the resource
+into the installed APK — and **Use default** removes it again. Only the addons
+you chose are enforced, so an untouched install behaves exactly like the ROM.
+Details: [docs/addons.md](docs/addons.md).
+
 Both overlays are **static** RROs: Android enables them during boot, and
 `cmd overlay enable` cannot change them afterwards. Verify after reboot:
 
@@ -332,6 +348,7 @@ the new one.
 | [docs/submission.md](docs/submission.md) | Getting the overlay built into the GSI (Doze-off repo PR) |
 | [docs/configuration.md](docs/configuration.md) | Every `config.env` option |
 | [docs/webui.md](docs/webui.md) | KernelSU WebUI: change values without rebuilding |
+| [docs/addons.md](docs/addons.md) | Module addons: live Settings (screen timeout, volume panel side) and overlay ones (180° rotation, navigation-bar padding) |
 | [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |
 | [docs/termux.md](docs/termux.md) | Building on the phone |
 | [docs/device-extraction.md](docs/device-extraction.md) | Extracting vendor HALs and `power_profile.xml` |

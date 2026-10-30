@@ -595,6 +595,56 @@ textarea#cfg {
   white-space: pre-wrap;
 }
 
+/* ---- addons -------------------------------------------------------------- */
+/* The overlay cannot do these, so the pane says what does: each row is a
+   Settings value the module writes on the phone, with the value it would
+   write. The control is small because the sentence is the point. */
+.addons-intro { max-width: 76ch; margin: 0 0 14px; }
+.addons {
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  /* The pane is a flex column and the list is a flex item: with overflow
+     hidden its automatic minimum height is 0, so in a short window it shrank
+     and clipped the last rows instead of letting the pane scroll. */
+  flex: none;
+}
+.addon-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--rule);
+}
+.addon-row:first-child { border-top: 0; }
+.addon-row.is-dirty { background: var(--accent-soft); }
+.addon-main { flex: 1; min-width: 0; }
+.addon-label { font-size: 13px; font-weight: 600; }
+.addon-key { margin-left: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.addon-tag {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.addon-summary { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.addon-side { display: flex; align-items: center; gap: 12px; flex: none; }
+.addon-side select { max-width: 140px; min-width: 96px; font-family: var(--sans); }
+.addon-switch { display: inline-flex; }
+.addon-default {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.addon-default[hidden] { display: none; }
+.addon-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.addon-state[data-diff="true"] { color: var(--accent); }
+
 /* ---- match property ------------------------------------------------------- */
 /* The card sits inside the Overlay activation section, between the rows and the
    next heading. A wrong match condition is invisible in the built module, so it
@@ -690,7 +740,8 @@ textarea#cfg {
    serial, repeated on the tabs that probe a phone. */
 .adb-values select,
 .device-pick select,
-.cfg-match-head select {
+.cfg-match-head select,
+.addon-side select {
   padding: 6px 9px;
   border-radius: 7px;
   border: 1px solid var(--rule-strong);
@@ -1024,7 +1075,26 @@ button.ft-caret:hover:not(:disabled) { background: none; color: var(--accent); }
   color: var(--muted);
   margin: 12px 0 5px;
 }
-#upd-files, #upd-clash-files, #upd-output { max-height: 150px; margin: 0; }
+/* The same dark pane as the build console. `overflow: auto` is what the 150px
+   cap needs: a `<pre>` clips nothing by default, so a long file list kept
+   painting past its box and landed on top of the pull output and the buttons
+   below it. */
+.device-log {
+  margin: 0;
+  max-height: 150px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--console-rule);
+  border-radius: 8px;
+  background: var(--console);
+  color: var(--console-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+}
 
 /* ------------------------------------------------------------------ dialog -- */
 dialog {
@@ -1034,6 +1104,10 @@ dialog {
   color: var(--ink);
   padding: 20px 22px 16px;
   width: min(560px, 92vw);
+  /* A dialog taller than the window is centred, so its heading ends up off the
+     top edge with no way to scroll back to it. Cap it and let it scroll. */
+  max-height: calc(100vh - 48px);
+  overflow: auto;
   box-shadow: 0 30px 70px -40px rgba(0, 0, 0, .6);
 }
 dialog::backdrop { background: rgba(23, 24, 15, .45); }

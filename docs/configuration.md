@@ -21,6 +21,14 @@ button — so none of it has to be typed as bash. It saves only the rows you
 changed; every other line stays as it was. See
 [gui.md](gui.md#the-other-tabs).
 
+Not every tweak is a resource, and those are **not** in this file. The volume
+panel side, the screen timeout and similar Settings values are **live** module
+addons, written by the module on the phone at boot; the 180° rotation flag, the
+navigation-bar padding, the status-bar background and the masked-out notch are
+**overlay** addons the build bakes into the APK. All of them live in
+`src/module/addons.conf` and the app's **Addons** tab — see
+[addons.md](addons.md).
+
 ---
 
 ## Checking values before a build
@@ -70,6 +78,9 @@ Java and no signing keys, so it is the quickest way to check a change.
 | `OVERLAY_PACKAGE_SYSTEMUI` | `…r3q.systemui` | Package name of the SystemUI overlay. Auto-derived. |
 | `OVERLAY_PRIORITY` | `628` | Framework overlay priority. Higher wins against other overlays. |
 | `OVERLAY_PRIORITY_SYSTEMUI` | `9999` | SystemUI overlay priority. |
+| `OVERLAY_VERSION` | `1.0` | Version name of the module and both APKs (`module.prop`, `android:versionName`). |
+| `OVERLAY_VERSION_CODE` | `1` | Version code (`module.prop`, `android:versionCode`). Integer; bump it per release. |
+| `MODULE_AUTHOR` | `samsung` | `author=` in `module.prop`. Empty or a placeholder falls back to `DEVICE_MANUFACTURER`. |
 
 ### Choosing the match property
 
@@ -179,6 +190,7 @@ from the phone.
 | `STATUS_BAR_DOT_MIN_PADDING` | — | End-side reserve for the privacy dot → `ongoing_appops_dot_min_padding`. Optional. |
 | `HAS_PRIVACY_DOT` | — | `false` disables `config_enablePrivacyDot`, which also removes its end-side reserve. Optional. |
 | `DISPLAY_CUTOUT` | — | SVG path for the notch/punch-hole, ending in `@dp`. Leave commented out for no cutout. |
+| `WATERFALL_EDGE_LEFT` / `_RIGHT` / `_TOP` / `_BOTTOM` | — | Insets the framework keeps clear on a waterfall panel's curved edges → `waterfall_display_{left,right,top,bottom}_edge_size` (framework). This is the left/right gutter apps leave. Optional. |
 
 Take the values from your stock product overlay (`framework-res__auto_generated_rro_product.apk`)
 or from your device tree.
@@ -209,6 +221,31 @@ the final height is the cutout height. Do not lower `STATUS_BAR_HEIGHT` below
 your cutout's safe inset.
 
 See [troubleshooting.md](troubleshooting.md#status-bar-height-does-not-change).
+
+### Waterfall cutout band
+
+On a waterfall panel the glass curves down the sides, and the framework
+reserves a strip there so nothing lands on the bend. Every window keeps its
+content out of that strip, which is the invisible gutter a button, a list or a
+card shows on the left and right — it is not the app's own padding.
+
+The strip is four framework dimens, collected by the array
+`config_mainBuiltInDisplayWaterfallCutout` and returned as
+`DisplayCutout.getWaterfallInsets()`:
+
+```
+waterfall_display_left_edge_size    waterfall_display_top_edge_size
+waterfall_display_right_edge_size   waterfall_display_bottom_edge_size
+```
+
+An overlay can set any of them (`WATERFALL_EDGE_LEFT` and friends); the array
+references the dimens, so overriding one changes the inset without the array
+having to be replaced. Zero removes the gutter on that edge. A layout that
+still looks inset after that is the app's own padding, which a framework
+overlay cannot change.
+
+These are dimens, so a change made in the module WebUI needs the usual reload,
+and a value baked into the zip needs a rebuild.
 
 ### Status bar content padding (start / end)
 

@@ -46,6 +46,9 @@ STATUS_BAR_HEIGHT_LANDSCAPE=24
 STATUS_BAR_PADDING_START=34
 STATUS_BAR_PADDING_END=34
 STATUS_BAR_CONTENT_PADDING=34
+# One edge is enough to prove the waterfall band is emitted per edge (the four
+# keys are independent).
+WATERFALL_EDGE_LEFT=40
 HAS_UDFPS=false
 HAS_AOD=true
 HAS_DOZE=false

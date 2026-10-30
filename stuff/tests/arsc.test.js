@@ -7,6 +7,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
 const { loadPage, readResource, arscOf, readFixture } = require("./page-harness");
 
 const page = loadPage();
@@ -154,6 +156,139 @@ test("arrays and maps are refused instead of guessed at", () => {
   // only ever sends what webui-manifest.json lists, and arrays are marked
   // read-only there (checked in manifest.test.js).
   assert.ok(table.pkg.types.indexOf("array") === -1);
+});
+
+test("an entry is removed from its configuration, and the rest is untouched", () => {
+  const before = FW();
+  const table = T.readArsc(arscOf(page, before));
+  const out = T.writeTable(arscOf(page, before), table, [
+    { type: "bool", name: "config_showNavigationBar", remove: true }], null);
+  const apk = T.rewriteZip(before, "resources.arsc", out);
+  assert.strictEqual(readResource(page, apk, "bool", "config_showNavigationBar"), null);
+  const other = readResource(page, apk, "bool", "config_enableWifiDisplay");
+  assert.strictEqual(other.dataType, 0x12);
+  assert.strictEqual(other.data, 0xffffffff);
+  assertCrc(apk);
+});
+
+// Entry indexes are resource ids (0xPPTTEEEE), so a removal has to leave a
+// hole: shifting the entries after it would give their ids to other resources.
+function defaultChunk(table, type) {
+  const typeId = table.pkg.types.indexOf(type) + 1;
+  return table.pkg.chunks.find(
+    (c) => c.type === 0x0201 && c.typeId === typeId && c.isDefault) || null;
+}
+
+function specOf(table, type) {
+  const typeId = table.pkg.types.indexOf(type) + 1;
+  return table.pkg.chunks.find((c) => c.type === 0x0202 && c.typeId === typeId) || null;
+}
+
+function indexOf(table, chunk, name) {
+  for (const e of chunk.entries) {
+    if (!e.complex && table.pkg.keys[e.key] === name) return e.index;
+  }
+  return -1;
+}
+
+test("removing an entry keeps the ids of the entries after it", () => {
+  const before = FW();
+  const t0 = T.readArsc(arscOf(page, before));
+  const after0 = indexOf(t0, defaultChunk(t0, "bool"), "config_unplugTurnsOnScreen");
+  assert.ok(after0 > 0, "fixture precondition");
+  const out = T.writeTable(arscOf(page, before), t0, [
+    { type: "bool", name: "config_showNavigationBar", remove: true }], null);
+  const apk = T.rewriteZip(before, "resources.arsc", out);
+  assert.strictEqual(readResource(page, apk, "bool", "config_showNavigationBar"), null);
+  const t1 = T.readArsc(arscOf(page, apk));
+  assert.strictEqual(indexOf(t1, defaultChunk(t1, "bool"), "config_unplugTurnsOnScreen"),
+    after0, "the entry after the hole keeps its id");
+});
+
+test("a key added to an existing type grows the type spec", () => {
+  const before = FW();
+  const spec0 = specOf(T.readArsc(arscOf(page, before)), "bool");
+  const out = patch(before, [{ name: "bool/config_enablePrivacyDot", type: "bool", value: "true" }]);
+  const table = T.readArsc(arscOf(page, out.bytes));
+  const top = Math.max(...defaultChunk(table, "bool").entries.map((e) => e.index));
+  const spec = specOf(table, "bool");
+  assert.ok(spec.count > spec0.count, "the new entry is past the old spec");
+  assert.ok(spec.count >= top + 1, "the spec covers every entry id");
+});
+
+test("removing an entry the table does not have leaves every byte alone", () => {
+  const before = FW();
+  const out = T.writeTable(arscOf(page, before), T.readArsc(arscOf(page, before)), [
+    { type: "bool", name: "config_not_in_this_build", remove: true }], null);
+  // Not merely the same length: a no-op must not rewrite a chunk, or every
+  // Apply would re-arm the boot guard for nothing.
+  assert.ok(Buffer.from(out).equals(Buffer.from(arscOf(page, before))));
+});
+
+// The status bar shade is a drawable the ROM only keeps at density
+// configurations, so "no shade" has to be written to each of them; a lone
+// default entry would lose to the ROM's density entry (see resources.sh).
+test("a density-qualified drawable is written per density and removed from all", () => {
+  const before = SUI();
+  const densities = [160, 240, 320, 480];
+  const cfgs = densities.map(T.densityConfig);
+  const once = T.writeTable(arscOf(page, before), T.readArsc(arscOf(page, before)), [
+    { type: "drawable", name: "status_background", dataType: 0x1c, data: 0, configs: cfgs }], null);
+  const apk = T.rewriteZip(before, "resources.arsc", once);
+  const table = T.readArsc(arscOf(page, apk));
+  const found = [];
+  for (const c of table.pkg.chunks) {
+    if (c.type !== 0x0201 || table.pkg.types[c.typeId - 1] !== "drawable") continue;
+    for (const e of c.entries) {
+      if (e && table.pkg.keys[e.key] === "status_background") {
+        found.push({ density: c.config[14] | (c.config[15] << 8), dataType: e.dataType, data: e.data });
+      }
+    }
+  }
+  assert.deepStrictEqual(found.map((f) => f.density).sort((a, b) => a - b), densities);
+  for (const f of found) {
+    assert.strictEqual(f.dataType, 0x1c, "a drawable replaced by a colour");
+    assert.strictEqual(f.data, 0, "transparent");
+  }
+
+  const off = T.writeTable(arscOf(page, apk), T.readArsc(arscOf(page, apk)), [
+    { type: "drawable", name: "status_background", remove: true }], null);
+  const apk2 = T.rewriteZip(apk, "resources.arsc", off);
+  const t2 = T.readArsc(arscOf(page, apk2));
+  for (const c of t2.pkg.chunks) {
+    if (c.type !== 0x0201) continue;
+    for (const e of c.entries) {
+      assert.ok(!e || t2.pkg.keys[e.key] !== "status_background", "stays removed");
+    }
+  }
+});
+
+test("an overlay addon is planned only when its pick changed", () => {
+  const saved = { id: "hide_notch", kind: "overlay", saved: true, value: "on", default: "off" };
+  assert.deepStrictEqual(T.addonOpsFor([saved], { hide_notch: "on" }, "fw"), [],
+    "a row that matches the file is not rewritten on every Apply");
+  const off = T.addonOpsFor([saved], { hide_notch: "off" }, "fw");
+  assert.strictEqual(off.length, 1);
+  assert.strictEqual(off[0].remove, true);
+  assert.strictEqual(off[0].name, "config_maskMainBuiltInDisplayCutout");
+
+  const unsaved = { id: "hide_notch", kind: "overlay", saved: false, value: "off", default: "off" };
+  const on = T.addonOpsFor([unsaved], { hide_notch: "on" }, "fw");
+  assert.strictEqual(on.length, 1);
+  assert.strictEqual(on[0].remove, false);
+  assert.strictEqual(on[0].dataType, 0x12);
+  assert.strictEqual(on[0].data, 0xffffffff);
+});
+
+// The page must write the names resources.sh emits, or a rebuild would undo
+// the addon without anyone noticing.
+test("the addon resources are the ones the build emits", () => {
+  const res = readFileSync(join(__dirname, "..", "scripts", "resources.sh"), "utf8");
+  for (const spec of Object.values(T.ADDON_RESOURCES)) {
+    for (const item of spec.res) {
+      assert.ok(res.includes(item.name), `resources.sh no longer emits ${item.name}`);
+    }
+  }
 });
 
 test("the archive stays readable after a patch", () => {

@@ -292,6 +292,8 @@ echo -e "    Device:        ${DEVICE_MANUFACTURER} ${DEVICE_MODEL} (${DEVICE_COD
 echo -e "    Overlay:       ${OVERLAY_NAME}"
 echo -e "    Package:       ${OVERLAY_PACKAGE}"
 echo -e "    Match:         ${CONDITION_DESC}"
+echo -e "    Version:       ${OVERLAY_VERSION} (${OVERLAY_VERSION_CODE})"
+echo -e "    Author:        ${MODULE_AUTHOR}"
 echo -e ""
 echo -e "  ${BOLD}Display:${NC}"
 [ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] && echo -e "    Rounded corners: ${ROUNDED_CORNER_RADIUS}px"
@@ -549,8 +551,8 @@ ok "AndroidManifest.xml generated"
 cat > "$BUILD_REL/systemui/AndroidManifest.xml" << MANIFEST_SYSTEMUI
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="${OVERLAY_PACKAGE_SYSTEMUI}"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="${OVERLAY_VERSION_CODE}"
+    android:versionName="${OVERLAY_VERSION}">
 
     <application
         android:extractNativeLibs="false"
@@ -589,7 +591,7 @@ id=${OVERLAY_NAME}
 name=Treble Overlay - ${DEVICE_MANUFACTURER} ${DEVICE_MODEL}
 version=${OVERLAY_VERSION}
 versionCode=${OVERLAY_VERSION_CODE}
-author=${DEVICE_MANUFACTURER}
+author=${MODULE_AUTHOR}
 description=${DESCRIPTION}
 MODPROP
 ok "module.prop generated"
@@ -686,11 +688,17 @@ ok "Framework-res APK linked"
 # ---------------------------------------------------------------------------
 LINKED_SYSTEMUI=false
 if [ -f "$BUILD_REL/compiled_systemui/values_config.arsc.flat" ] || [ "$(ls "$BUILD_REL/compiled_systemui"/*.flat 2>/dev/null | wc -l)" -gt 0 ]; then
+    # --no-resource-deduping: aapt2 otherwise collapses a resource that holds
+    # the same value in every configuration into one default entry. The
+    # status_bar_background addon writes its transparent item once per density
+    # (see resources.sh) and deduping would drop that back to the default
+    # config, which loses to the ROM's density-qualified 9-patch.
     step "Linking SystemUI APK"
     run_or_die "aapt2 link (SystemUI overlay)" \
         aapt2 link --manifest "$BUILD_REL/systemui/AndroidManifest.xml" \
         -I "${PLATFORM_JAR}" \
         --auto-add-overlay \
+        --no-resource-deduping \
         --compile-sdk-version-code "${COMPILE_SDK_VERSION}" \
         --compile-sdk-version-name "${ANDROID_VERSION}" \
         -o "$BUILD_REL/apk/systemui_unsigned.apk" \
@@ -801,6 +809,20 @@ if [ -d "$ROOT/src/webui" ]; then
     info "webroot/webui-manifest.json: ${WEBUI_RES_COUNT} resource(s) editable from the page"
 fi
 
+# Module addons: Settings values the module applies itself, which no overlay
+# resource can express (the volume panel side, the screen timeout, ...). The
+# clone keeps the choice in src/module/addons.conf — that is what the desktop
+# app's Addons tab writes — and the phone's page edits the packed copy. Only the
+# addons listed in the file are enforced, so an untouched file changes nothing.
+if [ -f "$MODULE_DIR/addons.conf" ]; then
+    cp "$MODULE_DIR/addons.conf" "${MODULE_TMP}/addons.conf"
+    chmod 0644 "${MODULE_TMP}/addons.conf"
+    ADDON_COUNT=$(grep -c '^[A-Za-z]' "${MODULE_TMP}/addons.conf" 2>/dev/null || true)
+    ok "addons.conf included (${ADDON_COUNT:-0} addon(s) chosen)"
+else
+    info "addons.conf not found — the module ships no addons"
+fi
+
 # Use src/module/customize.sh when present, otherwise generate one.
 if [ -f "$MODULE_DIR/customize.sh" ]; then
     cp "$MODULE_DIR/customize.sh" "${MODULE_TMP}/customize.sh" && chmod +x "${MODULE_TMP}/customize.sh"
@@ -830,6 +852,13 @@ fi
 # APKs the next time it is opened.
 if [ -f "$MODPATH/webroot/apply.sh" ]; then
     sh "$MODPATH/webroot/apply.sh" restore-conf >/dev/null 2>&1 || true
+fi
+
+# Module addons: the saved choices also survive an update through that folder.
+# Applying them now means a rebuild does not need a reboot to take effect.
+if [ -f "$MODPATH/webroot/addons.sh" ]; then
+    sh "$MODPATH/webroot/addons.sh" restore-conf >/dev/null 2>&1 || true
+    sh "$MODPATH/webroot/addons.sh" apply >/dev/null 2>&1 || true
 fi
 
 ui_print "  ✓ Module installed successfully!"

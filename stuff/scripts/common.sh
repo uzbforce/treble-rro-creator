@@ -455,8 +455,14 @@ derive_overlay_identity() {
     [ -z "${COMPILE_SDK_VERSION:-}" ] && COMPILE_SDK_VERSION="34"
     [ -z "${MIN_SDK_VERSION:-}" ]     && MIN_SDK_VERSION="34"
     [ -z "${TARGET_SDK_VERSION:-}" ]  && TARGET_SDK_VERSION="34"
-    [ -z "${OVERLAY_VERSION:-}" ]     && OVERLAY_VERSION="1.0"
-    [ -z "${OVERLAY_VERSION_CODE:-}" ] && OVERLAY_VERSION_CODE="1"
+
+    # Module metadata: module.prop, both manifests and the hardware overlay
+    # read these. Empty or still a <placeholder> falls back to the release
+    # values, so a config.env written before these keys existed still builds.
+    [[ -z "${OVERLAY_VERSION:-}" || "${OVERLAY_VERSION}" == *"<"* ]] && OVERLAY_VERSION="1.0"
+    [[ -z "${OVERLAY_VERSION_CODE:-}" || "${OVERLAY_VERSION_CODE}" == *"<"* ]] && OVERLAY_VERSION_CODE="1"
+    # Author is free text; only an empty or placeholder one is replaced.
+    [[ -z "${MODULE_AUTHOR:-}" || "${MODULE_AUTHOR}" == *"<"* ]] && MODULE_AUTHOR="${DEVICE_MANUFACTURER}"
 
     [[ "${LIGHT_SENSOR_TYPE:-}" == *"<"* ]] && LIGHT_SENSOR_TYPE="android.sensor.light"
     [[ "${DEVICE_MODEL:-}" == *"<"* ]] && DEVICE_MODEL="Generic Device"

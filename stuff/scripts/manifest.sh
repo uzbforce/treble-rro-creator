@@ -51,6 +51,7 @@ manifest_group() { # <resource-name> -> group title
         rounded_corner_content_padding|status_bar_padding*|status_bar_icons_padding*|ongoing_appops_dot_min_padding) printf 'Status bar content' ;;
         status_bar_height*|quick_qs_offset_height) printf 'Status bar' ;;
         config_mainBuiltInDisplayCutout) printf 'Cutout' ;;
+        waterfall_display_*|secondary_waterfall_display_*) printf 'Waterfall edges' ;;
         config_screenBrightnessBacklight|config_screenBrightnessNits) printf 'Auto-brightness' ;;
         config_autoBrightness*) printf 'Auto-brightness' ;;
         config_screenBrightness*) printf 'Brightness' ;;
@@ -71,6 +72,7 @@ manifest_group_rank() { # <group> -> sort key (display order)
         'Status bar')             printf '20' ;;
         'Status bar content')     printf '30' ;;
         'Cutout')                 printf '40' ;;
+        'Waterfall edges')        printf '45' ;;
         'Brightness')             printf '50' ;;
         'Auto-brightness')        printf '60' ;;
         'Refresh rate')           printf '70' ;;

@@ -239,6 +239,18 @@ _validate_brightness() {
 }
 
 # ---------------------------------------------------------------------------
+# Module metadata
+# ---------------------------------------------------------------------------
+# These are baked into the APK and module.prop, so a wrong one is only visible
+# on the phone. Check the one value Android refuses to take as free text.
+_validate_metadata() {
+    local code="${OVERLAY_VERSION_CODE:-}"
+    if [ -n "$code" ] && ! [[ "$code" =~ ^[0-9]+$ ]]; then
+        _v_warn "OVERLAY_VERSION_CODE=\"${code}\" is not a whole number — android:versionCode must be an integer"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Overlay identity
 # ---------------------------------------------------------------------------
 _validate_overlay() {
@@ -342,6 +354,7 @@ validate_config() {
     _validate_udfps
     _validate_brightness
     _validate_overlay
+    _validate_metadata
     _validate_submission
     _validate_unknown_keys
 
