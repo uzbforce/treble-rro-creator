@@ -342,6 +342,9 @@ async function stopRun() {
 
 function setRunning(value) {
   running = value;
+  // The console breathes while a job owns it (see app.css): one class, so the
+  // rule that draws it has a single source and stops the moment it is false.
+  document.body.classList.toggle('is-running', value);
   renderRunState();
 }
 
@@ -1604,7 +1607,7 @@ function askConfirm(title, text, yes = 'Delete') {
     $('confirm-title').textContent = title;
     $('confirm-text').textContent = text;
     $('confirm-yes').textContent = yes;
-    $('confirm').showModal();
+    openDialog($('confirm'));
     $('confirm-no').focus();
   });
 }
@@ -1612,7 +1615,7 @@ function askConfirm(title, text, yes = 'Delete') {
 function resolveConfirm(answer) {
   const resolve = confirmAnswer;
   confirmAnswer = null;
-  if ($('confirm').open) $('confirm').close();
+  closeDialog($('confirm'));
   if (resolve) resolve(answer);
 }
 
@@ -1629,7 +1632,7 @@ function openSudoPrompt() {
     $('sudo-error').hidden = false;
   }
   $('sudo-password').value = '';
-  $('sudo').showModal();
+  openDialog($('sudo'));
   $('sudo-password').focus();
 }
 
@@ -1642,13 +1645,13 @@ async function submitSudo(event) {
     return;
   }
   sudoPassword = password;
-  $('sudo').close();
+  closeDialog($('sudo'));
   if (pendingRun) await startRun(pendingRun);
 }
 
 function cancelSudo() {
   sudoDeclined = true;
-  $('sudo').close();
+  closeDialog($('sudo'));
   status('install skipped — the build tools are still missing', 6000);
 }
 
@@ -1821,7 +1824,7 @@ function openNewDialog(opts = {}) {
   $('file-new-name').value = opts.name || '';
   $('file-new-error').hidden = true;
   updateNewDialog();
-  $('file-new').showModal();
+  openDialog($('file-new'));
   $('file-new-name').focus();
 }
 
@@ -1882,7 +1885,7 @@ async function createNew(event) {
   try {
     if (kind === 'dir') {
       await api('api/files/mkdir', { method: 'POST', body: { path: rel } });
-      $('file-new').close();
+      closeDialog($('file-new'));
       await loadFiles();
       openFolder(rel, false);
       fileStatus('created src/' + rel + '/', 4000);
@@ -1890,7 +1893,7 @@ async function createNew(event) {
     }
     const text = fileTemplate(kind, name);
     await api('api/files/write', { method: 'POST', body: { path: rel, text } });
-    $('file-new').close();
+    closeDialog($('file-new'));
     await loadFiles();
     await openFile(rel, false);
     fileStatus('created src/' + rel, 4000);
@@ -2057,7 +2060,7 @@ function bindFiles() {
 
   $('file-new-kind').addEventListener('change', updateNewDialog);
   $('file-new-form').addEventListener('submit', createNew);
-  $('file-new-cancel').addEventListener('click', () => $('file-new').close());
+  $('file-new-cancel').addEventListener('click', () => closeDialog($('file-new')));
 
   $('confirm-yes').addEventListener('click', () => resolveConfirm(true));
   $('confirm-no').addEventListener('click', () => resolveConfirm(false));
@@ -2614,7 +2617,7 @@ async function openUpdate() {
   $('upd-go').textContent = 'Update now';
   delete $('upd-go').dataset.done;
   $('upd-head').textContent = 'checking for updates…';
-  if ($('update').showModal) $('update').showModal();
+  if ($('update').showModal) openDialog($('update'));
 
   try {
     updInfo = await api('api/update', { method: 'POST', body: { action: 'check' } });
@@ -3405,11 +3408,79 @@ function switchTab(name) {
 }
 
 // ------------------------------------------------------------------ dialog --
+// A dialog grows out of the control that opened it and travels to the middle
+// of the window. Only the browser knows where it will land, so the start point
+// is measured after showModal: the button's centre, relative to the dialog's,
+// and a scale that fits the dialog inside that button. Without a button (a
+// dialog the app opens for itself) the plain centred fade in app.css is used.
+function openDialog(dlg, from) {
+  // Focus moves into the dialog on showModal, so the trigger is read first.
+  const trigger = from || document.activeElement;
+  // Reopened while its exit was still playing: drop the exit and start over.
+  if (dlg.classList.contains('is-closing')) {
+    dlg.classList.remove('is-closing', 'from-control');
+    dlg.close();
+  }
+  if (dlg.open) return; // showModal() throws on an open dialog; the fields still repaint
+  dlg.classList.remove('from-control');
+  dlg.showModal();
+  const box = trigger && trigger.getBoundingClientRect ? trigger.getBoundingClientRect() : null;
+  // A body-sized or empty rect means the dialog was not opened from a control.
+  if (!box || !box.width || box.width > window.innerWidth * .8) return;
+  const d = dlg.getBoundingClientRect();
+  const dx = (box.left + box.width / 2) - (d.left + d.width / 2);
+  const dy = (box.top + box.height / 2) - (d.top + d.height / 2);
+  const s = Math.min(.8, Math.max(.35, (box.width + box.height) / (d.width + d.height)));
+  dlg.style.setProperty('--from-x', Math.round(dx) + 'px');
+  dlg.style.setProperty('--from-y', Math.round(dy) + 'px');
+  dlg.style.setProperty('--from-s', s.toFixed(3));
+  dlg.classList.add('from-control');
+}
+
+// Leaving: the same measured start point played backwards, so a dialog that
+// flew out of a button goes back into it. The dialog is still open while it
+// animates; closeDialog() calls the real close() once the card has left, which
+// is what the 'close' listeners that reset state wait for.
+const DIALOG_OUT_MS = 260;
+
+function closeDialog(dlg, value) {
+  if (!dlg || !dlg.open || dlg.classList.contains('is-closing')) return;
+
+  const finish = () => {
+    dlg.removeEventListener('animationend', onEnd);
+    dlg.classList.remove('is-closing', 'from-control');
+    if (dlg.open) dlg.close(value);
+  };
+  const onEnd = (event) => {
+    if (event.target === dlg) finish();
+  };
+
+  // With motion turned down there is nothing to wait for, and a window that is
+  // not painting animations would otherwise leave the dialog stuck open.
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    finish();
+    return;
+  }
+  // Closed while it was still flying in: an exit would restart from the middle
+  // and jump, so this one just goes.
+  const arriving = dlg.getAnimations && dlg.getAnimations().some(
+    (a) => a.playState === 'running' &&
+      (a.animationName === 'dialog-fly' || a.animationName === 'dialog-in')
+  );
+  if (arriving) {
+    finish();
+    return;
+  }
+  dlg.classList.add('is-closing');
+  dlg.addEventListener('animationend', onEnd);
+  setTimeout(finish, DIALOG_OUT_MS + 160); // longer than the CSS animation, as a backstop
+}
+
 function openSettings() {
   $('set-clone').value = state ? state.clone : '';
   $('set-bash').value = state ? state.bash : '';
   $('set-error').hidden = true;
-  $('settings').showModal();
+  openDialog($('settings'));
 }
 
 async function saveSettings(event) {
@@ -3418,7 +3489,7 @@ async function saveSettings(event) {
   const bash = $('set-bash').value.trim();
   try {
     state = await api('api/settings', { method: 'POST', body: { clone, bash } });
-    $('settings').close();
+    closeDialog($('settings'));
     cfgEdits.clear();
     files = null;
     filesSel = null;
@@ -3579,10 +3650,22 @@ function bind() {
   $('set-save').addEventListener('click', saveSettings);
 
   $('chip-update').addEventListener('click', openUpdate);
+
+  // Esc goes through the animated close as well. The dialogs that give a
+  // cancel its own meaning (the delete question, the sudo prompt) keep their
+  // own handlers: they run too, and set the answer before the card has left.
+  for (const dlg of document.querySelectorAll('dialog')) {
+    dlg.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeDialog(dlg);
+    });
+  }
+  $('set-cancel').addEventListener('click', () => closeDialog($('settings')));
+  $('upd-later').addEventListener('click', () => closeDialog($('update')));
   $('upd-go').addEventListener('click', (event) => {
     event.preventDefault();
     if ($('upd-go').dataset.done === '1') {
-      $('update').close();
+      closeDialog($('update'));
       return;
     }
     runUpdate();

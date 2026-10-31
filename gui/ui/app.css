@@ -1182,23 +1182,210 @@ button.danger:hover:not(:disabled) { background: var(--bad-soft); color: var(--b
 }
 
 /* ------------------------------------------------------------------ motion -- */
-/* Short, one-shot, and made of opacity plus a couple of pixels: enough to show
-   that something changed, never enough to watch. Nothing loops and nothing
-   bounces — the tabs, dialogs and answer cards are used dozens of times a
-   session, and a flourish is a tax on every one of them. */
+/* The window is allowed to move. Every animation here is short (120–320ms),
+   one-shot unless it says otherwise, and made of opacity and transform so the
+   compositor does the work: nothing animates a layout property. The one loop
+   is the "a job is running" ring on the console, which is information, not
+   decoration. `prefers-reduced-motion` at the end of this file turns all of it
+   off in one switch. */
 @keyframes pane-in {
-  from { opacity: 0; transform: translateY(2px); }
+  from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: none; }
 }
-.pane.is-active { animation: pane-in .13s var(--ease); }
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-7px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-9px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes line-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dot-beat {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: .55; }
+}
+@keyframes live-ring {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  50% { box-shadow: 0 0 0 3px var(--accent-soft); }
+}
 
+/* Every pane fades up as a block, then its own children follow a beat later:
+   the eye lands on the tab first, then on what the tab holds. This runs off
+   display:none -> flex, so it replays on every tab switch and never on a poll. */
+.pane.is-active { animation: pane-in .2s var(--ease) backwards; }
+.pane.is-active > * { animation: fade-up .24s var(--ease) backwards; }
+.pane.is-active > *:nth-child(1) { animation-delay: .03s; }
+.pane.is-active > *:nth-child(2) { animation-delay: .06s; }
+.pane.is-active > *:nth-child(3) { animation-delay: .09s; }
+.pane.is-active > *:nth-child(4) { animation-delay: .12s; }
+.pane.is-active > *:nth-child(n+5) { animation-delay: .15s; }
+
+/* The header and the tab strip arrive before the pane does. */
+.top { animation: fade-down .26s var(--ease) backwards; }
+.brand .mark { animation: pop-in .3s var(--ease) .05s backwards; }
+.chips .chip { animation: fade-down .26s var(--ease) backwards; }
+.chips .chip:nth-child(1) { animation-delay: .05s; }
+.chips .chip:nth-child(2) { animation-delay: .1s; }
+.chips .chip:nth-child(3) { animation-delay: .15s; }
+.tabs { animation: fade-up .26s var(--ease) .04s backwards; }
+.mark { transition: transform .2s var(--ease), box-shadow .2s var(--ease); }
+.mark:hover { transform: rotate(-6deg) scale(1.06); box-shadow: 0 0 0 4px var(--accent-soft); }
+
+/* A dialog comes in slightly small and settles: the card the settings, the new
+   file and the delete question all get. The curve is a long ease-out with no
+   overshoot, so the card arrives rather than bouncing. */
 @keyframes dialog-in {
-  from { opacity: 0; transform: translateY(-3px) scale(.995); }
+  from { opacity: 0; transform: translateY(-8px) scale(.97); }
   to { opacity: 1; transform: none; }
 }
-dialog[open] { animation: dialog-in .15s var(--ease); }
-@keyframes backdrop-in { from { opacity: 0; } }
-dialog[open]::backdrop { animation: backdrop-in .15s ease-out; }
+dialog[open] { animation: dialog-in .3s cubic-bezier(.22, 1, .36, 1) backwards; }
+/* Opened from a control: the dialog starts as a small card sitting on the
+   button that was clicked and travels to the middle of the window. The start
+   offset and scale are measured by openDialog() in app.js; the fallbacks keep
+   this a centred fade when a dialog has no button behind it.
+   The move takes long enough to read as travel and eases out over most of it,
+   so it decelerates into the middle instead of stopping there. It also fades
+   and grows together, which hides the last few pixels of any curve kink. */
+@keyframes dialog-fly {
+  from {
+    opacity: 0;
+    transform: translate(var(--from-x, 0px), var(--from-y, 0px)) scale(var(--from-s, .7));
+  }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+dialog[open].from-control { animation: dialog-fly .46s cubic-bezier(.19, 1, .22, 1) backwards; }
+
+/* Leaving is the same trip backwards: to the button that opened it, or a small
+   step back and fade for a dialog with no button behind it. closeDialog() in
+   app.js adds .is-closing, waits for this to finish, then calls close(). */
+@keyframes dialog-out {
+  to { opacity: 0; transform: translateY(-6px) scale(.97); }
+}
+@keyframes dialog-out-fly {
+  to {
+    opacity: 0;
+    transform: translate(var(--from-x, 0px), var(--from-y, 0px)) scale(var(--from-s, .96));
+  }
+}
+dialog[open].is-closing { animation: dialog-out .2s cubic-bezier(.4, 0, 1, 1) forwards; }
+dialog[open].is-closing.from-control { animation: dialog-out-fly .26s cubic-bezier(.55, .06, .68, .19) forwards; }
+
+@keyframes backdrop-in { from { opacity: 0; backdrop-filter: blur(0); } }
+@keyframes backdrop-out { to { opacity: 0; backdrop-filter: blur(0); } }
+dialog[open]::backdrop { animation: backdrop-in .26s cubic-bezier(.22, 1, .36, 1); }
+dialog[open].is-closing::backdrop { animation: backdrop-out .2s ease-in forwards; }
+dialog[open] h2 { animation: fade-down .26s var(--ease) .05s backwards; }
+dialog[open] label,
+dialog[open] input,
+dialog[open] select,
+dialog[open] menu { animation: fade-up .26s var(--ease) .08s backwards; }
+
+/* ------------------------------------------------------------------- tabs -- */
+/* The active underline is a bar that grows out of the middle instead of a
+   border that snaps on, and hovering a tab previews it at half width. */
+.tab { position: relative; }
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rule-strong);
+  transform: scaleX(0);
+  transform-origin: 50% 100%;
+  opacity: 0;
+  transition: transform .22s var(--ease), opacity .22s var(--ease), background-color .22s var(--ease);
+}
+.tab:hover:not(:disabled)::after { transform: scaleX(.5); opacity: .55; }
+.tab.is-active::after { transform: scaleX(1); opacity: 1; background: var(--accent); }
+/* The base rule draws the same line as a border; the bar above is the one that
+   moves, so the static border steps aside. */
+.tab.is-active { border-bottom-color: transparent; }
+
+/* ---------------------------------------------------------------- controls -- */
+/* Buttons lift a hair under the pointer and sink when pressed. The primary one
+   also gets a light sweep, which is the only place the accent reads as moving
+   without anything having happened yet. */
+@keyframes sweep {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(130%); }
+}
+button.primary { position: relative; overflow: hidden; }
+button.primary::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: 0;
+  width: 70%;
+  /* Feathered at both ends over several stops instead of one hard midpoint:
+     a single transparent -> white -> transparent band left a visible edge where
+     the highlight started. Low enough alpha that it reads as sheen. */
+  background: linear-gradient(105deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, .05) 22%,
+    rgba(255, 255, 255, .13) 42%,
+    rgba(255, 255, 255, .15) 50%,
+    rgba(255, 255, 255, .13) 58%,
+    rgba(255, 255, 255, .05) 78%,
+    rgba(255, 255, 255, 0) 100%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+button.primary:hover:not(:disabled)::after { animation: sweep .85s var(--ease); }
+button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
+button.primary:hover:not(:disabled),
+.chip:hover:not(:disabled),
+.verb:hover:not(:disabled),
+.preset:hover:not(:disabled),
+.files-tools button:hover:not(:disabled),
+.folder-actions button:hover:not(:disabled) { transform: translateY(-1px); }
+.files-tools button,
+.folder-actions button,
+.files-quick button { transition: transform .14s var(--ease), background .14s var(--ease), border-color .14s var(--ease), color .14s var(--ease); }
+
+/* The verb cards are the first thing anyone clicks, so they answer the pointer
+   before the click: lift, accent edge, and a bar down the left when chosen. */
+.verb { transition: border-color .16s var(--ease), background .16s var(--ease), color .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease); }
+/* A verb answers the pointer with its edge and a little shadow, not with its
+   fill: the chosen one keeps the accent tint while the pointer is on it, and
+   the others keep the panel they had, so nothing flickers between picks. */
+.verb:hover:not(:disabled) { background: var(--panel); border-color: var(--rule-strong); box-shadow: 0 10px 22px -20px rgba(23, 24, 15, .7); }
+.verb.is-active { box-shadow: inset 2px 0 0 var(--accent), var(--shadow); }
+.verb.is-active:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 2px 0 0 var(--accent), 0 10px 22px -20px rgba(23, 24, 15, .7); }
+.preset { transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease); }
+
+/* A chip's dot beats when it has something to say: a dirty tree or a path that
+   will not work. The healthy state stays still. */
+.chip .dot { transition: transform .2s var(--ease); }
+.chip[data-tone="warn"] .dot { animation: dot-beat 1.9s ease-in-out infinite; }
+.chip[data-tone="bad"] .dot { animation: dot-beat 1.3s ease-in-out infinite; }
+
+/* The config switch knob runs past its stop and settles, so flipping it feels
+   like a switch instead of a checkbox with a round mark. */
+.cfg-on::after { transition: transform .2s cubic-bezier(.34, 1.56, .64, 1); }
+.cfg-on:active::after { width: 16px; }
+.cfg-on:checked:active::after { transform: translateX(10px); }
+.cfg-value { transition: border-color .14s var(--ease), box-shadow .14s var(--ease), background .14s var(--ease); }
+.cfg-value:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+.cfg-row { transition: background .14s var(--ease); border-radius: 4px; }
+.cfg-row:hover { background: var(--panel-2); }
+.cfg-row.is-off:hover { background: transparent; }
 
 /* The answer cards are unhidden when a scan starts, so the fade is the
    acknowledgement that the click landed. The power profile is the same. */
@@ -1208,23 +1395,110 @@ dialog[open]::backdrop { animation: backdrop-in .15s ease-out; }
 }
 #udfps-results:not([hidden]),
 #detect-results:not([hidden]),
-#power-preview:not([hidden]) { animation: card-in .15s var(--ease); }
+#power-preview:not([hidden]) { animation: card-in .28s var(--ease) backwards; }
 
+/* A scan fills the table row by row, so the rows arrive one after another and
+   the reader follows them down instead of finding a block of text. */
+.udfps-table tbody tr { animation: slide-in .24s var(--ease) backwards; }
+.udfps-table tbody tr:nth-child(1) { animation-delay: .02s; }
+.udfps-table tbody tr:nth-child(2) { animation-delay: .05s; }
+.udfps-table tbody tr:nth-child(3) { animation-delay: .08s; }
+.udfps-table tbody tr:nth-child(4) { animation-delay: .11s; }
+.udfps-table tbody tr:nth-child(5) { animation-delay: .14s; }
+.udfps-table tbody tr:nth-child(6) { animation-delay: .17s; }
+.udfps-table tbody tr:nth-child(n+7) { animation-delay: .2s; }
+/* The tick is the row's control, so the first column keeps air on its left:
+   flush against the cell edge it collided with the accent bar that marks the
+   picked row. */
+.udfps-table th:first-child,
+.udfps-table td:first-child { padding-left: 10px; }
+.udfps-table td { transition: background .14s var(--ease), box-shadow .14s var(--ease); }
+.udfps-table tr.is-picked td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.udfps-table input { transition: transform .14s var(--ease); }
+.udfps-table input:checked { transform: scale(1.12); }
+
+/* ---------------------------------------------------------------- console -- */
+/* Every new line drops into the console. It is the only animation in the app
+   that fires more than once a second, so it is the shortest one here. */
+#log > span, #adb-console > span, .preset-log > span { animation: line-in .14s var(--ease) backwards; }
+@keyframes done-flash {
+  from { background: var(--accent-soft); }
+  to { background: transparent; }
+}
+#log > .done-ok, #log > .done-bad { animation: line-in .14s var(--ease), done-flash 1s var(--ease) .14s; border-radius: 3px; }
+/* While a job owns the console the whole box breathes, so a build that is
+   quiet for a minute still reads as running rather than hung. */
+body.is-running #pane-build .logwrap { animation: live-ring 2.2s ease-in-out infinite; }
+
+/* ------------------------------------------------------------------- docs -- */
+.docs-body > * { animation: fade-up .22s var(--ease) backwards; }
+.docs-body > *:nth-child(1) { animation-delay: .01s; }
+.docs-body > *:nth-child(2) { animation-delay: .03s; }
+.docs-body > *:nth-child(3) { animation-delay: .05s; }
+.docs-body > *:nth-child(4) { animation-delay: .07s; }
+.docs-body > *:nth-child(5) { animation-delay: .09s; }
+.docs-body > *:nth-child(6) { animation-delay: .11s; }
+.docs-body > *:nth-child(n+7) { animation-delay: .13s; }
+
+/* ------------------------------------------------------------------ folds -- */
+/* Opening "Last build" or "What was read" unfolds what is inside it. */
+details[open] > :not(summary) { animation: fade-up .2s var(--ease) backwards; }
+details > summary { transition: color .14s var(--ease); }
+details[open] > summary { color: var(--ink); }
+
+/* ------------------------------------------------------------------ files -- */
 /* A folder dragged over the tree: the border is the target, and it should not
    snap between states while the pointer crosses it. */
-.files-tree { transition: border-color .12s var(--ease), background .12s var(--ease); }
+.files-tree { transition: border-color .14s var(--ease), background .14s var(--ease); }
+.files-tree.is-drop { border-color: var(--accent); animation: live-ring 1.5s ease-in-out infinite; }
+.ft-row { transition: background .14s var(--ease), box-shadow .14s var(--ease), transform .14s var(--ease); }
+.ft-row:hover { transform: translateX(2px); }
+button.ft-caret { transition: transform .16s var(--ease), color .14s var(--ease); }
+#file-editor:not([hidden]),
+.folder-view:not([hidden]),
+.file-placeholder:not([hidden]) { animation: fade-up .2s var(--ease) backwards; }
+#file-editor { transition: border-color .14s var(--ease), box-shadow .14s var(--ease); }
+#file-editor:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
-/* The one-line status next to Run appears and clears on its own; an instant
-   swap draws the eye to the corner it is in. */
-#run-status { transition: opacity .15s var(--ease); }
+/* ----------------------------------------------------------------- addons -- */
+.addons { transition: border-color .16s var(--ease); }
+.addon-row { transition: background .22s var(--ease); }
+.addon-row.is-dirty { background: var(--accent-soft); }
+.addon-side select { transition: border-color .14s var(--ease), box-shadow .14s var(--ease); }
+.addon-side select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ------------------------------------------------------------------ cards -- */
+.card { transition: border-color .18s var(--ease), box-shadow .18s var(--ease), transform .18s var(--ease); }
+.card:hover { border-color: var(--rule-strong); box-shadow: 0 12px 26px -24px rgba(23, 24, 15, .8); }
+.detect-note:not([hidden]) { animation: pop-in .22s cubic-bezier(.2, 1.2, .35, 1) backwards; }
+
+/* ---------------------------------------------------------------- statuses -- */
+/* The one-line status next to a button appears and clears on its own; an
+   instant swap draws the eye to the corner it is in. The animation starts
+   because the element newly stops being empty, which is exactly the moment it
+   has something to say. */
+@keyframes status-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+#run-status, #cfg-status, #addons-status, #udfps-applied, #detect-applied { transition: opacity .16s var(--ease); }
 #run-status:empty { opacity: 0; }
+#run-status:not(:empty),
+#cfg-status:not(:empty),
+#addons-status:not(:empty),
+#udfps-applied:not(:empty),
+#detect-applied:not(:empty) { animation: status-in .22s var(--ease) backwards; }
 
-/* One switch for the people the animations cost something: the app has no
-   animation that carries information, so none of them has to survive this. */
+/* One switch for the people the animations cost something. Delays are cleared
+   too: a staggered list that waits to appear is worse than one that is simply
+   there, and the two loops (the chip dot, the running console) stop after a
+   single pass. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;
+    transition-delay: 0s !important;
   }
 }
