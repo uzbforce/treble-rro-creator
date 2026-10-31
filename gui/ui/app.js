@@ -645,6 +645,12 @@ function renderConfig(force = false) {
     return;
   }
 
+  // Two different questions, so two cards, each beside the pair it writes: the
+  // module's own condition (DEVICE_PROP_*) is the codename the phone carries,
+  // and the submission pair (HW_OVERLAY_MATCH_*) is a ranking of properties.
+  // One card used to serve both, and the codename answer landed in the pair a
+  // section further down.
+  let modulePlaced = false;
   let matchPlaced = false;
   for (const sec of doc.sections) {
     const wrap = el('div', 'cfg-sec');
@@ -652,24 +658,26 @@ function renderConfig(force = false) {
     const entries = sec.entries || [];
     for (const entry of entries) wrap.appendChild(cfgRow(entry));
     if (!sec.title && entries.length === 0) continue;
-    // The match-property card belongs with the activation keys, because a wrong
-    // one is the failure that looks like success: the overlay is enabled and
-    // nothing changes.
-    if (!matchPlaced && isOverlaySection(sec)) {
+    if (!modulePlaced && hasKey(sec, 'DEVICE_PROP_NAME')) {
+      wrap.appendChild(moduleCard());
+      modulePlaced = true;
+    }
+    // The match card belongs with the submission keys, because a wrong one is
+    // the failure that looks like success: the overlay is enabled and nothing
+    // changes.
+    if (!matchPlaced && hasKey(sec, 'HW_OVERLAY_MATCH_PROP')) {
       wrap.appendChild(matchCard());
       matchPlaced = true;
     }
     box.appendChild(wrap);
   }
+  if (!modulePlaced) box.appendChild(moduleCard());
   if (!matchPlaced) box.appendChild(matchCard());
   updateCfgStatus();
 }
 
-function isOverlaySection(sec) {
-  if (/overlay activation/i.test(sec.title || '')) return true;
-  return (sec.entries || []).some((e) =>
-    e.key === 'DEVICE_PROP_NAME' || e.key === 'HW_OVERLAY_MATCH_PROP'
-  );
+function hasKey(sec, key) {
+  return (sec.entries || []).some((e) => e.key === key);
 }
 
 // Keys whose value is a string even when it reads like a boolean: a device name
@@ -772,6 +780,175 @@ function updateCfgStatus() {
   $('cfg-revert').disabled = !dirty;
 }
 
+// ---------------------------------------------------- module condition --
+// The module's condition is the codename the phone carries, not a property
+// ranking: the module writes persist.sys.overlay.<codename> at boot, so it
+// always matches. Detect reads the codename off the phone; Use stages
+// DEVICE_PROP_NAME / DEVICE_PROP_VALUE and nothing else. The submission pair
+// is a separate question with its own card further down.
+let moduleDetect = null;
+let moduleError = '';
+let moduleBusy = false;
+let moduleBodyEl = null;
+
+const MODULE_PROP_PREFIX = 'persist.sys.overlay.';
+
+// Both detectors ask the same phone the same way, so the frame is built once.
+function detectorCard(title, keys, hint) {
+  const card = el('div', 'cfg-match');
+  const head = el('div', 'cfg-match-head');
+  head.appendChild(el('span', 'cfg-match-title', title));
+  head.appendChild(el('span', 'muted small', keys));
+
+  const pick = document.createElement('select');
+  pick.className = 'adb-device-select cfg-match-device';
+  pick.setAttribute('aria-label', 'phone to ask');
+
+  const ask = document.createElement('button');
+  ask.type = 'button';
+  ask.textContent = 'Ask the phone';
+
+  head.append(pick, ask);
+  card.appendChild(head);
+  card.appendChild(el('p', 'hint', hint));
+  return { card, pick, ask };
+}
+
+function moduleCard() {
+  const { card, pick, ask } = detectorCard(
+    'Module condition',
+    'DEVICE_PROP_NAME / _VALUE',
+    'The codename this phone carries. The module sets persist.sys.overlay.<codename> before zygote, so a wrong codename is what makes it skip this phone.'
+  );
+  pick.addEventListener('change', () => {
+    setAdbDevice(pick.value);
+    // One phone per answer: the last phone's codename must not stay on screen
+    // looking like it belongs to the new one.
+    moduleDetect = null;
+    moduleError = '';
+    renderAdbDevices();
+    refreshModuleBody();
+  });
+  ask.addEventListener('click', askModuleProp);
+  card.appendChild(moduleBody());
+  renderAdbDevices();
+  if (!adbDevices.length) refreshAdbDevices().then(() => renderAdbDevices());
+  return card;
+}
+
+// Same trap as the match card: moduleBody() reassigns moduleBodyEl while it
+// builds, so the node being replaced has to be captured first.
+function refreshModuleBody() {
+  const old = moduleBodyEl;
+  if (!old || !old.isConnected) return;
+  old.replaceWith(moduleBody());
+}
+
+function moduleBody() {
+  const body = el('div', 'cfg-match-body');
+  moduleBodyEl = body;
+
+  if (moduleBusy) {
+    body.appendChild(el('p', 'muted small', 'asking the phone…'));
+    return body;
+  }
+  if (moduleError) body.appendChild(el('p', 'cfg-match-error', moduleError));
+
+  if (!moduleDetect) {
+    const prop = cfgEntry('DEVICE_PROP_NAME');
+    const value = cfgEntry('DEVICE_PROP_VALUE');
+    if (prop && prop.value) {
+      body.appendChild(el('p', 'muted small',
+        `config.env activates on ${prop.value} = "${value && value.value ? value.value : ''}"${prop.enabled ? '' : ' — that line is commented out'}.`));
+    } else {
+      body.appendChild(el('p', 'muted small',
+        'No condition is set, so the module would activate on every phone — only right when that is what you mean.'));
+    }
+    return body;
+  }
+
+  const answers = (moduleDetect.candidates || []).filter((c) => c.value);
+  const summary = el('div', 'cfg-match-summary');
+  summary.appendChild(el('span', 'muted small', 'codename '));
+  summary.appendChild(el('code', null, moduleDetect.codename || 'not found'));
+  if (moduleDetect.model) summary.appendChild(el('span', 'muted small', ' · ' + moduleDetect.model));
+  if (answers.length > 1) summary.appendChild(el('span', 'cfg-match-badge trust-medium', `${answers.length} commands answered`));
+  body.appendChild(summary);
+
+  if (!answers.length) {
+    body.appendChild(el('p', 'cfg-match-warn',
+      'No property on this phone carries its codename — it may be an unnamed build. Set the condition by hand in the row above.'));
+    return body;
+  }
+
+  for (const c of answers) body.appendChild(moduleRow(c));
+  if (answers.length > 1) {
+    body.appendChild(el('p', 'muted small',
+      'All of these are on the phone; the first is the one usually trusted on a GSI. Only the pair above changes — Save writes it.'));
+  }
+  return body;
+}
+
+function moduleRow(c) {
+  const row = el('div', 'cfg-match-row');
+  const head = el('div', 'cfg-match-row-head');
+  head.appendChild(el('code', 'cfg-match-prop', MODULE_PROP_PREFIX + c.value));
+  head.appendChild(el('span', 'cfg-match-eq', '='));
+  head.appendChild(el('code', 'cfg-match-val', '"true"'));
+
+  const use = document.createElement('button');
+  use.type = 'button';
+  use.textContent = 'Use';
+  use.addEventListener('click', () => useModuleCodename(c));
+  head.appendChild(use);
+
+  row.appendChild(head);
+  row.appendChild(el('p', 'cfg-match-why', `codename from ${c.prop}${c.note ? ' — ' + c.note : ''}`));
+  return row;
+}
+
+async function askModuleProp() {
+  if (moduleBusy) return;
+  await refreshAdbDevices();
+  const pick = adbDeviceChoice();
+  if (pick.blocked) {
+    moduleError = `${adbReadyDevices().length} phones are connected — pick one beside the button`;
+    refreshModuleBody();
+    return;
+  }
+  if (!pick.serial && !adbReadyDevices().length) {
+    moduleError = 'No phone is ready — plug one in and allow USB debugging.';
+    refreshModuleBody();
+    return;
+  }
+  moduleBusy = true;
+  moduleError = '';
+  refreshModuleBody();
+  try {
+    moduleDetect = await api('api/adb/detect', { method: 'POST', body: { serial: pick.serial } });
+  } catch (err) {
+    moduleDetect = null;
+    moduleError = err.message;
+  } finally {
+    moduleBusy = false;
+    refreshModuleBody();
+  }
+}
+
+// Writes the module pair only — never the submission pair.
+function useModuleCodename(c) {
+  const prop = MODULE_PROP_PREFIX + c.value;
+  const name = stageCfgValue('DEVICE_PROP_NAME', prop);
+  const value = stageCfgValue('DEVICE_PROP_VALUE', 'true');
+  if (!name || !value) {
+    status('config.env has no DEVICE_PROP_* lines — add them in the raw editor', 9000);
+    return;
+  }
+  const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${(cfgEntry('DEVICE_PROP_NAME') || {}).line}"]`);
+  if (row) row.scrollIntoView({ block: 'center' });
+  status(`staged DEVICE_PROP_NAME = "${prop}" and DEVICE_PROP_VALUE = "true" — Save writes them`, 9000);
+}
+
 // ------------------------------------------------------- match property --
 // The one mistake in this file that looks like success: a match condition the
 // framework never satisfies. The overlay installs, `cmd overlay list` prints
@@ -794,14 +971,11 @@ function cfgEntry(key) {
 }
 
 function matchCard() {
-  const card = el('div', 'cfg-match');
-  const head = el('div', 'cfg-match-head');
-  head.appendChild(el('span', 'cfg-match-title', 'Match property'));
-  head.appendChild(el('span', 'muted small', 'HW_OVERLAY_MATCH_PROP / _VALUE'));
-
-  const pick = document.createElement('select');
-  pick.className = 'adb-device-select cfg-match-device';
-  pick.setAttribute('aria-label', 'phone to ask');
+  const { card, pick, ask } = detectorCard(
+    'Submission match',
+    'HW_OVERLAY_MATCH_PROP / _VALUE',
+    'Which property the submission ships this overlay to. A property only works if zygote can read it and the value survives what is installed — the two things that make an overlay show as enabled and do nothing.'
+  );
   pick.addEventListener('change', () => {
     setAdbDevice(pick.value);
     // The ranking is about one phone: switching phones must not leave the last
@@ -811,16 +985,7 @@ function matchCard() {
     renderAdbDevices();
     refreshMatchBody();
   });
-
-  const ask = document.createElement('button');
-  ask.type = 'button';
-  ask.textContent = 'Ask the phone';
   ask.addEventListener('click', askMatchProp);
-
-  head.append(pick, ask);
-  card.appendChild(head);
-  card.appendChild(el('p', 'hint',
-    'Read from the selected phone. A property only works if zygote can read it and the value survives what is installed — the two things that make an overlay show as enabled and do nothing.'));
   card.appendChild(matchBody());
   renderAdbDevices();
   // First paint of the form can happen before the device list has ever been
@@ -982,7 +1147,7 @@ async function askMatchProp() {
 
 // Stages one config line the way the row itself would, so the change shows up in
 // the form and Save sends it. Nothing is written to disk here.
-function stageMatchValue(key, value) {
+function stageCfgValue(key, value) {
   const entry = cfgEntry(key);
   if (!entry) return false;
   const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${entry.line}"]`);
@@ -1003,8 +1168,8 @@ function stageMatchValue(key, value) {
 }
 
 function useMatch(c) {
-  const prop = stageMatchValue('HW_OVERLAY_MATCH_PROP', c.prop);
-  const value = stageMatchValue('HW_OVERLAY_MATCH_VALUE', c.value);
+  const prop = stageCfgValue('HW_OVERLAY_MATCH_PROP', c.prop);
+  const value = stageCfgValue('HW_OVERLAY_MATCH_VALUE', c.value);
   if (!prop || !value) {
     status('config.env has no HW_OVERLAY_MATCH_* lines — add them in the raw editor', 9000);
     return;

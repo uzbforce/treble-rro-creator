@@ -174,7 +174,7 @@ submits an always-active overlay — only sensible for a property-less device.
 Xiaomi, `ro.product.vendor.device` is `mivendor` — shared by a whole family of
 Xiaomi builds — while `ro.product.device` is the actual codename `zephyr`. A
 value copied from `DEVICE_CODENAME` would never match, and `mivendor` would
-match other devices. The Config tab's **Match property** card asks the phone and
+match other devices. The Config tab's **Submission match** card asks the phone and
 ranks what actually works: it reads `ro.product.device`-style properties, drops
 build names like `mivendor`/`generic`/`phh_treble`, weighs whether the property
 survives a GSI against whether zygote can read its SELinux area, and stages

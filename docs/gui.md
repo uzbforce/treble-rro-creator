@@ -126,14 +126,18 @@ so the window no longer opens on a list of files from some earlier run.
   saves, then runs `build.sh check`, so a typo is reported by the code that
   actually parses the file rather than by a second parser here.
 
-  Under *Overlay activation* sits **Match property**: it asks the selected phone
-  which properties carry its codename, whether zygote can read them and whether
-  the value survives a GSI, ranks the answers with the reasons, and stages
-  `HW_OVERLAY_MATCH_PROP` / `_VALUE` when you click **Use**. If no property
-  passes all three tests it says so and keeps the working default
-  (`persist.sys.overlay.<codename>`) instead of selling a guess; the rows are
-  still listed with the reasons they fell short (a shared `mivendor`, a GSI
-  `generic`, a `build_prop` that a GSI renames) — see
+  Two cards ask the phone, one per pair, and each only ever stages its own
+  lines. Under *Overlay activation*, **Module condition** reads the codename and
+  stages `DEVICE_PROP_NAME` = `persist.sys.overlay.<codename>` with
+  `DEVICE_PROP_VALUE` = `true`, listing every command that answered if the
+  phone reports more than one. Under *Overlay repo submission*, **Submission
+  match** asks which properties carry that codename, whether zygote can read
+  them and whether the value survives a GSI, ranks the answers with the
+  reasons, and stages `HW_OVERLAY_MATCH_PROP` / `_VALUE` when you click **Use**.
+  If no property passes all three tests it says so and keeps the working
+  default (`persist.sys.overlay.<codename>`) instead of selling a guess; the
+  rows are still listed with the reasons they fell short (a shared `mivendor`, a
+  GSI `generic`, a `build_prop` that a GSI renames) — see
   [configuration.md](configuration.md#choosing-the-match-property).
 - **Addons** — choices the module owns, separate from `config.env`. **Live**
   ones are Settings values the module writes itself (volume panel side, screen
