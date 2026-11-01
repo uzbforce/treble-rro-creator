@@ -148,27 +148,135 @@ menu_build() {
 # ---------------------------------------------------------------------------
 # Files
 # ---------------------------------------------------------------------------
+# Where a copy lands on the phone. /sdcard is the same folder whether it is this
+# phone (Termux, where ~/storage/shared points at it) or a cabled one (adb), so
+# the path in the message is one a reader can go and look in either way.
+FILES_PHONE_DIR="/sdcard/treble-rro-creator"
+
+# The build's own outputs, one path per line: the flashable zips and the APKs
+# sitting inside them.
+built_files() {
+    find "$OUT_DIR" -maxdepth 2 -type f \( -name '*.zip' -o -name '*.apk' \) 2>/dev/null | LC_ALL=C sort
+}
+
+# files_copy_to_phone — put the build on the phone's shared storage.
+#
+# On the phone itself (Termux) that is a plain cp, once Termux has been given
+# access to /sdcard. From a computer it is `adb push`, because the build tree is
+# on the wrong side of the cable; the destination is the same folder, so the
+# instructions afterwards do not depend on which machine ran the build.
+files_copy_to_phone() {
+    local -a files=()
+    local f base="" dest copied=0 failed=0 src
+    while IFS= read -r f; do files+=("$f"); done < <(built_files)
+    if [ "${#files[@]}" -eq 0 ]; then
+        info "Nothing to copy yet — 1 → 2 builds the module."
+        return 0
+    fi
+
+    if device_is_termux; then
+        # ~/storage/shared only exists after termux-setup-storage; /sdcard is
+        # still worth trying because some builds of Termux ship it ready.
+        if [ -d "$HOME/storage/shared" ]; then
+            base="$HOME/storage/shared"
+        elif [ -d /sdcard ]; then
+            base="/sdcard"
+        fi
+        if [ -z "$base" ]; then
+            err "Termux cannot see this phone's storage."
+            echo "     Run: termux-setup-storage"
+            echo "     Then: 8 → 1 again"
+            return 1
+        fi
+        dest="$base/treble-rro-creator"
+        if ! mkdir -p "$dest" 2>/dev/null; then
+            err "Cannot create $FILES_PHONE_DIR."
+            echo "     Run: termux-setup-storage   (it asks for the storage permission)"
+            return 1
+        fi
+        info "Copying ${#files[@]} file(s) to $FILES_PHONE_DIR..."
+        for f in "${files[@]}"; do
+            if cp -f "$f" "$dest/" 2>/dev/null; then
+                ui_mark ok "$(basename "$f")  $(du -h "$f" 2>/dev/null | cut -f1)"
+                copied=$((copied + 1))
+            else
+                ui_mark bad "$(basename "$f") — could not be written"
+                failed=$((failed + 1))
+            fi
+        done
+    else
+        # A computer: the phone is only reachable through adb, and a build for a
+        # phone that is not plugged in goes nowhere.
+        if ! resolve_adb; then
+            err "adb was not found — install platform-tools and try again."
+            return 1
+        fi
+        adb_pick_device "$adb" "" "files" || return 1
+        if ! "$adb" ${DEVICE_SERIAL:+-s "$DEVICE_SERIAL"} shell "mkdir -p $FILES_PHONE_DIR" \
+                >/dev/null 2>&1; then
+            err "Could not create $FILES_PHONE_DIR on the phone."
+            echo "     Check that the phone is unlocked and the storage is not full."
+            return 1
+        fi
+        info "Pushing ${#files[@]} file(s) to $FILES_PHONE_DIR..."
+        for f in "${files[@]}"; do
+            # A Windows adb cannot open an MSYS path, so the local half is
+            # converted when cygpath exists (Git Bash) and passed as it is
+            # everywhere else.
+            src="$f"
+            command -v cygpath >/dev/null 2>&1 && src="$(cygpath -w "$f")"
+            if "$adb" ${DEVICE_SERIAL:+-s "$DEVICE_SERIAL"} push "$src" "$FILES_PHONE_DIR/" \
+                    >/dev/null 2>&1; then
+                ui_mark ok "$(basename "$f")  $(du -h "$f" 2>/dev/null | cut -f1)"
+                copied=$((copied + 1))
+            else
+                ui_mark bad "$(basename "$f") — adb push failed"
+                failed=$((failed + 1))
+            fi
+        done
+    fi
+
+    echo ""
+    if [ "$failed" -gt 0 ]; then
+        warn "$copied copied, $failed failed."
+        return 1
+    fi
+    ui_mark ok "$copied file(s) in $FILES_PHONE_DIR"
+    ui_mark note "Open Files on the phone, or flash the module from there."
+    return 0
+}
+
 menu_files() {
     local -a table=() f
-    ui_heading 'Files'
-    ui_panel 'Where things are' \
-        "Project|$ROOT" \
-        "config.env|$ROOT/config.env" \
-        "Build tree|${BUILD_DIR#$ROOT/}"
-    echo ""
-    if [ -d "$OUT_DIR" ] && [ -n "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
-        while IFS= read -r f; do
-            table+=("$(du -h "$f" 2>/dev/null | cut -f1)|${f#$ROOT/}")
-        done < <(find "$OUT_DIR" -maxdepth 2 -type f \( -name '*.zip' -o -name '*.apk' \) 2>/dev/null | LC_ALL=C sort)
-        if [ "${#table[@]}" -gt 0 ]; then
-            ui_table 'Size|Built file' "${table[@]}"
-        else
-            info "out/ exists but holds no .zip or .apk yet."
+    while :; do
+        ui_heading 'Files'
+        ui_panel 'Where things are' \
+            "Project|$ROOT" \
+            "config.env|$ROOT/config.env" \
+            "Build tree|${BUILD_DIR#$ROOT/}"
+        echo ""
+        table=()
+        if [ -d "$OUT_DIR" ] && [ -n "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
+            while IFS= read -r f; do
+                table+=("$(du -h "$f" 2>/dev/null | cut -f1)|${f#$ROOT/}")
+            done < <(built_files)
         fi
-    else
-        info "Nothing built yet — 1 → 2 builds the module."
-    fi
-    pause_menu
+        if [ "${#table[@]}" -eq 0 ]; then
+            info "Nothing built yet — 1 → 2 builds the module."
+            pause_menu
+            return 0
+        fi
+        ui_table 'Size|Built file' "${table[@]}"
+        echo ""
+        ui_item 1 'Copy' "to $FILES_PHONE_DIR on the phone" 11
+        ui_item 0 'Back' '' 11
+        menu_read "  >" || return 0
+        case "$MENU_ANSWER" in
+            1) echo ""; files_copy_to_phone; pause_menu ;;
+            0|q|'') return 0 ;;
+            *) warn "Not one of the numbers above." ;;
+        esac
+    done
 }
 
 # ---------------------------------------------------------------------------

@@ -17,11 +17,16 @@ apt update
 apt upgrade -y
 
 apt install -y git aapt aapt2 apksigner android-tools openjdk-17 \
-               unzip zip curl tsu
+               unzip zip curl wget tsu
 ```
 
 If `pkg install` fails with signature or mirror errors, run
 `termux-change-repo`, pick a mirror close to you, then repeat `apt update`.
+
+> **Broken `curl`.** A `pkg upgrade` interrupted half way can leave `curl`
+> unable to start (`CANNOT LINK EXECUTABLE "curl": cannot locate symbol ...`).
+> `build.sh` then downloads with `wget` instead, which is why it is in the list
+> above; `pkg upgrade -y` repairs `curl` itself.
 
 > **`zipalign` comes from the `aapt` package, not from `aapt2`.** Installing
 > `aapt2`, `apksigner` and `android-tools` leaves `zipalign` missing; adding
@@ -182,6 +187,10 @@ Two practical notes:
 ```bash
 cp out/*-ksu.zip /sdcard/
 ```
+
+Or let the menu do it: **8 Files → 1 Copy** writes the zip and its APKs to
+`/sdcard/treble-rro-creator` — with `cp` on the phone, or `adb push` when a PC
+ran the build. The terminal tells you how many files landed.
 
 Then either:
 

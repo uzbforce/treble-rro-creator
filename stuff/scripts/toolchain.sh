@@ -10,6 +10,88 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
+# Downloads: curl, or wget when curl cannot start
+# ---------------------------------------------------------------------------
+# Termux ships curl as a binary linked against its rolling libcurl, and an
+# interrupted `pkg upgrade` leaves it unable to start at all:
+#   CANNOT LINK EXECUTABLE "curl": cannot locate symbol "SSL_set_quic_..."
+# `command -v curl` still succeeds, so every download then failed with a message
+# about Google having moved its files. wget comes from the same repo and still
+# runs, so each download tries curl and then wget, and keeps the last error in
+# NET_ERROR so the caller can say what actually broke.
+NET_ERROR=""
+
+net_get() {
+    local url="$1" out="$2" log tool
+    log="${TMPDIR:-/tmp}/.treble-net-$$.log"
+    NET_ERROR=""
+    : > "$log" 2>/dev/null || true
+
+    for tool in curl wget; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        rm -f "$out"
+        if [ "$tool" = "curl" ]; then
+            curl --fail --location --silent --show-error --retry 2 \
+                --connect-timeout 20 --max-time 300 "$url" -o "$out" 2>"$log" \
+                && { rm -f "$log"; return 0; }
+        else
+            wget --quiet --tries=2 --timeout=60 --output-document="$out" "$url" \
+                2>"$log" && { rm -f "$log"; return 0; }
+        fi
+        # Keep every attempt: when curl cannot start and wget then 404s, the
+        # link error is the one that explains it, so it must not be overwritten.
+        local said
+        said="$( { tr '\n' ' ' < "$log" 2>/dev/null || true; } | cut -c1-200 )"
+        [ -n "$said" ] || said="could not download it"
+        NET_ERROR="${NET_ERROR}${NET_ERROR:+ | }${tool}: ${said}"
+    done
+
+    rm -f "$log"
+    rm -f "$out"
+    return 1
+}
+
+# net_cat URL — the same fallback for a small read onto stdout.
+net_cat() {
+    local out
+    if command -v curl >/dev/null 2>&1 && \
+       out="$(curl --fail --location --silent --max-time 60 "$1" 2>/dev/null)"; then
+        printf '%s' "$out"
+        return 0
+    fi
+    if command -v wget >/dev/null 2>&1 && \
+       out="$(wget --quiet --timeout=60 -O - "$1" 2>/dev/null)"; then
+        printf '%s' "$out"
+        return 0
+    fi
+    return 1
+}
+
+# net_why — the likely fix for the last net_get failure, already indented.
+net_why() {
+    local short
+    short="$(printf '%s' "$NET_ERROR" | cut -c1-150)"
+
+    case "$NET_ERROR" in
+        *"CANNOT LINK EXECUTABLE"*|*"cannot locate symbol"*)
+            echo "  curl on this system cannot start (a package upgrade left it broken)."
+            echo "  Fix: pkg upgrade -y   (or: apt update && apt full-upgrade)"
+            echo "  If wget is not installed either: pkg install wget"
+            ;;
+        *resolve*|*Resolving*|*"name resolution"*|*"Connection refused"*|*"timed out"*|*timeout*)
+            echo "  Google could not be reached from here: ${short}"
+            echo "  A stale mirror causes this on Termux — run: termux-change-repo"
+            ;;
+        "")
+            echo "  Neither curl nor wget could download it — install one of them."
+            ;;
+        *)
+            echo "  ${short}"
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
 # Windows: Google build-tools zip
 # ---------------------------------------------------------------------------
 # Git for Windows ships bash and coreutils, but no aapt2/zipalign/apksigner.
@@ -130,21 +212,34 @@ download_platform_resources() {
     mkdir -p "$TOOLS_DIR"
 
     local tmp_zip="${TOOLS_DIR}/platform_tmp.zip"
-    local rev url success=false
+    local rev url revs success=false
+
+    # Only these archive names exist in Google's repository (API 34 is published
+    # as 34-ext7_r*, not 34_r*, so "Download Android 14" could never work).
+    case "$sdk_ver" in
+        34) revs="ext7_r02 ext7_r01 ext8_r01" ;;
+        *)  revs="r02 r01" ;;
+    esac
 
     info "Downloading Android ${sdk_ver} resources from Google..."
-    # r02 is the known-good revision for API 33; try it first, then the rest.
-    for rev in r02 r01 r03 r04 r05 r06 r07 r08 ""; do
+    for rev in $revs; do
         url="https://dl.google.com/android/repository/platform-${sdk_ver}_${rev}.zip"
-        url="${url%_}" # strip trailing underscore when rev is empty
-        if curl --fail -L "$url" -o "$tmp_zip" 2>/dev/null; then
-            success=true
-            break
+        net_get "$url" "$tmp_zip" || continue
+        # A downloader can exit 0 after writing an error page; a zip starts "PK".
+        if [ "$(head -c 2 "$tmp_zip" 2>/dev/null)" != "PK" ]; then
+            NET_ERROR="the server answered with something that is not a zip"
+            rm -f "$tmp_zip"
+            continue
         fi
+        success=true
+        ok "Downloaded platform-${sdk_ver}_${rev}.zip"
+        break
     done
 
     if [ "$success" != "true" ]; then
-        err "Download failed for all revisions — Google may have moved the files."
+        err "Could not download the Android ${sdk_ver} resources."
+        net_why
+        info "Another route: option 5 in ./build.sh setup copies the file from the phone."
         rm -f "$tmp_zip"
         return 1
     fi
@@ -233,7 +328,7 @@ acquire_framework_res() {
 package_install_hint() {
     if $IS_TERMUX; then
         # zipalign is shipped by the 'aapt' package, not by 'aapt2'.
-        echo "pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl"
+        echo "pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl wget"
     elif command -v apt-get >/dev/null 2>&1; then
         echo "sudo apt install -y aapt android-sdk-build-tools apksigner android-framework-res zip curl"
     elif command -v pacman >/dev/null 2>&1; then
@@ -314,7 +409,7 @@ install_linux_packages() {
     if $IS_TERMUX; then
         info "Termux detected — running: pkg install ..."
         # 'aapt' carries zipalign (the aapt2 package does not).
-        if pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl tsu; then
+        if pkg install -y aapt aapt2 apksigner android-tools openjdk-17 unzip zip curl wget tsu; then
             ok "Packages installed"
             return 0
         fi
@@ -397,8 +492,8 @@ install_linux_packages() {
 download_manual_tools() {
     mkdir -p "$TOOLS_DIR"
 
-    if ! command -v curl >/dev/null 2>&1; then
-        err "curl not found — install curl and re-run"
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+        err "Neither curl nor wget found — install one and re-run: $(package_install_hint)"
         return 1
     fi
 
@@ -406,7 +501,7 @@ download_manual_tools() {
     if ! tool_ready aapt2; then
         info "Downloading aapt2 from Google Maven..."
         local version
-        version=$(curl -sL "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/maven-metadata.xml" \
+        version=$(net_cat "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/maven-metadata.xml" \
             | grep -oP '<release>\K[^<]+' || true)
         if [ -z "$version" ]; then
             version="9.3.0-alpha07-15228143"
@@ -420,8 +515,9 @@ download_manual_tools() {
         local url="https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/${version}/aapt2-${version}-${aapt2_os}.jar"
         local jar="${TMPDIR:-/tmp}/aapt2-download.jar"
 
-        if ! curl -sL "$url" -o "$jar" || [ ! -s "$jar" ]; then
+        if ! net_get "$url" "$jar" || [ ! -s "$jar" ]; then
             err "Could not download aapt2"
+            net_why
             rm -f "$jar"
             return 1
         fi
@@ -455,8 +551,9 @@ download_manual_tools() {
             info "zipalign/apksigner missing — using the Android command-line tools."
             if [ ! -d "$TOOLS_DIR/cmdline-tools" ]; then
                 local tools_zip="${TMPDIR:-/tmp}/cmdline-tools.zip"
-                if ! curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o "$tools_zip"; then
+                if ! net_get "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" "$tools_zip"; then
                     err "Could not download the Android command-line tools"
+                    net_why
                     rm -f "$tools_zip"
                     return 1
                 fi
