@@ -116,7 +116,10 @@ test('a lost marker is adopted when config.env matches a profile, and not otherw
       'profiles_new_with "Pixel" >/dev/null || exit 9',
       'profiles_new_with "Note" >/dev/null || exit 9',
       'rm -f stuff/profiles/active',
-      'printf "DEVICE_CODENAME=edited\\n" >> config.env',
+      // Absolute, like every other write here: a snippet that runs with the
+      // wrong cwd must never reach the checkout's own config.env. One that did
+      // left a codename line in it, and the line was committed.
+      'printf "DEVICE_CODENAME=edited\\n" >> "$ROOT/config.env"',
       'profiles_ensure >/dev/null || true',
       'echo "active=[$(profiles_active)]"',
       'profiles_switch p1 >/dev/null 2>&1 || exit 9',
