@@ -24,7 +24,7 @@ Two front ends run the same build off the same `config.env`:
 | **Desktop app** | `treble-rro-creator.cmd` | `./treble-rro-creator.sh` | not available |
 | **Terminal menu** | `build.cmd` | `./build.sh` | `./build.sh` |
 
-The app has tabs for Build, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs, and a **Profiles** button for saved setups. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
+The app has tabs for Build, **Wrap**, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs, and a **Profiles** button for saved setups. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
 
 ## Quick start
 
@@ -104,6 +104,23 @@ Two things worth knowing before the first build:
 
 The first look creates **Profile #1** from the current `config.env`; a new one starts as a copy of it. Deleting is refused for the profile in use, since `config.env` would then belong to nothing. The saved copies live in `stuff/profiles/` and are git-ignored, like `config.env` itself.
 
+## Wrapping an APK that already exists
+
+`wrap` packs an overlay APK that was built somewhere else — a repo zip, another
+builder's output, a hand-signed APK — into a flashable test module. Nothing is
+compiled, and one APK (framework) or two (framework + SystemUI) are both fine.
+The zip goes to `out/wrap/`, apart from the release builds.
+
+```bash
+./build.sh wrap --overlay overlay.apk
+./build.sh wrap --overlay overlay.apk --systemui overlay-systemui.apk --name my-test
+```
+
+In the app, the **Wrap** tab has a **Choose…** button for each APK and creates
+the module in one click; the terminal menu has **Build → 9 Wrap APK**. The
+package names are read from the APKs themselves, so the install check after
+flashing names the right overlays.
+
 ## Commands
 
 | Command | Does |
@@ -115,13 +132,14 @@ The first look creates **Profile #1** from the current `config.env`; a new one s
 | `./build.sh check` | Validate `config.env`, build nothing |
 | `./build.sh --dry-run` | Print every resource the config emits, build nothing |
 | `./build.sh install` | Copy the newest zip to the phone, install it, reboot, verify it is live |
+| `./build.sh wrap` | Pack an overlay APK you already have (optionally a SystemUI one) into `out/wrap/` |
 | `./build.sh profiles` | Saved `config.env` setups: show, new, switch, rename, delete |
 | `./build.sh clean` | Remove `stuff/build/` and `out/` |
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
 | `./build.sh menu` | Force the menu when there is no terminal |
 | `./build.sh --version` | Print the version (also `-V`; it is the single line in `stuff/VERSION`) |
 
-Flags: `-y` / `--yes`, `--with-vendor-hals`, `--xiaomi-fod`, `--allow-unknown-resources`, `--force` (with `setup`), `--no-su` (Termux: skip the up-front root question), `--help`. With `install`: `--device SERIAL`, `--zip PATH`, `--no-reboot`. Same words on Windows with `build.cmd`.
+Flags: `-y` / `--yes`, `--with-vendor-hals`, `--xiaomi-fod`, `--allow-unknown-resources`, `--force` (with `setup`), `--no-su` (Termux: skip the up-front root question), `--help`. With `install`: `--device SERIAL`, `--zip PATH`, `--no-reboot`. With `wrap`: `--overlay APK`, `--systemui APK`, `--name ID`. Same words on Windows with `build.cmd`.
 
 `--dry-run` is the fast loop: it prints type, name, value and target APK for each resource without aapt2, signing or packaging.
 
@@ -137,6 +155,7 @@ To check the project itself (scripts, resource writer, docs anchors), run `bash 
 | `out/<name>-hardware-overlay.zip` | Source tree to submit to the [Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay) |
 | `out/<name>-hardware-overlay-test.zip` | Test module for that source tree |
 | `out/<name>-overrides.txt` | Every resource marked `APPLIES` or `IGNORED` against the target framework |
+| `out/wrap/<id>.zip` | A wrapped test module, from `./build.sh wrap` or the **Wrap** tab |
 
 The `-ksu` suffix is historical; the zip is a standard module and works in all four managers. To copy the build to `/sdcard/treble-rro-creator`, use `8` Files → `1` Copy.
 

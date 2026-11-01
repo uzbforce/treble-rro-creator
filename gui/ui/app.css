@@ -796,8 +796,10 @@ textarea#cfg {
 .cfg-row.is-flash { animation: cfg-flash 1.4s var(--ease); border-radius: 4px; }
 
 /* ------------------------------------------------------------------ device -- */
-.adb-form { display: flex; gap: 8px; margin-bottom: 10px; }
-.adb-form input {
+.adb-form,
+.wrap-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.adb-form input,
+.wrap-row input {
   flex: 1;
   min-width: 0;
   padding: 7px 10px;

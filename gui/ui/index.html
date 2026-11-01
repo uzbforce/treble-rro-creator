@@ -36,6 +36,7 @@
 
 <nav class="tabs" role="tablist">
   <button class="tab is-active" data-tab="build" role="tab">Build</button>
+  <button class="tab" data-tab="wrap" role="tab">Wrap</button>
   <button class="tab" data-tab="config" role="tab">config.env</button>
   <button class="tab" data-tab="addons" role="tab">Addons</button>
   <button class="tab" data-tab="files" role="tab">Files</button>
@@ -82,6 +83,60 @@
       </summary>
       <div id="out" class="out-list"><span class="muted">nothing in out/ yet</span></div>
     </details>
+  </section>
+
+  <!-- ----------------------------------------------------------------- wrap -->
+  <!-- Not a build: APKs that already exist are packed into a test module. Kept
+       off the Build pane so the verb list stays about this checkout, and the
+       run still goes to the Build console, because that is where its log is. -->
+  <section class="pane" id="pane-wrap" role="tabpanel">
+    <p class="hint wrap-intro">
+      <b>Wrap an overlay APK.</b> Pack an overlay you already have — from a repo
+      zip, another build, or signed by hand — into a flashable test module for
+      KernelSU, KSU Next, Magisk and APatch. Nothing is compiled and the
+      resource tree is not read: the APKs are copied as they are. The zip lands
+      in <code>out/wrap/</code>, apart from the release builds.
+    </p>
+
+    <div class="card">
+      <h2>Overlay APK <span class="muted small">required</span></h2>
+      <div class="wrap-row">
+        <input id="wrap-overlay" type="text" spellcheck="false" autocomplete="off"
+               placeholder="/path/to/overlay.apk">
+        <button id="wrap-overlay-pick" type="button">Choose…</button>
+      </div>
+      <p class="hint">The framework overlay: the APK that replaces resources in its target package.</p>
+
+      <h2>SystemUI APK <span class="muted small">optional</span></h2>
+      <div class="wrap-row">
+        <input id="wrap-systemui" type="text" spellcheck="false" autocomplete="off"
+               placeholder="/path/to/overlay-systemui.apk">
+        <button id="wrap-systemui-pick" type="button">Choose…</button>
+      </div>
+      <p class="hint">A second overlay for <code>com.android.systemui</code>. Leave it empty to pack only the overlay above.</p>
+
+      <h2>Module id <span class="muted small">optional</span></h2>
+      <div class="wrap-row">
+        <input id="wrap-name" type="text" spellcheck="false" autocomplete="off"
+               placeholder="wrap-my-overlay">
+      </div>
+      <p class="hint">
+        Letters, digits, dots, dashes and underscores, starting with a letter;
+        empty uses <code>wrap-&lt;apk name&gt;</code>.
+      </p>
+    </div>
+
+    <div class="row actions">
+      <button class="primary" id="wrap-run" type="button">Create test module</button>
+      <span class="spacer"></span>
+      <span class="muted small" id="wrap-status"></span>
+    </div>
+
+    <p class="hint">
+      The package names are read from the APKs themselves, and the install check
+      after flashing names those. Packing starts in <b>Build → Output</b>, where
+      the page switches to show the log.
+    </p>
   </section>
 
   <!-- --------------------------------------------------------------- config -->

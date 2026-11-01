@@ -89,6 +89,8 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/udfps", a.guard("POST", a.handleUDFPS))
 	mux.HandleFunc(base+"/api/detect", a.guard("POST", a.handleDetect))
 	mux.HandleFunc(base+"/api/pick", a.guard("POST", a.handlePick))
+	// Packing an overlay APK that already exists as a flashable test module.
+	mux.HandleFunc(base+"/api/wrap", a.guard("POST", a.handleWrap))
 	mux.HandleFunc(base+"/api/url", a.guard("POST", a.handleURL))
 
 	// The src/ workspace: the file manager, its two editors and the checks behind

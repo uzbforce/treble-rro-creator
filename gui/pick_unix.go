@@ -29,9 +29,14 @@ func pickPath(ask pickAsk) (string, error) {
 
 func zenityArgs(ask pickAsk) []string {
 	args := []string{"--file-selection", "--title=" + ask.Kind.title()}
-	if ask.Kind == pickFolder {
+	switch ask.Kind {
+	case pickFolder:
 		args = append(args, "--directory")
-	} else {
+	case pickAPK:
+		args = append(args,
+			"--file-filter=Overlay APKs | *.apk",
+			"--file-filter=All files | *")
+	default:
 		args = append(args,
 			"--file-filter=Firmware images | *.img *.bin *.tar *.md5 *.lz4",
 			"--file-filter=All files | *")
@@ -51,6 +56,9 @@ func kdialogArgs(ask pickAsk) []string {
 		return args
 	}
 	filter := "Firmware images (*.img *.bin *.tar *.md5 *.lz4)|*.img *.bin *.tar *.md5 *.lz4\\nAll files|*"
+	if ask.Kind == pickAPK {
+		filter = "Overlay APKs (*.apk)|*.apk\\nAll files|*"
+	}
 	args = append(args, "--getopenfilename", ask.Start, filter)
 	return args
 }

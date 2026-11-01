@@ -367,15 +367,41 @@ async function startRun(run) {
     setRunning(false);
     status(err.message, 8000);
   }
-}
-
-async function stopRun() {
-  try {
-    await api('api/cancel', { method: 'POST', body: {} });
-  } catch (err) {
-    status(err.message, 8000);
+}  async function stopRun() {
+    try {
+      await api('api/cancel', { method: 'POST', body: {} });
+    } catch (err) {
+      status(err.message, 8000);
+    }
   }
-}
+
+  // --------------------------------------------------------------------- wrap --
+  // Wrapping is not a build, but it uses the build console and its stream. The
+  // page switches to Build before asking, so a rejected APK and its reason land
+  // in the one console that shows output instead of in a hidden tab.
+  async function runWrap() {
+    const overlay = $('wrap-overlay').value.trim();
+    const systemui = $('wrap-systemui').value.trim();
+    const name = $('wrap-name').value.trim();
+    if (!overlay) {
+      $('wrap-status').textContent = 'Choose the overlay APK first.';
+      $('wrap-overlay').focus();
+      return;
+    }
+    $('wrap-status').textContent = '';
+
+    try {
+      switchTab('build');
+      clearLog();
+      setRunning(true);
+      status('packing the overlay APKs…', 0);
+      await api('api/wrap', { method: 'POST', body: { overlay, systemui, name } });
+    } catch (err) {
+      setRunning(false);
+      status(err.message, 8000);
+    }
+  }
+
 
 function setRunning(value) {
   running = value;
@@ -4125,6 +4151,17 @@ function bind() {
   $('open-out').addEventListener('click', () => {
     api('api/open', { method: 'POST', body: { target: 'out' } }).catch((e) => status(e.message, 6000));
   });
+
+  $('wrap-overlay-pick').addEventListener('click', () => choosePath($('wrap-overlay-pick'), 'wrap-overlay', 'apk'));
+  $('wrap-systemui-pick').addEventListener('click', () => choosePath($('wrap-systemui-pick'), 'wrap-systemui', 'apk'));
+  $('wrap-run').addEventListener('click', runWrap);
+  for (const id of ['wrap-overlay', 'wrap-systemui', 'wrap-name']) {
+    $(id).addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      runWrap();
+    });
+  }
 
   $('chip-path').addEventListener('click', openSettings);
   $('settings-form').addEventListener('submit', saveSettings);

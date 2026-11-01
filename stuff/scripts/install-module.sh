@@ -12,6 +12,8 @@
 #   ./build.sh install --no-reboot      # install, leave the reboot to you
 #   ./build.sh install --device SERIAL  # more than one phone attached
 #   ./build.sh install --zip PATH       # a module other than the newest build
+#   ./build.sh install --zip out/wrap/x.zip --id wrap-x --package com.example.overlay
+#                                       # a wrapped test module (wrap.sh passes these)
 #
 #   Standalone: bash stuff/scripts/install-module.sh [the same options]
 #
@@ -37,6 +39,11 @@ want_serial="${DEVICE_SERIAL:-}"
 zip_path=""
 do_reboot=1
 do_verify=1
+# Set for a module that was not built from this config.env (a wrapped test
+# module): the id and the packages to check are then the caller's, not the
+# file's.
+want_id=""
+want_packages=()
 
 usage() {
     sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
@@ -48,6 +55,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --device) want_serial="${2:-}"; shift 2 ;;
         --zip) zip_path="${2:-}"; shift 2 ;;
+        --id) want_id="${2:-}"; shift 2 ;;
+        --package) want_packages+=("${2:-}"); shift 2 ;;
         --no-reboot) do_reboot=0; shift ;;
         --no-verify) do_verify=0; shift ;;
         -y|--yes) do_reboot=1; shift ;;
@@ -61,8 +70,16 @@ done
 [ -f "$ROOT/config.env" ] && . "$ROOT/config.env"
 derive_overlay_identity >/dev/null 2>&1 || true
 
-module_id="${OVERLAY_NAME:-}"
-overlay_pkg="${OVERLAY_PACKAGE:-}"
+module_id="${want_id:-${OVERLAY_NAME:-}}"
+# A build installs one framework overlay and, sometimes, a SystemUI one. The
+# packages that get checked are exactly the ones asked for, in order.
+verify_pkgs=""
+if [ "${#want_packages[@]}" -gt 0 ]; then
+    verify_pkgs="${want_packages[*]}"
+else
+    verify_pkgs="${OVERLAY_PACKAGE:-}"
+fi
+overlay_pkg="${verify_pkgs%% *}"
 
 # ---------------------------------------------------------------------------
 # Which zip
@@ -186,25 +203,28 @@ install_verify() {
         fails=$((fails + 1))
     fi
 
-    if [ -n "$overlay_pkg" ]; then
-        overlay_line="$(device_sh "cmd overlay list | grep -F ${overlay_pkg} | head -n1")"
+    # Word-splitting on purpose: this is a list of package names, and neither
+    # a package nor an overlay id can contain a space.
+    local pkg
+    for pkg in $verify_pkgs; do
+        overlay_line="$(device_sh "cmd overlay list | grep -F ${pkg} | head -n1")"
         case "$overlay_line" in
             \[x\]*)
-                ok "overlay ${overlay_pkg} is registered and enabled"
+                ok "overlay ${pkg} is registered and enabled"
                 ;;
             \[*\]*)
-                warn "overlay ${overlay_pkg} is registered but not enabled:"
+                warn "overlay ${pkg} is registered but not enabled:"
                 printf '      %s\n' "$overlay_line"
-                info "Enable it: adb shell su -c 'cmd overlay enable ${overlay_pkg}'"
+                info "Enable it: adb shell su -c 'cmd overlay enable ${pkg}'"
                 fails=$((fails + 1))
                 ;;
             *)
-                err "overlay ${overlay_pkg} is not in the overlay list"
+                err "overlay ${pkg} is not in the overlay list"
                 info "The module is installed but did not mount. KernelSU/KSU Next needs Magic Mount (not OverlayFS) — see docs/how-it-works.md."
                 fails=$((fails + 1))
                 ;;
         esac
-    fi
+    done
 
     if [ "$fails" -eq 0 ]; then
         ok "the overlay is live — reboot once more after changing values, then hard-reboot if a value sticks at the old one"
