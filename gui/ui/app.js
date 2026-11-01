@@ -3070,6 +3070,12 @@ function renderProfiles() {
     return;
   }
   for (const p of profList) box.appendChild(profRow(p));
+  // The helper will not guess which profile config.env belongs to when the
+  // marker is gone, so say what the empty space means instead of leaving the
+  // rows looking merely un-highlighted.
+  if (!profList.some((p) => p.active)) {
+    box.appendChild(el('p', 'hint', 'No profile is in use — pick one with Use, and config.env becomes that one.'));
+  }
 }
 
 function profRow(p) {
@@ -3143,7 +3149,12 @@ function profStartRename(row, p) {
       input.replaceWith(el('span', 'prof-name', p.name));
       return;
     }
-    await profAct('rename', p.id, value);
+    // A refused rename (a name another profile already has) has to put the
+    // field back to what the file still says: commit() is one-shot, so an input
+    // left in place after an error could not be submitted again.
+    if (!(await profAct('rename', p.id, value)) && input.isConnected) {
+      input.replaceWith(el('span', 'prof-name', p.name));
+    }
   };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); commit(true); }
@@ -3155,18 +3166,20 @@ function profStartRename(row, p) {
 // profAct sends one verb and redraws from the answer, so the list can never
 // disagree with the files on disk.
 async function profAct(action, id, name) {
-  if (profBusy) return;
+  if (profBusy) return false;
   // Switching replaces config.env, so anything typed into the form and not yet
   // saved would be thrown away by it.
   if ((action === 'switch' || action === 'new') && (cfgEdits.size > 0 || (cfgRaw && cfgRawDirty))) {
     profShowError('You have unsaved config.env changes — save them first, then switch.');
-    return;
+    return false;
   }
   profBusy = true;
+  let ok = false;
   $('prof-error').hidden = true;
   try {
     const res = await api('api/profiles/act', { method: 'POST', body: { action, id, name } });
     profList = res.profiles || [];
+    ok = true;
     if (typeof res.configText === 'string') {
       state.configText = res.configText;
       state.config = res.config;
@@ -3184,6 +3197,7 @@ async function profAct(action, id, name) {
   } finally {
     profBusy = false;
   }
+  return ok;
 }
 
 // ------------------------------------------------------------------- udfps --
