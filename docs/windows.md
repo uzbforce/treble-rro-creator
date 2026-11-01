@@ -14,13 +14,15 @@ Android phone — not on Windows.
 The desktop app is the normal way in: double-click **`treble-rro-creator.cmd`**
 (or run it from a terminal). It builds itself on the first launch, and every
 button in it runs the same `build.sh` the table below describes — so the app and
-the terminal can be mixed freely. The rest of this table is the terminal
-equivalent:
+the terminal can be mixed freely. From the terminal menu, **`w` Web app** opens
+the same launcher, so a fresh clone does not have to remember the `.cmd` name.
+The rest of this table is the terminal equivalent:
 
 | Where you are | Command |
 |---|---|
 | **Explorer** | double-click `treble-rro-creator.cmd` (the app), or `build.cmd` for a build only |
 | **cmd.exe** | `treble-rro-creator.cmd` for the app, `build.cmd` to build |
+| **Terminal menu** | `build.cmd`, then `w` (**Web app**) |
 | **PowerShell** (including VS Code) | `.\build.cmd` |
 | **Git Bash** | `./build.sh` |
 | **VS Code with “WSL: …” in the bottom-left** | not supported on a Windows drive — see below |
