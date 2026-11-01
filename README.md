@@ -1,408 +1,186 @@
-# Treble RRO Creator
+<p align="center">
+  <img src="assets/icon.png" width="120" alt="Treble RRO Creator">
+</p>
 
-Build a **Magisk / KernelSU / APatch module** that adapts a GSI (Generic System Image) to
-your phone's hardware: rounded corners, display cutout, brightness curve, UDFPS,
-AOD/doze, 5G/VoLTE — and optional vendor HALs for fingerprint or vibrator.
+<h1 align="center">Treble RRO Creator</h1>
 
-Two ways in, same tool: the **desktop app**, which puts every setting and the
-whole build in a window, or the **terminal menu**, which offers the same things
-in a numbered list. Both edit the same `config.env` and run the same build.
+<p align="center">Builds the overlay module that teaches a GSI about your phone's screen, brightness curve and fingerprint sensor.</p>
 
-```bash
-treble-rro-creator.cmd    # Windows: the app (double-click it too)
-./treble-rro-creator.sh   # Linux: the app
-./build.sh                # the terminal menu: Linux / Termux / Git Bash
-build.cmd                 #                      Windows
-```
-
-The first run installs the Android build tools automatically (about 33 MB on
-disk; on Linux it uses your package manager when permitted, and otherwise
-prints the exact command to run). Every later run goes straight to the menu.
-No terminal (a script, a CI job)? `./build.sh` without a terminal still builds,
-and `./build.sh build` always builds.
+<p align="center">
+  <a href="https://github.com/uzbforce/treble-rro-creator"><img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Termux-B93D0E?style=flat-square"></a>
+  <a href="docs/configuration.md"><img alt="Settings" src="https://img.shields.io/badge/config-one%20env%20file-B93D0E?style=flat-square"></a>
+  <a href="#output"><img alt="Output" src="https://img.shields.io/badge/output-flashable%20module-B93D0E?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-1F2328?style=flat-square"></a>
+</p>
 
 ---
 
-## Requirements
+A GSI boots generic: square screen corners, no cutout, a brightness curve written for some other panel, and an in-display fingerprint reader it cannot locate. This project writes a static RRO with the real values and packs it into one zip you install with Magisk, KernelSU / KSU Next or APatch.
 
-| Platform | What you need |
-|---|---|
-| **Windows** | [Git for Windows](https://git-scm.com/download/win) + JDK 17 or newer (`winget install EclipseAdoptium.Temurin.17.JDK`) |
-| **Linux** | `bash`, `curl`, `unzip`, `zip` and JDK 17+. `./build.sh` can install the rest with your package manager, or use `./build.sh setup` |
-| **Termux** | Termux from **F-Droid** (not Google Play). See [docs/termux.md](docs/termux.md) |
-| **Phone** | A GSI-based ROM and a root manager (KernelSU, KSU Next, APatch or Magisk) |
+Two front ends run the same build off the same `config.env`:
 
----
+| | Windows | Linux | Termux |
+|---|---|---|---|
+| **Desktop app** | `treble-rro-creator.cmd` | `./treble-rro-creator.sh` | not available |
+| **Terminal menu** | `build.cmd` | `./build.sh` | `./build.sh` |
+
+The app has tabs for Build, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
 
 ## Quick start
 
-### Desktop app (Windows / Linux)
-
-The window is the same tool: it finds the clone it lives in, edits `config.env`,
-and runs the same `build.sh` commands — **Build**, **Dry run**, **Check**,
-**Doctor**, **Setup**, **Clean** — with the output streaming into a pane.
-Nothing is reimplemented, so the app and the CLI can be mixed freely.
-
-It also covers what used to need a terminal: `config.env` as a form (a switch
-per setting, ⓘ for the note the file already carries, the raw file one click
-away); a **Device** tab with an adb console, the commands worth running on a
-phone, and a button that installs platform-tools if you do not have them; and a
-**Files** tab that is the `src/` workspace — drop a vendor HAL tree in, disable
-a file out of the build without deleting it, and write the SELinux rules and
-VINTF manifests a custom HAL needs, checked as you type; and a **UDFPS** tab
-that finds the sensor's real geometry on the phone or in an OEM firmware — a
-`super.img`, a Samsung `AP_*.tar.md5` or an extracted tree, all unpacked by the
-app itself — with the source of every answer, instead of asking you to guess
-three numbers.
-The header tells you
-when a newer release exists, and an update that would overwrite your own edits
-asks first and backs them up.
-
 ```bash
 git clone https://github.com/uzbforce/treble-rro-creator
 cd treble-rro-creator
-./treble-rro-creator.sh   # Linux   — builds itself first (Go and missing GTK/WebKitGTK headers are installed for you)
-treble-rro-creator.cmd    # Windows — double-clickable, no console left open; Go and MinGW-w64 gcc are downloaded
+./build.sh          # Linux, Termux, Git Bash  → terminal menu
 ```
 
-The first launch builds it and says what is missing if anything is. **Setup**,
-and the first build, install the Android tools with the distro's package
-manager — when sudo asks for a password, the app asks for it in a dialog and
-repeats the command, so nothing has to be typed into a terminal. Later launches
-open straight away, and a `git pull` only triggers a rebuild when the Go
-sources actually changed. Full guide, including what each button does and what
-to do when no window appears: [docs/gui.md](docs/gui.md).
-
-### Windows (command line)
-
-1. Install **Git for Windows** and **JDK 17+**.
-2. Clone or download this project.
-3. Double-click **`build.cmd`**.
-
-From a terminal (cmd, PowerShell, VS Code) run `build.cmd` — from PowerShell use
-`.\build.cmd`. Do **not** run the `.sh` files in a WSL terminal on a Windows
-drive; see [docs/windows.md](docs/windows.md) for why and what to do instead.
-
-### Linux
-
-```bash
-git clone https://github.com/uzbforce/treble-rro-creator
-cd treble-rro-creator
-./build.sh
+```bat
+build.cmd           :: Windows               → terminal menu
 ```
 
-### Termux
+1. `2` config.env — fill in codename, manufacturer, model, corner radius, status bar height.
+2. `5` Auto Detect, `6` UDFPS, `7` Match property — read those numbers off the phone instead of guessing.
+3. `1` → `2` Build. The module lands in `out/`.
 
-```bash
-pkg install -y git
-cd ~ && git clone https://github.com/uzbforce/treble-rro-creator
-cd treble-rro-creator
-./build.sh
-```
+The first run installs what is missing: aapt2, zipalign, apksigner, Java and the `framework-res.apk` resource dictionary. Later runs skip straight to the menu.
 
-Full Termux walkthrough: [docs/termux.md](docs/termux.md).
+Full walkthroughs: [docs/gui.md](docs/gui.md) · [docs/windows.md](docs/windows.md) · [docs/termux.md](docs/termux.md).
 
-### The terminal menu (Linux / Termux / Git Bash)
+## Requirements
 
-`./build.sh` with no arguments opens a menu. It runs the same build, the same
-`config.env`, and the same phone probes as the window, so nothing needs the app
-(and the app needs nothing from the menu):
+| Platform | Needs |
+|---|---|
+| **Windows** | [Git for Windows](https://git-scm.com/download/win) and JDK 17+ (`winget install EclipseAdoptium.Temurin.17.JDK`) |
+| **Linux** | `bash`, `curl` or `wget`, `unzip`, `zip`, JDK 17+ — `./build.sh setup` installs the rest |
+| **Termux** | Termux from **F-Droid**, not Google Play; `pkg install git`, then `./build.sh` |
+| **Phone** | A GSI-based ROM and any of Magisk, KernelSU, KSU Next, APatch |
 
-```
-  Treble Overlay Creator
-  ──────────────────────────────────────────────────────────
-  Device      Xiaomi Redmi Note 17 (Zephyr)
-  config.env  49 set · 37 off
-  Output      out/treble-overlay-xiaomi-zephyr-hardware-overlay-test.zip  (2 APKs)
+Root is only needed on Termux, where the phone probes read the device the tool is running on (`tsu ./build.sh`).
 
-     1  Build              dry run, build, check, doctor, clean
-     2  config.env         browse and edit one key at a time
-     3  Addons             module tweaks: settings and overlay resources
-     4  Device             read manufacturer, model, codename from the phone
-     5  Auto Detect        ROM answers: cutout, corners, refresh rate, VoLTE, 5G
-     6  UDFPS              in-display fingerprint geometry
-     7  Match property     which property the submission should match on
-     8  Files              what was built, and where it is
-     9  Docs               the guides in docs/
-     q  Quit
-```
+## What it configures
 
-Each screen says what the setting does before you change it, writes straight to
-`config.env`, and offers the phone-reading tools (`adb devices`-style detection,
-the display probe, UDFPS geometry, the submission match property) instead of
-asking you to run `getprop` and copy numbers by hand. A build started here is
-the same `build.sh build` you would type.
+| Area | Settings |
+|---|---|
+| Screen shape | `ROUNDED_CORNER_RADIUS`, `DISPLAY_CUTOUT`, waterfall edges |
+| Status bar | `STATUS_BAR_HEIGHT`, landscape variant, paddings, privacy dot |
+| Brightness | dim / dark / doze / min / max, auto-brightness, `power_profile.xml` |
+| Display timing | `DEFAULT_REFRESH_RATE`, `PEAK_REFRESH_RATE`, AOD, doze, burn-in protection |
+| Fingerprint | `HAS_UDFPS`, `UDFPS_X` / `_Y` / `_RADIUS`, Samsung FOD, optional vendor HAL |
+| Radios and extras | `HAS_5G`, `HAS_VOLTE`, double-tap-to-wake |
+| Module only | addons (`src/module/addons.conf`), live WebUI page, `sepolicy.rule`, VINTF fragments |
 
-Termux has no window, so this is the full interface there. It also runs over
-ssh, in VS Code's terminal, and in Git Bash.
+Every key, its default and accepted values: [docs/configuration.md](docs/configuration.md).
 
-In Termux the probes read **this** phone instead of one on a cable — the menu
-offers it once per session and the same `getprop`/`dumpsys`/`/vendor` reads run
-natively. That needs root: start it with `tsu ./build.sh` (`pkg install tsu`),
-or accept the `su` prompt when the menu asks. Details in
-[docs/termux.md](docs/termux.md#5-root-for-the-phone-probes).
+## config.env
 
----
+Required:
 
-## Configure your device
-
-Open `config.env`. Only a few values are required:
-
-| Setting | What it is | How to find it |
+| Key | Example | Where it comes from |
 |---|---|---|
-| `DEVICE_CODENAME` | Device codename, e.g. `r3q` | `adb shell getprop ro.product.device` |
-| `DEVICE_MANUFACTURER` | Manufacturer, e.g. `samsung` | `adb shell getprop ro.product.manufacturer` |
-| `DEVICE_MODEL` | Model name, e.g. `SM-A908N` | `adb shell getprop ro.product.model` |
-| `DEVICE_PROP_NAME` | Property the overlay matches | `persist.sys.overlay.<codename>` (set by the module), or empty for no condition |
-| `DEVICE_PROP_VALUE` | Value the overlay matches | `true` for a `persist.sys.*` property |
-| `ROUNDED_CORNER_RADIUS` | Screen corner radius in px | Measure or take from your stock overlay |
-| `STATUS_BAR_HEIGHT` | Status bar height in px | Take from your stock overlay |
+| `DEVICE_CODENAME` | `r3q` | `adb shell getprop ro.product.device` |
+| `DEVICE_MANUFACTURER` | `samsung` | `getprop ro.product.manufacturer` |
+| `DEVICE_MODEL` | `SM-A908N` | `getprop ro.product.model` |
+| `DEVICE_PROP_NAME` | `persist.sys.overlay.r3q` | set by the module; leave empty for an unconditional overlay |
+| `DEVICE_PROP_VALUE` | `true` | value the key above must equal |
+| `ROUNDED_CORNER_RADIUS` | `135` | stock overlay, or measured on the screen |
+| `STATUS_BAR_HEIGHT` | `113` | stock overlay, or `dumpsys window` |
 
-Everything else is optional and documented in
-[docs/configuration.md](docs/configuration.md).
+Everything else has a default and can be left alone.
 
-> **First run without `config.env`?** `build.sh` offers the example config
-> (Samsung A90 5G) or writes a placeholder and tells you what to edit.
->
-> **`power_profile.xml` matters.** Replace
-> `src/framework/res/xml/power_profile.xml` with your device's file —
-> see [docs/device-extraction.md](docs/device-extraction.md#power-profile-power_profilexml--mandatory).
-> Until you do, the empty template is detected and **left out** of the APK
-> instead of wiping the GSI's battery and CPU data.
+Two things worth knowing before the first build:
 
----
+- **`src/framework/res/xml/power_profile.xml` must be yours.** Until you replace it, the empty template is detected and left out of the APK rather than overwriting the GSI's battery and CPU data. See [docs/device-extraction.md](docs/device-extraction.md#power-profile-power_profilexml--mandatory).
+- **No `config.env` yet?** The first run offers the filled-in Samsung A90 5G example (`config.env.example`) or writes a placeholder that says what to edit.
 
 ## Commands
 
-`build.sh` and `build.cmd` are the only entry points. Everything else in the
-project is called by them.
-
-| Command | What it does |
+| Command | Does |
 |---|---|
-| `./treble-rro-creator.sh` / `treble-rro-creator.cmd` | **Open the desktop app** — the window for everything below. Builds it on the first run, then just launches it. |
-| `./build.sh` | **The terminal menu** (on a terminal); a plain build without a terminal. |
-| `./build.sh menu` | The menu, even when there is no terminal |
-| `./build.sh build` | Build. Installs missing tools first. |
-| `./build.sh setup` | Install or repair the toolchain (menu: distro / resource version) |
-| `./build.sh doctor` | Check the toolchain, install nothing (exit 0 = ready) |
+| `./build.sh` | Terminal menu; a plain build when there is no terminal |
+| `./build.sh build` | Build, installing missing tools first |
+| `./build.sh setup` | Install or repair the toolchain |
+| `./build.sh doctor` | Check the toolchain, change nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
-| `./build.sh --dry-run` | Print the resources `config.env` emits, build nothing |
+| `./build.sh --dry-run` | Print every resource the config emits, build nothing |
 | `./build.sh clean` | Remove `stuff/build/` and `out/` |
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
+| `./build.sh menu` | Force the menu when there is no terminal |
 
-Options: `-y` / `--yes` (no prompts), `--with-vendor-hals` (with `--yes`),
-`--dry-run` (resource plan only), `--allow-unknown-resources` (build even when a
-resource is missing from the dictionary — see the audit note below), `--force`
-(with `setup`: re-pick the resource dictionary), `--help`.
+Flags: `-y` / `--yes`, `--with-vendor-hals`, `--allow-unknown-resources`, `--force` (with `setup`), `--help`. Same words on Windows with `build.cmd`.
 
-`--dry-run` is the fast feedback loop: it generates the resource XML from
-`config.env` and prints every resource it would emit (type, name, value, which
-overlay APK), without aapt2, signing or packaging. `check` reports the same
-config warnings and stops there.
+`--dry-run` is the fast loop: it prints type, name, value and target APK for each resource without aapt2, signing or packaging.
 
-To check the project itself (the WebUI's resource-table writer, the manifest it
-renders from, script syntax, documentation anchors):
-
-```bash
-bash stuff/tests/run.sh    # what CI runs, no Android tools needed
-```
-
-On Windows, use the same words with `build.cmd`:
-`build.cmd setup`, `build.cmd doctor`, `build.cmd clean --all`.
-
----
+To check the project itself (scripts, resource writer, docs anchors), run `bash stuff/tests/run.sh` — this is what CI runs, and it needs no Android tools.
 
 ## Output
 
-Everything is written to `out/`:
-
-| File | Purpose |
+| File | Use |
 |---|---|
-| `out/apks/<name>.apk` | Framework overlay (signed) |
-| `out/apks/<name>-systemui.apk` | SystemUI overlay (signed, if used) |
-| `out/<name>-ksu.zip` | **Module zip** — install this in any supported manager |
-| `out/<name>-hardware-overlay.zip` | Sources to submit to the Doze-off overlay repo |
-| `out/<name>-hardware-overlay-test.zip` | Test build of the repo version |
+| `out/<name>-ksu.zip` | **The module.** Install in Magisk, KernelSU, KSU Next or APatch, then reboot |
+| `out/apks/<name>.apk` | Signed framework overlay |
+| `out/apks/<name>-systemui.apk` | Signed SystemUI overlay, when generated |
+| `out/<name>-hardware-overlay.zip` | Source tree to submit to the [Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay) |
+| `out/<name>-hardware-overlay-test.zip` | Test module for that source tree |
+| `out/<name>-overrides.txt` | Every resource marked `APPLIES` or `IGNORED` against the target framework |
 
-Install `out/<name>-ksu.zip` in KernelSU, KSU Next, APatch or Magisk and reboot.
+The `-ksu` suffix is historical; the zip is a standard module and works in all four managers. To copy the build to `/sdcard/treble-rro-creator`, use `8` Files → `1` Copy.
 
-### Getting it built into the GSI (no module)
+> **KernelSU / KSU Next:** mount with Magic Mount, or Hybrid Mount in magic mode. OverlayFS mounts fine but turns one bad `sepolicy.rule` or VINTF fragment into a bootloop. Reasoning in [docs/how-it-works.md](docs/how-it-works.md#the-flashable-module).
 
-`out/<name>-hardware-overlay.zip` is the source tree the
-[Doze-off overlay repo](https://github.com/Doze-off/vendor_hardware_overlay)
-compiles into the GSI builds: submit it as a pull request (base branch `pie`)
-and the device gets the overlay with no module to install or update. The zip
-contains the exact folders, the `overlay.mk` lines and a `HOW-TO-SUBMIT.md`
-filled in for your device; read **[docs/submission.md](docs/submission.md)**
-first — the wiki's `+*brand/model*` match pattern never matches anything, and
-this project writes the exact value instead.
-The zip is a standard module: the same file works in all four managers (the
-`-ksu` suffix is historical; it is not KernelSU-only). It contains the normal
-`customize.sh` that KSU/APatch source and Magisk's `META-INF` installer, plus
-the shared `webroot/` page.
+Two more things the build will not do for you: do not copy the APKs into `/system/product/overlay/` by hand (dynamic partitions drop them and the module's permissions are missing), and expect the overlays to be static — Android enables them at boot, `cmd overlay enable` changes nothing afterwards.
 
-> ⚠️ **KernelSU / KSU Next:** use **Magic Mount** (or Hybrid Mount with magic
-> mount). **Do not use OverlayFS** — it mounts the module fine, but a single
-> mistake in your own `sepolicy.rule` or VINTF manifests then bootloops the
-> device, where magic mount ignores the bad file and boots anyway.
-> Why: [docs/how-it-works.md](docs/how-it-works.md#why-a-module-is-needed).
->
-> ⚠️ Do not copy APKs into `/system/product/overlay/` by hand. Dynamic
-> partitions do not keep them, and they miss the permissions the module sets.
+## After installing
 
-### Live editing (module WebUI)
+**WebUI.** The module carries a page in `webroot/`. Open it from the manager (KernelSU, KSU Next, APatch) and change corner radius, status bar height or paddings without rebuilding: it writes the value into `resources.arsc` of the installed APK and restarts the framework. Magisk needs a WebUI host such as WebUI X, KsuWebUI or MMRL. Notes: [docs/webui.md](docs/webui.md).
 
-The module ships a page under `webroot/`. Open the module and tap **WebUI** to
-change the corner radius, status bar height/padding and a few toggles, then
-apply them **without rebuilding or reflashing**: the page writes the value into
-`resources.arsc` of the overlay APK that is already installed (a pristine copy
-is kept for **Reset**) and restarts the framework so it is read. A value the
-build did not ship — `config.env` leaves the optional padding keys commented
-out — is added to that table first, so a commented-out key no longer blocks the
-sliders. That is the only way to set a dimension at runtime —
-`cmd overlay fabricate` rejects the dimension type outright, so it is only used
-for the doze boolean.
+**Addons.** Tweaks that are not `config.env` keys: volume panel side, keep-screen-on, hide clock, 180° rotation, notch masking. Pick them in the app under Addons; live ones are re-applied on boot, overlay ones are written into the APK. List: [docs/addons.md](docs/addons.md).
 
-- **KernelSU / KSU Next / APatch:** built in — the module page has a WebUI
-  button.
-- **Magisk:** the official app has no WebUI. Open the same page with a WebUI
-  host such as **WebUI X** (MMRL / portable), **KsuWebUI** or **MMRL**. They
-  provide a root exec bridge that the page detects, so the page and helper are
-  shared by every manager.
+**Submitting to the GSI.** `out/<name>-hardware-overlay.zip` contains the folders, the `overlay.mk` lines and a filled-in `HOW-TO-SUBMIT.md`. Read [docs/submission.md](docs/submission.md) before the pull request — the wiki's `+*brand/model*` pattern never matches, and the zip writes the exact property value instead.
 
-Below the five sliders, **All resources** lists everything else the build
-writes — booleans, integers, strings and the remaining dimens — from
-`webui-manifest.json`, which `build.sh` generates from the same XML it compiles.
-Values that are not one value (auto-brightness arrays, landscape-only configs,
-`power_profile.xml`) are shown read-only and still need a rebuild.
-
-Two safety nets: saved values survive a module update (they re-apply onto the
-new APKs the next time the page is opened), and if a patch ever prevents a
-complete boot the next boot restores the build's APKs automatically. Details
-and limits: [docs/webui.md](docs/webui.md).
-
-### Module addons (things `config.env` does not cover)
-
-The **Addons** tab is the module's own feature set: tweaks that are neither a
-`config.env` key nor a plain overlay resource. **Live** addons are Settings
-values the module writes itself — the volume panel side, a screen that never
-sleeps, hiding the status-bar clock, the captive-portal probe. **Overlay**
-addons are resources the build bakes in — upside-down rotation, a navigation bar
-with no padding but the pill kept, a status bar with no background, and a notch
-the display is masked away from so nothing can draw under the camera. Pick them
-in the app and they are packed into the module (`src/module/addons.conf`). From
-the module's WebUI both kinds can be changed: live ones immediately (and they are
-re-applied on every boot), overlay ones by **Apply**, which writes the resource
-into the installed APK — and **Use default** removes it again. Only the addons
-you chose are enforced, so an untouched install behaves exactly like the ROM.
-Details: [docs/addons.md](docs/addons.md).
-
-Both overlays are **static** RROs: Android enables them during boot, and
-`cmd overlay enable` cannot change them afterwards. Verify after reboot:
+Verify an active overlay:
 
 ```bash
 adb shell cmd overlay list | grep <your-package>
 adb shell cmd overlay lookup <your-package> android:dimen/rounded_corner_radius
-adb shell cmd overlay lookup <your-package> android:dimen/status_bar_height_default
 ```
-
-Every build also writes `out/<name>-overrides.txt`, listing each resource as
-`APPLIES` or `IGNORED` against the target framework. If a generated name does
-not exist in the target, the build refuses to continue — a resource Android
-does not recognise is silently ignored, which is how an overlay can look
-correct and change nothing.
-
-The status bar uses `status_bar_height_default` (Android 12L+), not the old
-`status_bar_height`; both are generated, including a landscape variant. See
-[docs/configuration.md](docs/configuration.md#status-bar-height).
-
----
 
 ## Project layout
 
-```
-.
-├── build.sh / build.cmd        ← the command line
-├── treble-rro-creator.sh/.cmd  ← desktop app: build if stale, then launch
-├── config.env                  ← your device settings (created on first run)
-├── config.env.example          ← filled-in Samsung A90 5G example
-├── src/
-│   ├── framework/res/          framework overlay resources (+ power_profile.xml)
-│   ├── systemui/res/          SystemUI overlay resources
-│   ├── module/                 optional overrides + sepolicy.rule
-│   ├── webui/                  shared WebUI page + apply.sh (packed as webroot/)
-│   └── vendor/                 optional extracted vendor HALs (git-ignored)
-├── docs/                       guides
-├── out/                        APKs and flashable zips (git-ignored)
-├── gui/                        desktop app sources (+ go.mod at the root)
-└── stuff/                      everything the build uses and you do not
-    ├── scripts/                internals used by build.sh and the menu (not run directly)
-    ├── templates/              reference scripts + clean templates
-    ├── keys/                   platform signing key (shipped)
-    ├── windows/                helpers for build.cmd
-    ├── tests/                  the checks CI runs
-    ├── tools/                  downloaded toolchain (git-ignored)
-    ├── build/                  intermediate files (git-ignored)
-    └── backups/                copies made before clean/rebuild (git-ignored)
-```
+| Path | Holds |
+|---|---|
+| `build.sh`, `build.cmd` | Entry point: menu and build |
+| `treble-rro-creator.sh`, `.cmd` | Desktop app; builds itself first |
+| `config.env` | Your device values |
+| `src/framework/res/`, `src/systemui/res/` | Overlay resources you edit |
+| `src/module/` | Module overrides, `sepolicy.rule`, `addons.conf` |
+| `src/webui/` | WebUI page and `apply.sh`, packed as `webroot/` |
+| `src/vendor/` | Extracted vendor HALs, optional and git-ignored |
+| `out/` | APKs, zips, override report (git-ignored) |
+| `gui/` | Desktop app sources (GTK + WebKit, Go) |
+| `docs/` | Guides |
+| `stuff/` | Scripts, templates, signing key, tests, downloaded tools, build scratch |
 
-The root keeps only what you act on: the two entry points, `config.env`, `src/`
-(the resources you edit), `docs/`, `gui/` and `out/` (where the APKs and zips
-appear). Everything else moved into `stuff/` — one folder instead of nine. The
-signing key, the templates, the tests and the downloaded toolchain all keep
-their own names there, so `keys/platform.pk8` became
-`stuff/keys/platform.pk8`.
+## Docs
+
+| Guide | Covers |
+|---|---|
+| [configuration.md](docs/configuration.md) | Every `config.env` key |
+| [detect.md](docs/detect.md) | Reading cutout, corners, status bar, refresh rate |
+| [udfps.md](docs/udfps.md) | Fingerprint coordinates and touch-panel FOD mode |
+| [addons.md](docs/addons.md) | Module tweaks |
+| [webui.md](docs/webui.md) | Editing values after install |
+| [submission.md](docs/submission.md) | Getting the overlay into the GSI |
+| [device-extraction.md](docs/device-extraction.md) | Vendor HALs and `power_profile.xml` |
+| [gui.md](docs/gui.md) | Desktop app |
+| [windows.md](docs/windows.md) | Windows, PowerShell, WSL |
+| [termux.md](docs/termux.md) | Building on the phone |
+| [troubleshooting.md](docs/troubleshooting.md) | Build failures, bootloops, inactive overlays |
+| [how-it-works.md](docs/how-it-works.md) | RRO mechanics and build steps |
+
+## Upgrading from an older layout
+
+`build.sh` moves anything it finds in the old paths (`res/`, `systemui_overlay/res/`, `YOUR BACKUPS/`, root-level `scripts/` and friends) into the current ones on the next run, copying first and deleting afterwards. Old commands map straight across: `setup.sh` → `build.sh setup`, `setup.sh --doctor` → `build.sh doctor`, `cleanup.sh` → `build.sh clean`.
 
 ---
 
-## Coming from an older version?
-
-The scripts were merged and the folders reorganised. Old commands and files
-still work like this:
-
-| You used to run | Run now |
-|---|---|
-| `./setup.sh` / `setup.cmd` | `./build.sh setup` / `build.cmd setup` |
-| `./setup.sh --doctor` / `setup.cmd --doctor` | `./build.sh doctor` / `build.cmd doctor` |
-| `./cleanup.sh` / `cleanup.cmd` | `./build.sh clean` / `build.cmd clean` |
-| `./build.sh` / `build.cmd` | unchanged, but with no arguments it now opens the menu on a terminal (use `build` for the old behaviour) |
-
-| Old location | New location |
-|---|---|
-| `res/` | `src/framework/res/` |
-| `systemui_overlay/res/` | `src/systemui/res/` |
-| `customize.sh`, `service.sh`, `sepolicy.rule` | `src/module/` (scripts are generated by default) |
-| `system/vendor/` | `src/vendor/` |
-| `TEMPLATE RECOVERIES (Don't touch)/` | `stuff/templates/recoveries/` (fallback for `clean --all` when there is no `.git`) |
-| `YOUR BACKUPS/` | `stuff/backups/` |
-| `keys/`, `scripts/`, `templates/`, `tests/`, `windows/`, `tools/`, `build/`, `backups/` | the same names inside `stuff/` |
-
-`build.sh` moves anything it still finds in the old places into the new layout
-on the next run: the file is copied first and the old location is removed only
-afterwards, so an existing checkout keeps working after a `git pull`. If both
-locations exist, it warns and leaves the old one alone instead of overwriting
-the new one.
-
----
-
-## Documentation
-
-| Guide | Contents |
-|---|---|
-| [docs/submission.md](docs/submission.md) | Getting the overlay built into the GSI (Doze-off repo PR) |
-| [docs/configuration.md](docs/configuration.md) | Every `config.env` option |
-| [docs/webui.md](docs/webui.md) | KernelSU WebUI: change values without rebuilding |
-| [docs/addons.md](docs/addons.md) | Module addons: live Settings (screen timeout, volume panel side) and overlay ones (180° rotation, navigation-bar padding) |
-| [docs/windows.md](docs/windows.md) | Windows, PowerShell, VS Code and WSL |
-| [docs/termux.md](docs/termux.md) | Building on the phone |
-| [docs/device-extraction.md](docs/device-extraction.md) | Extracting vendor HALs and `power_profile.xml` |
-| [docs/udfps.md](docs/udfps.md) | Finding UDFPS coordinates and enabling the touch-panel FOD mode |
-| [docs/detect.md](docs/detect.md) | Reading the cutout, corner radius, status bar and refresh rate off the device or a ROM |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Doctor, bootloops, SELinux, overlay inactive |
-| [docs/how-it-works.md](docs/how-it-works.md) | RROs, module mechanics, build steps |
-
----
-
-*Built for the GSI community. Reference device: Samsung Galaxy A90 5G (SM-A908N / r3q).*
-
-MIT licensed — see [LICENSE](LICENSE).
+Reference device: Samsung Galaxy A90 5G (SM-A908N / `r3q`). MIT licensed — see [LICENSE](LICENSE).
