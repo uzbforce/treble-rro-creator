@@ -38,6 +38,13 @@
 # value can be tested with `index(states, " " $2 " ")`.
 ADB_DEVICE_STATES=" device offline unauthorized bootloader recovery sideload rescue host connecting no "
 
+# Which source the probes read: 0 = a phone on the end of adb, 1 = this phone.
+DEVICE_LOCAL=0
+DEVICE_SERIAL=""
+# How a command is run as root in local mode: "root" when the script already is
+# root, otherwise the binary that escalates (su, tsu, sudo).
+DEVICE_ROOT_CMD=""
+
 # The model and product from one `adb devices -l` line, for a menu a human can
 # read. Both are optional in adb's output, so this never assumes either. A
 # TCP/mDNS serial is called out: with USB and wireless adb on, the same phone
@@ -60,30 +67,79 @@ adb_device_label() {
     fi
 }
 
+# Text folded at INDENT, using the shared wrapper when the caller has ui.sh and
+# a plain indented line when it does not (this file is sourced by probes that
+# print JSON and never draw a box).
+adb_device_wrap() { # TEXT INDENT
+    if command -v ui_wrap >/dev/null 2>&1; then
+        ui_wrap "$1" "$2"
+    else
+        printf '%*s%s\n' "${2:-0}" '' "$1"
+    fi
+}
+
 # One line per device on stdin, already in `devices -l` form.
+#
+# Numbered, because the prompt right after the list accepts a number. The model
+# sits beside the serial when the window is wide enough for it and moves to its
+# own indented line on a phone, rather than being cut or pushing the row wide.
 adb_device_table() {
-    local line serial state
+    local -a serials=() states=() labels=()
+    local line serial state label cols n=0 sw=0 stw=0 numw=2
+    cols="${COLUMNS:-80}"
+    if command -v ui_cols >/dev/null 2>&1; then cols="$(ui_cols)"; fi
+    case "$cols" in ''|*[!0-9]*) cols=80 ;; esac
     while IFS= read -r line; do
         [ -n "$line" ] || continue
+        n=$((n + 1))
         serial="${line%% *}"
         state="$(printf '%s\n' "$line" | awk '{print $2}')"
-        printf '  %-18s %-13s %s\n' "$serial" "$state" "$(adb_device_label "$line")"
+        label="$(adb_device_label "$line")"
+        serials+=("$serial"); states+=("$state"); labels+=("$label")
+        [ "${#serial}" -gt "$sw" ] && sw=${#serial}
+        [ "${#state}" -gt "$stw" ] && stw=${#state}
+    done
+    [ "${#serials[@]}" -gt 0 ] || return 0
+    [ "${#serials[@]}" -lt 10 ] || numw=3
+    # One line each when the widest row fits, otherwise the label drops to its
+    # own wrapped line, and when even `number serial state` is too wide the
+    # serial goes below the number. Padded to the widest value, not to a guess.
+    local i head
+    for i in "${!serials[@]}"; do
+        head=$(( 2 + numw + 2 + sw + 2 + stw ))
+        if [ -n "${labels[$i]}" ] && [ $(( head + 2 + ${#labels[$i]} )) -le "$cols" ]; then
+            printf '  %*d  %-*s  %-*s  %s\n' "$numw" "$((i + 1))" \
+                "$sw" "${serials[$i]}" "$stw" "${states[$i]}" "${labels[$i]}"
+        elif [ "$head" -le "$cols" ]; then
+            printf '  %*d  %-*s  %s\n' "$numw" "$((i + 1))" \
+                "$sw" "${serials[$i]}" "${states[$i]}"
+            [ -n "${labels[$i]}" ] && adb_device_wrap "${labels[$i]}" 6
+        else
+            printf '  %*d  %s\n' "$numw" "$((i + 1))" "${serials[$i]}"
+            adb_device_wrap "${states[$i]}" 6
+            [ -n "${labels[$i]}" ] && adb_device_wrap "${labels[$i]}" 6
+        fi
     done
 }
 
 # The fix for every device that is attached but not ready. Printed after the
 # table so the last thing on screen is the action, not the list.
 adb_device_advice() {
+    local serial message
     printf '%s\n' "${1:-}" | awk '
-        $2 == "unauthorized" { print "  " $1 ": unlock the phone and accept the USB debugging prompt" }
-        $2 == "offline"      { print "  " $1 ": offline — unplug and replug it, or run adb kill-server" }
-        $2 == "no"           { print "  " $1 ": no permissions — Linux needs a udev rule, Windows a driver" }
-        $2 == "connecting"   { print "  " $1 ": still connecting — wait a moment and run it again" }
-        $2 == "bootloader"   { print "  " $1 ": in the bootloader — boot Android to read the running ROM" }
-        $2 == "recovery"     { print "  " $1 ": in recovery — adb works there, but dumpsys and getprop of the ROM do not" }
-        $2 == "sideload"     { print "  " $1 ": sideload mode — reboot to Android first" }
-        $2 == "rescue"       { print "  " $1 ": rescue mode — reboot to Android first" }
-    '
+        $2 == "unauthorized" { print $1 "|unlock the phone and accept the USB debugging prompt" }
+        $2 == "offline"      { print $1 "|offline — unplug and replug it, or run adb kill-server" }
+        $2 == "no"           { print $1 "|no permissions — Linux needs a udev rule, Windows a driver" }
+        $2 == "connecting"   { print $1 "|still connecting — wait a moment and run it again" }
+        $2 == "bootloader"   { print $1 "|in the bootloader — boot Android to read the running ROM" }
+        $2 == "recovery"     { print $1 "|in recovery — adb works there, but dumpsys and getprop of the ROM do not" }
+        $2 == "sideload"     { print $1 "|sideload mode — reboot to Android first" }
+        $2 == "rescue"       { print $1 "|rescue mode — reboot to Android first" }
+    ' | while IFS='|' read -r serial message; do
+        [ -n "$serial" ] || continue
+        printf '  %s%s%s\n' "${UI_BOLD:-}" "$serial" "${UI_OFF:-}"
+        adb_device_wrap "$message" 4
+    done
 }
 
 # Turn what the user typed into a serial from READY (the `devices -l` lines of
@@ -109,6 +165,221 @@ adb_device_resolve() {
         return 0
     fi
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# This phone, read directly (Termux)
+# ---------------------------------------------------------------------------
+# In Termux there is no adb server to dial: the phone is the machine the script
+# is running on. "Plug the phone in" is advice nobody can follow there, and
+# installing platform-tools only adds a binary that still has nothing to talk to.
+#
+# With root, the same commands the probes send over `adb shell` run natively —
+# getprop, cmd overlay, wm size/density, dumpsys and reads of /vendor — so local
+# mode is not a smaller detector, it is the same one with a shorter cable. Root
+# is not optional: an app UID is refused `cmd`, `dumpsys` and most /vendor files.
+#
+# DEVICE_LOCAL=1 selects it, DEVICE_ROOT_CMD says how to escalate, and the
+# probe's `serial` becomes "local" so nothing tries `adb -s local`.
+
+device_is_termux() {
+    [ -n "${TERMUX_VERSION:-}" ] && return 0
+    case "${PREFIX:-}" in */com.termux/*) return 0 ;; esac
+    case "${HOME:-}" in /data/data/com.termux/*) return 0 ;; esac
+    return 1
+}
+
+# The binary that reaches root on this phone, or "root" when we are already it.
+# su, tsu (Termux's su wrapper) and sudo all take `-c CMD`.
+device_root_cmd() {
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then printf 'root'; return 0; fi
+    local c
+    for c in su tsu sudo; do
+        command -v "$c" >/dev/null 2>&1 && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+# One command string as root on this phone, the same shape `adb shell` takes, so
+# the probes never learn which source they have.
+device_local_run() {
+    case "${DEVICE_ROOT_CMD:-root}" in
+        root) sh -c "$1" ;;
+        su)   su -c "$1" ;;
+        tsu)  tsu -c "$1" ;;
+        sudo) sudo sh -c "$1" ;;
+        *)    sh -c "$1" ;;
+    esac
+}
+
+# Switch the probes over to this phone. PROG names the script in messages.
+# Verifies root before claiming local mode, so a denied prompt is a clear line
+# rather than a probe that silently reports nothing.
+device_local_begin() {
+    local prog="$1" cmd
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        DEVICE_ROOT_CMD=root
+    else
+        cmd="$(device_root_cmd)" || {
+            printf '%s: reading this phone needs root, and no su/tsu/sudo was found.\n' "$prog" >&2
+            printf '  pkg install tsu\n  then start the tool with: tsu ./build.sh\n' >&2
+            return 1
+        }
+        DEVICE_ROOT_CMD="$cmd"
+        if [ "$(device_local_run 'id -u' </dev/null 2>/dev/null | tr -d '\r' | tail -n1)" != 0 ]; then
+            printf '%s: root was not granted — accept the su prompt (or run the tool with tsu) and try again.\n' "$prog" >&2
+            DEVICE_ROOT_CMD=""
+            return 1
+        fi
+    fi
+    DEVICE_LOCAL=1
+    DEVICE_SERIAL=local
+    # The menu announces this once before the probe starts; saying it again on
+    # every run reads like a second, failed attempt. DEVICE_LOCAL_QUIET=1 is set
+    # when the answer was already given.
+    if [ "${DEVICE_LOCAL_QUIET:-0}" != 1 ]; then
+        printf '%s: reading this phone directly%s\n' "$prog" \
+            "$([ "$DEVICE_ROOT_CMD" = root ] && printf ' (already root)' || printf ' (via %s)' "$DEVICE_ROOT_CMD")" >&2
+    fi
+    return 0
+}
+
+# Offer the local source. Only in Termux, and only when nobody already answered
+# the question (DEVICE_LOCAL_REQUEST=1 asked and granted, 0 declined) — the menu
+# asks once per session and passes the answer down.
+device_local_offer() {
+    local prog="$1" answer
+    device_is_termux || return 1
+    if [ -t 0 ] && [ -t 2 ]; then
+        printf '%s: Termux has no adb link to a phone underneath — this machine is the phone.\n' "$prog" >&2
+        printf '%s: read it directly as root? [Y/n] ' "$prog" >&2
+        IFS= read -r answer || answer=y
+        case "$answer" in [nN]*) return 1 ;; esac
+    fi
+    device_local_begin "$prog"
+}
+
+# Whether adb can see a ready device right now, without the 120s wait: that wait
+# is for a cable being plugged in, and in Termux there is nothing to plug in.
+adb_device_ready_now() {
+    local adb="$1" want="${2:-}"
+    adb_device_list "$adb" 25 || return 1
+    if [ -n "$want" ]; then
+        printf '%s\n' "$ADB_DEVICES" | awk -v s="$want" '$1 == s && $2 == "device"' | grep -q .
+    else
+        printf '%s\n' "$ADB_DEVICES" | awk '$2 == "device"' | grep -q .
+    fi
+}
+
+# Where adb is. A probe's `--adb PATH` (in $adb before this file is sourced)
+# wins, then PATH, then the copy the toolchain installs. Defined here rather
+# than in each probe so device_connect does not depend on them defining it.
+adb="${adb:-}"
+resolve_adb() {
+    [ -n "$adb" ] && return 0
+    adb="$(command -v adb 2>/dev/null || true)"
+    [ -n "$adb" ] && return 0
+    for adb in "${ROOT:-.}/stuff/tools/platform-tools/adb" "${ROOT:-.}/stuff/tools/platform-tools/adb.exe"; do
+        [ -x "$adb" ] && return 0
+    done
+    adb=""
+    return 1
+}
+
+# One command on the chosen phone, CRs stripped and errors dropped. The single
+# place the two sources meet: both take a command string.
+device_sh() {
+    if [ "${DEVICE_LOCAL:-0}" = 1 ]; then
+        # The local shell is already root, so the probes' `su 0` retries would be
+        # a second escalation with nothing to gain — and a second su prompt. The
+        # prefix is dropped so those calls stay quiet.
+        case "$1" in
+            'su 0 '*) set -- "${1#su 0 }" ;;
+        esac
+        device_local_run "$1" </dev/null 2>/dev/null | tr -d '\r'
+    else
+        "$adb" ${serial:+-s "$serial"} shell "$1" </dev/null 2>/dev/null | tr -d '\r'
+    fi
+}
+
+# Copy a file off the chosen phone. adb pull runs as the shell user and falls
+# back to `su 0 cat` for root-only paths (/vendor/overlay); local mode is
+# already root, so one cat covers both.
+#
+# The path is quoted for the shell on the other end, not for this one: a name
+# holding a single quote would otherwise end the quoting early and cat something
+# else (or nothing).
+sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+device_pull() {
+    local remote="$1" local_path="$2" to="$2"
+    if [ "${DEVICE_LOCAL:-0}" = 1 ]; then
+        device_local_run "cat $(sh_quote "$remote")" >"$local_path" 2>/dev/null
+        [ -s "$local_path" ] && return 0
+        return 1
+    fi
+    # A Windows adb cannot open an MSYS /tmp path, so the local half is converted
+    # when cygpath exists (Git Bash); elsewhere the path is passed as it is.
+    if command -v cygpath >/dev/null 2>&1; then to="$(cygpath -w "$local_path")"; fi
+    "$adb" ${serial:+-s "$serial"} pull "$remote" "$to" >/dev/null 2>&1 \
+        && [ -s "$local_path" ] && return 0
+    "$adb" ${serial:+-s "$serial"} exec-out "su 0 cat $(sh_quote "$remote")" >"$local_path" 2>/dev/null \
+        && [ -s "$local_path" ] && return 0
+    return 1
+}
+
+# device_connect PROG [WANT] — where the answers come from, for every probe.
+#
+# WANT is the --device value; "local" (also this/self/here) asks for this phone.
+# DEVICE_LOCAL_REQUEST=1/0 forces the answer, which is what the menu sets after
+# asking once. Sets DEVICE_LOCAL, DEVICE_ROOT_CMD, DEVICE_SERIAL and the probe's
+# `serial`; on failure the reason has already been printed.
+#
+# Precedence, most specific first: a serial or "local" typed on the command
+# line, then the session's answer, then what this machine allows (in Termux,
+# adb has nothing to talk to, so the local source is offered there instead).
+device_connect() {
+    local prog="$1" want="${2:-}" mode="${DEVICE_LOCAL_REQUEST:-}"
+    case "$want" in
+        local|this|self|here)
+            device_local_begin "$prog" || return 1
+            serial="$DEVICE_SERIAL"
+            return 0
+            ;;
+        '')
+            ;;
+        *)
+            mode=""
+            ;;
+    esac
+    case "$mode" in
+        1)
+            # The question was answered before this probe started (the menu asks
+            # once a session), so do not announce the switch again.
+            DEVICE_LOCAL_QUIET=1
+            device_local_begin "$prog" || return 1
+            serial="$DEVICE_SERIAL"
+            return 0
+            ;;
+    esac
+    # Termux, and adb cannot see the phone right now: ask about the direct
+    # source before the device wait, because in Termux that wait cannot end.
+    if [ -z "$mode" ] && device_is_termux \
+        && ! { resolve_adb 2>/dev/null && adb_device_ready_now "$adb" "$want"; }; then
+        device_local_offer "$prog" && { serial="$DEVICE_SERIAL"; return 0; }
+    fi
+    resolve_adb || {
+        if device_is_termux; then
+            printf '%s: adb cannot reach a phone from Termux — the phone is this machine, and reading it needs root.\n' "$prog" >&2
+            printf '  start the tool as root: tsu %s/build.sh   (pkg install tsu if it is missing)\n' "${ROOT:-.}" >&2
+        else
+            printf '%s: adb was not found — install platform-tools, or pass --adb PATH\n' "$prog" >&2
+        fi
+        return 1
+    }
+    adb_pick_device "$adb" "$want" "$prog" || return 1
+    serial="$DEVICE_SERIAL"
+    return 0
 }
 
 # Prompt on stderr instead of stdout: stdout is often JSON that a caller parses.
@@ -230,6 +501,62 @@ adb_device_alive() {
     return "$status"
 }
 
+# A probe run from the menu is usually started while the phone is still in the
+# user's hand. Failing on the spot ("plug the phone in") is the wrong answer
+# there: the next thing the user does is plug it in, and then has to run the
+# menu again. Wait for a device to appear instead — but only on a terminal, so a
+# script still gets an immediate answer.
+#
+# ADB_WAIT_SECONDS sets the deadline and also allows waiting without a terminal
+# (0 never waits); that is the switch the tests use.
+#
+# On success ADB_DEVICES holds the new listing, ready devices included.
+adb_device_wait() {
+    local adb="$1" prog="$2" limit waited=0 ready attached now last=""
+    if [ -n "${ADB_WAIT_SECONDS:-}" ]; then
+        limit="$ADB_WAIT_SECONDS"
+    elif [ -t 0 ] && [ -t 2 ]; then
+        limit=120
+    else
+        return 1
+    fi
+    case "$limit" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$limit" -gt 0 ] || return 1
+
+    printf '%s: waiting for a device to become ready — plug the phone in and allow USB debugging\n' "$prog" >&2
+    printf '  (up to %ss; Ctrl-C stops this)\n' "$limit" >&2
+    while [ "$waited" -lt "$limit" ]; do
+        sleep 1
+        waited=$((waited + 1))
+        # adb is allowed to be unplugged and replugged while this runs: only a
+        # listing that could not be produced at all ends the wait early.
+        adb_device_list "$adb" || {
+            case "${ADB_DEVICES_NOTE:-}" in
+                *'was not found'*) return 1 ;;
+            esac
+            continue
+        }
+        attached="$ADB_DEVICES"
+        ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+        if [ -n "$ready" ]; then
+            printf '  found %s\n' "$(printf '%s\n' "$ready" | awk '{print $1}' | tr '\n' ' ' | sed 's/ *$//')" >&2
+            return 0
+        fi
+        # Say something when the state changes (unauthorized → device is the
+        # prompt being accepted, offline → nothing yet) and otherwise stay quiet
+        # apart from a nudge, so a slow wait does not scroll the screen away.
+        now="$(printf '%s\n' "$attached" | awk 'NF { print "  " $1 " (" $2 ")" }')"
+        if [ "$now" != "$last" ]; then
+            [ -z "$now" ] || printf '%s\n' "$now" >&2
+            last="$now"
+        elif [ $((waited % 15)) -eq 0 ]; then
+            printf '  still waiting — %ss of %ss\n' "$waited" "$limit" >&2
+        fi
+    done
+    printf '%s: no device appeared within %ss.\n' "$prog" "$limit" >&2
+    return 1
+}
+
 adb_pick_device() {
     local adb="$1" want="$2" prog="$3"
     local attached ready ready_count state serial sleeping waited=0
@@ -274,10 +601,29 @@ adb_pick_device() {
                 printf '%s\n' "$attached" | adb_device_table >&2
                 adb_device_advice "$attached" >&2
             else
-                printf 'No device is attached — plug one in and allow USB debugging.\n' >&2
-                [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '  %s\n' "$ADB_DEVICES_NOTE" >&2
+                [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '%s: %s\n' "$prog" "$ADB_DEVICES_NOTE" >&2
+                printf '%s: %s is not attached — plug the phone in and allow USB debugging.\n' "$prog" "$want" >&2
             fi
-            return 1
+            # Waiting is the point here: the phone was named but is not ready
+            # yet (just plugged in, or its debugging prompt is still on screen).
+            # Both resolve in seconds, so wait rather than fail and be re-run.
+            if adb_device_wait "$adb" "$prog"; then
+                attached="$ADB_DEVICES"
+                ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+                ready_count="$(printf '%s\n' "$ready" | grep -c . || true)"
+                state="$(printf '%s\n' "$attached" | awk -v s="$want" '$1 == s { print $2; exit }')"
+                [ "$state" = "device" ] && serial="$want"
+                # The serial that came up may not be the one typed (a phone that
+                # was off reports a new one), so a single ready device is taken
+                # as the one meant.
+                if [ -z "$serial" ] && [ "$ready_count" -eq 1 ]; then
+                    serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
+                fi
+            fi
+            if [ -z "$serial" ]; then
+                printf '%s: %s did not become ready.\n' "$prog" "$want" >&2
+                return 1
+            fi
         fi
     elif [ "$ready_count" -eq 0 ]; then
         [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '%s: %s\n' "$prog" "$ADB_DEVICES_NOTE" >&2
@@ -288,7 +634,25 @@ adb_pick_device() {
             printf '%s: no device in adb devices — plug the phone in and allow USB debugging.\n' "$prog" >&2
         fi
         adb_device_advice "$attached" >&2
-        return 1
+        # A phone left unauthorized or offline is fixed in a second; waiting
+        # turns that into the same run instead of another menu trip.
+        adb_device_wait "$adb" "$prog" || return 1
+        attached="$ADB_DEVICES"
+        ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+        ready_count="$(printf '%s\n' "$ready" | grep -c . || true)"
+        if [ "$ready_count" -eq 1 ]; then
+            serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
+        elif [ "$ready_count" -eq 0 ]; then
+            return 1
+        elif [ ! -t 0 ]; then
+            printf '%s: %d devices are ready:\n' "$prog" "$ready_count" >&2
+            printf '%s\n' "$ready" | adb_device_table >&2
+            printf '%s: choose one with --device SERIAL\n' "$prog" >&2
+            return 1
+        elif ! serial="$(adb_device_choose "$ready")"; then
+            printf '%s: no device chosen.\n' "$prog" >&2
+            return 1
+        fi
     elif [ "$ready_count" -eq 1 ]; then
         serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
         sleeping="$(printf '%s\n' "$attached" | awk '$2 != "device" { print $1 " (" $2 ")" }' | tr '\n' ' ')"

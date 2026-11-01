@@ -123,9 +123,13 @@ hw_match_prop() {
 }
 
 # Exact value — no globs, because the framework compares with String.equals().
+# A value still in <placeholder> form was never filled in, so it counts as unset
+# and falls back to the codename (an explicit empty value stays empty).
 hw_match_value() {
-    if [ -n "${HW_OVERLAY_MATCH_VALUE+set}" ]; then
-        printf '%s' "${HW_OVERLAY_MATCH_VALUE}"
+    local value="${HW_OVERLAY_MATCH_VALUE:-}"
+    [[ "$value" == *"<"* ]] && value=""
+    if [ -n "${HW_OVERLAY_MATCH_VALUE+set}" ] && [ -n "$value" ]; then
+        printf '%s' "$value"
     else
         printf '%s' "${DEVICE_CODENAME}"
     fi
@@ -536,14 +540,29 @@ write_hardware_overlay() { # <outdir>
     return 0
 }
 
+# hw_plan_row FOLDER "APK — what it overlays" — one folder of the submission.
+# The folder is the thing being created and the APK name is the thing that ends
+# up in the submission, so the folder is bold and the rest is a dim line under
+# it: on a phone that is two short lines instead of one that runs off the edge.
+hw_plan_row() {
+    local line
+    printf '\n    %s%s%s\n' "$UI_BOLD" "$1" "$UI_OFF"
+    ui_wrap "$2" 6 | while IFS= read -r line; do
+        printf '%s%s%s\n' "$UI_DIM" "$line" "$UI_OFF"
+    done
+}
+
 print_hardware_overlay_plan() {
-    printf '\n  %bSubmission tree (Doze-off/vendor_hardware_overlay, branch pie)%b\n' "${BOLD:-}" "${NC:-}"
-    printf '    %-34s %s\n' "$DEVICE_MANUFACTURER/$DEVICE_CODENAME" "$OVERLAY_NAME (android)"
+    ui_heading 'Submission tree'
+    ui_wrap 'Doze-off/vendor_hardware_overlay, branch pie — one folder per overlay.' 2
+    hw_plan_row "$DEVICE_MANUFACTURER/$DEVICE_CODENAME" "$OVERLAY_NAME (android)"
     if [ "${LINKED_SYSTEMUI:-false}" = "true" ] || { [ -z "${LINKED_SYSTEMUI:-}" ] && hw_has_systemui_resources; }; then
-        printf '    %-34s %s\n' "$DEVICE_MANUFACTURER/$DEVICE_CODENAME-SystemUI" "${OVERLAY_NAME}-systemui (com.android.systemui)"
+        hw_plan_row "$DEVICE_MANUFACTURER/$DEVICE_CODENAME-SystemUI" \
+            "${OVERLAY_NAME}-systemui (com.android.systemui)"
     fi
-    printf '    match:    %s == "%s"\n' "$(hw_match_prop)" "$(hw_match_value)"
-    printf '    priority: %s\n' "$(hw_priority)"
+    printf '\n'
+    ui_kv match "$(hw_match_prop) == \"$(hw_match_value)\"" 9
+    ui_kv priority "$(hw_priority)" 9
     printf '\n'
 }
 

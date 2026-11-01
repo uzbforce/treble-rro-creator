@@ -17,11 +17,16 @@ apt update
 apt upgrade -y
 
 apt install -y git aapt aapt2 apksigner android-tools openjdk-17 \
-               unzip zip curl tsu
+               unzip zip curl wget tsu
 ```
 
 If `pkg install` fails with signature or mirror errors, run
 `termux-change-repo`, pick a mirror close to you, then repeat `apt update`.
+
+> **Broken `curl`.** A `pkg upgrade` interrupted half way can leave `curl`
+> unable to start (`CANNOT LINK EXECUTABLE "curl": cannot locate symbol ...`).
+> `build.sh` then downloads with `wget` instead, which is why it is in the list
+> above; `pkg upgrade -y` repairs `curl` itself.
 
 > **`zipalign` comes from the `aapt` package, not from `aapt2`.** Installing
 > `aapt2`, `apksigner` and `android-tools` leaves `zipalign` missing; adding
@@ -51,11 +56,30 @@ cd treble-rro-creator
 ./build.sh
 ```
 
-The first run checks the toolchain. If something is missing it installs it
-(aapt2/zipalign/apksigner via `pkg`, `framework-res.apk` by download), then
-builds. To choose things yourself:
+On a terminal this opens the **menu**, which is the desktop app's toolkit in a
+numbered list — the same build, the same `config.env` editor, the same phone
+probes. Termux has no window, so this is the full interface on the phone:
+
+```
+     1  Build              dry run, build, check, doctor, clean
+     2  config.env         browse and edit one key at a time
+     3  Addons             module tweaks: settings and overlay resources
+     4  Device             read manufacturer, model, codename from the phone
+     5  Auto Detect        ROM answers: cutout, corners, refresh rate, VoLTE, 5G
+     6  UDFPS              in-display fingerprint geometry
+     7  Match property     which property the submission should match on
+     8  Files              what was built, and where it is
+     9  Docs               the guides in docs/
+```
+
+`1 → 2` is the build. The first run checks the toolchain: if something is
+missing it installs it (aapt2/zipalign/apksigner via `pkg`,
+`framework-res.apk` by download), then builds.
+
+To skip the menu, use the verbs directly:
 
 ```bash
+./build.sh build     # build, installing tools if needed
 ./build.sh setup     # [3] Android / Termux, then [1] Android 13 resources
 ./build.sh doctor    # verify
 ./build.sh check     # validate config.env only
@@ -68,7 +92,12 @@ to run. `./build.sh setup` walks through the options interactively.
 
 ## 4. Edit the config
 
-Use a text editor in Termux:
+`2` in the menu lists `config.env` by section with the value next to each key,
+`on`/`off` for the ones that are commented out, and writes the change in place —
+the comments and the file's shape stay as they are. That is quicker on a phone
+than hunting for a `#` in a 240-line file.
+
+Use a text editor when you want to see the notes above each key:
 
 ```bash
 nano config.env
@@ -84,17 +113,84 @@ MT Manager at:
 Required values and every optional flag are listed in
 [configuration.md](configuration.md).
 
+With the phone in the same hand, `4` (Device) fills in `DEVICE_CODENAME`,
+`DEVICE_MANUFACTURER` and `DEVICE_MODEL` from `getprop`, `5` (Auto Detect) reads
+what the running ROM says about the hardware — cutout path, corner radii, status
+bar height, refresh rates, the VoLTE and 5G flags, the light sensor and the OEM
+switches — and `6` (UDFPS) finds the fingerprint sensor's real geometry. No PC,
+no typing values between screens. Those four options need root; see
+[section 5](#5-root-for-the-phone-probes).
+
 Do not forget `src/framework/res/xml/power_profile.xml` — replace it with your
 device's file, see
 [device-extraction.md](device-extraction.md#power-profile-power_profilexml--mandatory).
 
 ---
 
-## 5. Install the module
+## 5. Root for the phone probes
+
+On a PC the probes ask the phone over `adb shell`. In Termux there is nothing to
+plug in and no server to dial — the phone the probes want is the one the script
+is already running on — so they read it directly instead: the same `getprop`,
+`cmd overlay`, `wm`, `dumpsys` and `/vendor` reads, run natively.
+
+That path needs root. Termux runs as an app UID, and `cmd`, `dumpsys` and most
+of `/vendor` are closed to it. A root shell also lets `/vendor/build.prop` and
+the vendor `overlay/` APKs be read for the firmware values the GSI no longer has.
+
+Start the tool through `su` or `tsu`:
+
+```bash
+tsu ./build.sh          # recommended: root for the whole session
+```
+
+or just run `./build.sh` and let it ask. The first time you pick a probe in
+Termux, the menu explains this once and offers to read the phone directly:
+
+```
+  This is Termux, so the phone is this one rather than a device on a cable.
+  Reading it directly needs root: the same getprop, cmd overlay, wm and
+  dumpsys reads a PC makes over adb.
+  Read this phone as root? [Y/n]
+```
+
+`su` prompts for permission on the first read. The answer is remembered for the
+session: every later probe — and `7` (Match property) — uses it without asking
+again, and the options are labelled **this phone** rather than **the connected
+phone**. Decline and the probes fall back to adb, which is what you want when a
+second phone is on the cable (Termux's `android-tools` can reach one over
+wireless debugging).
+
+If no `su` binary exists:
+
+```bash
+pkg install tsu
+tsu ./build.sh
+```
+
+Root not granted is reported, not worked around — every read would come back
+empty and the report would look like a ROM that answers nothing.
+
+Two practical notes:
+
+- **The device wait.** On a PC a probe waits up to 120s for a cable to be
+  plugged in. That wait cannot end on Termux, so when this machine is the phone
+  the local source is chosen before the wait starts. `Ctrl-C` leaves a wait in
+  any case and puts you back in the submenu.
+- **Speed.** Each read is one root call, about the same count of round trips a
+  PC makes over adb — a few seconds, not instant.
+
+---
+
+## 6. Install the module
 
 ```bash
 cp out/*-ksu.zip /sdcard/
 ```
+
+Or let the menu do it: **8 Files → 1 Copy** writes the zip and its APKs to
+`/sdcard/treble-rro-creator` — with `cp` on the phone, or `adb push` when a PC
+ran the build. The terminal tells you how many files landed.
 
 Then either:
 

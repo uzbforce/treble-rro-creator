@@ -39,7 +39,7 @@ var verbTable = []Verb{
 		Label: "Build",
 		Arg:   "build",
 		Hint:  "Compile and sign the module, and the submission zips",
-		Flags: []string{"--with-vendor-hals", "--allow-unknown-resources"},
+		Flags: []string{"--with-vendor-hals", "--xiaomi-fod", "--allow-unknown-resources"},
 	},
 	{
 		Name:  "dryrun",

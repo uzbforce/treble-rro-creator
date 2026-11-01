@@ -21,9 +21,17 @@ function el(tag, cls, text) {
 
 const FLAG_HELP = {
   '--with-vendor-hals': 'include src/vendor/ in the module',
+  '--xiaomi-fod': 'include the Xiaomi FOD helper in the module',
   '--allow-unknown-resources': 'build even if a resource is missing',
   '--force': 're-pick the resource dictionary',
   '--all': 'also remove config and device files',
+};
+
+// A flag whose name does not say enough gets a ? beside it, and the text below
+// is what that ? opens. Only the one flag needs it: fod/xiaomi-fod is
+// vendor-specific, so ticking it on a Samsung is pointless.
+const FLAG_DETAIL = {
+  '--xiaomi-fod': 'Use only if your phone is Xiaomi and has a UDFPS sensor.',
 };
 
 let state = null;
@@ -222,7 +230,24 @@ function renderFlags() {
     });
 
     label.append(input, el('span', 'flag-name', flag));
-    box.appendChild(label);
+
+    if (!FLAG_DETAIL[flag]) {
+      box.appendChild(label);
+      continue;
+    }
+
+    // The ? sits beside the checkbox, not inside the label, so clicking it
+    // reads the explanation instead of ticking the box. It is a span with a
+    // tabindex because tabbing to it is how the tooltip works without a mouse,
+    // and aria-label carries the same text for a screen reader.
+    const help = el('span', 'flag-help', '?');
+    help.tabIndex = 0;
+    help.setAttribute('role', 'note');
+    help.setAttribute('aria-label', FLAG_DETAIL[flag]);
+    help.dataset.help = FLAG_DETAIL[flag];
+    const group = el('span', 'flag-group');
+    group.append(label, help);
+    box.appendChild(group);
   }
 }
 
@@ -342,6 +367,9 @@ async function stopRun() {
 
 function setRunning(value) {
   running = value;
+  // The console breathes while a job owns it (see app.css): one class, so the
+  // rule that draws it has a single source and stops the moment it is false.
+  document.body.classList.toggle('is-running', value);
   renderRunState();
 }
 
@@ -642,6 +670,12 @@ function renderConfig(force = false) {
     return;
   }
 
+  // Two different questions, so two cards, each beside the pair it writes: the
+  // module's own condition (DEVICE_PROP_*) is the codename the phone carries,
+  // and the submission pair (HW_OVERLAY_MATCH_*) is a ranking of properties.
+  // One card used to serve both, and the codename answer landed in the pair a
+  // section further down.
+  let modulePlaced = false;
   let matchPlaced = false;
   for (const sec of doc.sections) {
     const wrap = el('div', 'cfg-sec');
@@ -649,24 +683,26 @@ function renderConfig(force = false) {
     const entries = sec.entries || [];
     for (const entry of entries) wrap.appendChild(cfgRow(entry));
     if (!sec.title && entries.length === 0) continue;
-    // The match-property card belongs with the activation keys, because a wrong
-    // one is the failure that looks like success: the overlay is enabled and
-    // nothing changes.
-    if (!matchPlaced && isOverlaySection(sec)) {
+    if (!modulePlaced && hasKey(sec, 'DEVICE_PROP_NAME')) {
+      wrap.appendChild(moduleCard());
+      modulePlaced = true;
+    }
+    // The match card belongs with the submission keys, because a wrong one is
+    // the failure that looks like success: the overlay is enabled and nothing
+    // changes.
+    if (!matchPlaced && hasKey(sec, 'HW_OVERLAY_MATCH_PROP')) {
       wrap.appendChild(matchCard());
       matchPlaced = true;
     }
     box.appendChild(wrap);
   }
+  if (!modulePlaced) box.appendChild(moduleCard());
   if (!matchPlaced) box.appendChild(matchCard());
   updateCfgStatus();
 }
 
-function isOverlaySection(sec) {
-  if (/overlay activation/i.test(sec.title || '')) return true;
-  return (sec.entries || []).some((e) =>
-    e.key === 'DEVICE_PROP_NAME' || e.key === 'HW_OVERLAY_MATCH_PROP'
-  );
+function hasKey(sec, key) {
+  return (sec.entries || []).some((e) => e.key === key);
 }
 
 // Keys whose value is a string even when it reads like a boolean: a device name
@@ -769,6 +805,175 @@ function updateCfgStatus() {
   $('cfg-revert').disabled = !dirty;
 }
 
+// ---------------------------------------------------- module condition --
+// The module's condition is the codename the phone carries, not a property
+// ranking: the module writes persist.sys.overlay.<codename> at boot, so it
+// always matches. Detect reads the codename off the phone; Use stages
+// DEVICE_PROP_NAME / DEVICE_PROP_VALUE and nothing else. The submission pair
+// is a separate question with its own card further down.
+let moduleDetect = null;
+let moduleError = '';
+let moduleBusy = false;
+let moduleBodyEl = null;
+
+const MODULE_PROP_PREFIX = 'persist.sys.overlay.';
+
+// Both detectors ask the same phone the same way, so the frame is built once.
+function detectorCard(title, keys, hint) {
+  const card = el('div', 'cfg-match');
+  const head = el('div', 'cfg-match-head');
+  head.appendChild(el('span', 'cfg-match-title', title));
+  head.appendChild(el('span', 'muted small', keys));
+
+  const pick = document.createElement('select');
+  pick.className = 'adb-device-select cfg-match-device';
+  pick.setAttribute('aria-label', 'phone to ask');
+
+  const ask = document.createElement('button');
+  ask.type = 'button';
+  ask.textContent = 'Ask the phone';
+
+  head.append(pick, ask);
+  card.appendChild(head);
+  card.appendChild(el('p', 'hint', hint));
+  return { card, pick, ask };
+}
+
+function moduleCard() {
+  const { card, pick, ask } = detectorCard(
+    'Module condition',
+    'DEVICE_PROP_NAME / _VALUE',
+    'The codename this phone carries. The module sets persist.sys.overlay.<codename> before zygote, so a wrong codename is what makes it skip this phone.'
+  );
+  pick.addEventListener('change', () => {
+    setAdbDevice(pick.value);
+    // One phone per answer: the last phone's codename must not stay on screen
+    // looking like it belongs to the new one.
+    moduleDetect = null;
+    moduleError = '';
+    renderAdbDevices();
+    refreshModuleBody();
+  });
+  ask.addEventListener('click', askModuleProp);
+  card.appendChild(moduleBody());
+  renderAdbDevices();
+  if (!adbDevices.length) refreshAdbDevices().then(() => renderAdbDevices());
+  return card;
+}
+
+// Same trap as the match card: moduleBody() reassigns moduleBodyEl while it
+// builds, so the node being replaced has to be captured first.
+function refreshModuleBody() {
+  const old = moduleBodyEl;
+  if (!old || !old.isConnected) return;
+  old.replaceWith(moduleBody());
+}
+
+function moduleBody() {
+  const body = el('div', 'cfg-match-body');
+  moduleBodyEl = body;
+
+  if (moduleBusy) {
+    body.appendChild(el('p', 'muted small', 'asking the phone…'));
+    return body;
+  }
+  if (moduleError) body.appendChild(el('p', 'cfg-match-error', moduleError));
+
+  if (!moduleDetect) {
+    const prop = cfgEntry('DEVICE_PROP_NAME');
+    const value = cfgEntry('DEVICE_PROP_VALUE');
+    if (prop && prop.value) {
+      body.appendChild(el('p', 'muted small',
+        `config.env activates on ${prop.value} = "${value && value.value ? value.value : ''}"${prop.enabled ? '' : ' — that line is commented out'}.`));
+    } else {
+      body.appendChild(el('p', 'muted small',
+        'No condition is set, so the module would activate on every phone — only right when that is what you mean.'));
+    }
+    return body;
+  }
+
+  const answers = (moduleDetect.candidates || []).filter((c) => c.value);
+  const summary = el('div', 'cfg-match-summary');
+  summary.appendChild(el('span', 'muted small', 'codename '));
+  summary.appendChild(el('code', null, moduleDetect.codename || 'not found'));
+  if (moduleDetect.model) summary.appendChild(el('span', 'muted small', ' · ' + moduleDetect.model));
+  if (answers.length > 1) summary.appendChild(el('span', 'cfg-match-badge trust-medium', `${answers.length} commands answered`));
+  body.appendChild(summary);
+
+  if (!answers.length) {
+    body.appendChild(el('p', 'cfg-match-warn',
+      'No property on this phone carries its codename — it may be an unnamed build. Set the condition by hand in the row above.'));
+    return body;
+  }
+
+  for (const c of answers) body.appendChild(moduleRow(c));
+  if (answers.length > 1) {
+    body.appendChild(el('p', 'muted small',
+      'All of these are on the phone; the first is the one usually trusted on a GSI. Only the pair above changes — Save writes it.'));
+  }
+  return body;
+}
+
+function moduleRow(c) {
+  const row = el('div', 'cfg-match-row');
+  const head = el('div', 'cfg-match-row-head');
+  head.appendChild(el('code', 'cfg-match-prop', MODULE_PROP_PREFIX + c.value));
+  head.appendChild(el('span', 'cfg-match-eq', '='));
+  head.appendChild(el('code', 'cfg-match-val', '"true"'));
+
+  const use = document.createElement('button');
+  use.type = 'button';
+  use.textContent = 'Use';
+  use.addEventListener('click', () => useModuleCodename(c));
+  head.appendChild(use);
+
+  row.appendChild(head);
+  row.appendChild(el('p', 'cfg-match-why', `codename from ${c.prop}${c.note ? ' — ' + c.note : ''}`));
+  return row;
+}
+
+async function askModuleProp() {
+  if (moduleBusy) return;
+  await refreshAdbDevices();
+  const pick = adbDeviceChoice();
+  if (pick.blocked) {
+    moduleError = `${adbReadyDevices().length} phones are connected — pick one beside the button`;
+    refreshModuleBody();
+    return;
+  }
+  if (!pick.serial && !adbReadyDevices().length) {
+    moduleError = 'No phone is ready — plug one in and allow USB debugging.';
+    refreshModuleBody();
+    return;
+  }
+  moduleBusy = true;
+  moduleError = '';
+  refreshModuleBody();
+  try {
+    moduleDetect = await api('api/adb/detect', { method: 'POST', body: { serial: pick.serial } });
+  } catch (err) {
+    moduleDetect = null;
+    moduleError = err.message;
+  } finally {
+    moduleBusy = false;
+    refreshModuleBody();
+  }
+}
+
+// Writes the module pair only — never the submission pair.
+function useModuleCodename(c) {
+  const prop = MODULE_PROP_PREFIX + c.value;
+  const name = stageCfgValue('DEVICE_PROP_NAME', prop);
+  const value = stageCfgValue('DEVICE_PROP_VALUE', 'true');
+  if (!name || !value) {
+    status('config.env has no DEVICE_PROP_* lines — add them in the raw editor', 9000);
+    return;
+  }
+  const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${(cfgEntry('DEVICE_PROP_NAME') || {}).line}"]`);
+  if (row) row.scrollIntoView({ block: 'center' });
+  status(`staged DEVICE_PROP_NAME = "${prop}" and DEVICE_PROP_VALUE = "true" — Save writes them`, 9000);
+}
+
 // ------------------------------------------------------- match property --
 // The one mistake in this file that looks like success: a match condition the
 // framework never satisfies. The overlay installs, `cmd overlay list` prints
@@ -791,14 +996,11 @@ function cfgEntry(key) {
 }
 
 function matchCard() {
-  const card = el('div', 'cfg-match');
-  const head = el('div', 'cfg-match-head');
-  head.appendChild(el('span', 'cfg-match-title', 'Match property'));
-  head.appendChild(el('span', 'muted small', 'HW_OVERLAY_MATCH_PROP / _VALUE'));
-
-  const pick = document.createElement('select');
-  pick.className = 'adb-device-select cfg-match-device';
-  pick.setAttribute('aria-label', 'phone to ask');
+  const { card, pick, ask } = detectorCard(
+    'Submission match',
+    'HW_OVERLAY_MATCH_PROP / _VALUE',
+    'Which property the submission ships this overlay to. A property only works if zygote can read it and the value survives what is installed — the two things that make an overlay show as enabled and do nothing.'
+  );
   pick.addEventListener('change', () => {
     setAdbDevice(pick.value);
     // The ranking is about one phone: switching phones must not leave the last
@@ -808,16 +1010,7 @@ function matchCard() {
     renderAdbDevices();
     refreshMatchBody();
   });
-
-  const ask = document.createElement('button');
-  ask.type = 'button';
-  ask.textContent = 'Ask the phone';
   ask.addEventListener('click', askMatchProp);
-
-  head.append(pick, ask);
-  card.appendChild(head);
-  card.appendChild(el('p', 'hint',
-    'Read from the selected phone. A property only works if zygote can read it and the value survives what is installed — the two things that make an overlay show as enabled and do nothing.'));
   card.appendChild(matchBody());
   renderAdbDevices();
   // First paint of the form can happen before the device list has ever been
@@ -979,7 +1172,7 @@ async function askMatchProp() {
 
 // Stages one config line the way the row itself would, so the change shows up in
 // the form and Save sends it. Nothing is written to disk here.
-function stageMatchValue(key, value) {
+function stageCfgValue(key, value) {
   const entry = cfgEntry(key);
   if (!entry) return false;
   const row = document.querySelector(`#cfg-fields .cfg-row[data-line="${entry.line}"]`);
@@ -1000,8 +1193,8 @@ function stageMatchValue(key, value) {
 }
 
 function useMatch(c) {
-  const prop = stageMatchValue('HW_OVERLAY_MATCH_PROP', c.prop);
-  const value = stageMatchValue('HW_OVERLAY_MATCH_VALUE', c.value);
+  const prop = stageCfgValue('HW_OVERLAY_MATCH_PROP', c.prop);
+  const value = stageCfgValue('HW_OVERLAY_MATCH_VALUE', c.value);
   if (!prop || !value) {
     status('config.env has no HW_OVERLAY_MATCH_* lines — add them in the raw editor', 9000);
     return;
@@ -1604,7 +1797,7 @@ function askConfirm(title, text, yes = 'Delete') {
     $('confirm-title').textContent = title;
     $('confirm-text').textContent = text;
     $('confirm-yes').textContent = yes;
-    $('confirm').showModal();
+    openDialog($('confirm'));
     $('confirm-no').focus();
   });
 }
@@ -1612,7 +1805,7 @@ function askConfirm(title, text, yes = 'Delete') {
 function resolveConfirm(answer) {
   const resolve = confirmAnswer;
   confirmAnswer = null;
-  if ($('confirm').open) $('confirm').close();
+  closeDialog($('confirm'));
   if (resolve) resolve(answer);
 }
 
@@ -1629,7 +1822,7 @@ function openSudoPrompt() {
     $('sudo-error').hidden = false;
   }
   $('sudo-password').value = '';
-  $('sudo').showModal();
+  openDialog($('sudo'));
   $('sudo-password').focus();
 }
 
@@ -1642,13 +1835,13 @@ async function submitSudo(event) {
     return;
   }
   sudoPassword = password;
-  $('sudo').close();
+  closeDialog($('sudo'));
   if (pendingRun) await startRun(pendingRun);
 }
 
 function cancelSudo() {
   sudoDeclined = true;
-  $('sudo').close();
+  closeDialog($('sudo'));
   status('install skipped — the build tools are still missing', 6000);
 }
 
@@ -1821,7 +2014,7 @@ function openNewDialog(opts = {}) {
   $('file-new-name').value = opts.name || '';
   $('file-new-error').hidden = true;
   updateNewDialog();
-  $('file-new').showModal();
+  openDialog($('file-new'));
   $('file-new-name').focus();
 }
 
@@ -1882,7 +2075,7 @@ async function createNew(event) {
   try {
     if (kind === 'dir') {
       await api('api/files/mkdir', { method: 'POST', body: { path: rel } });
-      $('file-new').close();
+      closeDialog($('file-new'));
       await loadFiles();
       openFolder(rel, false);
       fileStatus('created src/' + rel + '/', 4000);
@@ -1890,7 +2083,7 @@ async function createNew(event) {
     }
     const text = fileTemplate(kind, name);
     await api('api/files/write', { method: 'POST', body: { path: rel, text } });
-    $('file-new').close();
+    closeDialog($('file-new'));
     await loadFiles();
     await openFile(rel, false);
     fileStatus('created src/' + rel, 4000);
@@ -2057,7 +2250,7 @@ function bindFiles() {
 
   $('file-new-kind').addEventListener('change', updateNewDialog);
   $('file-new-form').addEventListener('submit', createNew);
-  $('file-new-cancel').addEventListener('click', () => $('file-new').close());
+  $('file-new-cancel').addEventListener('click', () => closeDialog($('file-new')));
 
   $('confirm-yes').addEventListener('click', () => resolveConfirm(true));
   $('confirm-no').addEventListener('click', () => resolveConfirm(false));
@@ -2614,7 +2807,7 @@ async function openUpdate() {
   $('upd-go').textContent = 'Update now';
   delete $('upd-go').dataset.done;
   $('upd-head').textContent = 'checking for updates…';
-  if ($('update').showModal) $('update').showModal();
+  if ($('update').showModal) openDialog($('update'));
 
   try {
     updInfo = await api('api/update', { method: 'POST', body: { action: 'check' } });
@@ -3405,11 +3598,79 @@ function switchTab(name) {
 }
 
 // ------------------------------------------------------------------ dialog --
+// A dialog grows out of the control that opened it and travels to the middle
+// of the window. Only the browser knows where it will land, so the start point
+// is measured after showModal: the button's centre, relative to the dialog's,
+// and a scale that fits the dialog inside that button. Without a button (a
+// dialog the app opens for itself) the plain centred fade in app.css is used.
+function openDialog(dlg, from) {
+  // Focus moves into the dialog on showModal, so the trigger is read first.
+  const trigger = from || document.activeElement;
+  // Reopened while its exit was still playing: drop the exit and start over.
+  if (dlg.classList.contains('is-closing')) {
+    dlg.classList.remove('is-closing', 'from-control');
+    dlg.close();
+  }
+  if (dlg.open) return; // showModal() throws on an open dialog; the fields still repaint
+  dlg.classList.remove('from-control');
+  dlg.showModal();
+  const box = trigger && trigger.getBoundingClientRect ? trigger.getBoundingClientRect() : null;
+  // A body-sized or empty rect means the dialog was not opened from a control.
+  if (!box || !box.width || box.width > window.innerWidth * .8) return;
+  const d = dlg.getBoundingClientRect();
+  const dx = (box.left + box.width / 2) - (d.left + d.width / 2);
+  const dy = (box.top + box.height / 2) - (d.top + d.height / 2);
+  const s = Math.min(.8, Math.max(.35, (box.width + box.height) / (d.width + d.height)));
+  dlg.style.setProperty('--from-x', Math.round(dx) + 'px');
+  dlg.style.setProperty('--from-y', Math.round(dy) + 'px');
+  dlg.style.setProperty('--from-s', s.toFixed(3));
+  dlg.classList.add('from-control');
+}
+
+// Leaving: the same measured start point played backwards, so a dialog that
+// flew out of a button goes back into it. The dialog is still open while it
+// animates; closeDialog() calls the real close() once the card has left, which
+// is what the 'close' listeners that reset state wait for.
+const DIALOG_OUT_MS = 260;
+
+function closeDialog(dlg, value) {
+  if (!dlg || !dlg.open || dlg.classList.contains('is-closing')) return;
+
+  const finish = () => {
+    dlg.removeEventListener('animationend', onEnd);
+    dlg.classList.remove('is-closing', 'from-control');
+    if (dlg.open) dlg.close(value);
+  };
+  const onEnd = (event) => {
+    if (event.target === dlg) finish();
+  };
+
+  // With motion turned down there is nothing to wait for, and a window that is
+  // not painting animations would otherwise leave the dialog stuck open.
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    finish();
+    return;
+  }
+  // Closed while it was still flying in: an exit would restart from the middle
+  // and jump, so this one just goes.
+  const arriving = dlg.getAnimations && dlg.getAnimations().some(
+    (a) => a.playState === 'running' &&
+      (a.animationName === 'dialog-fly' || a.animationName === 'dialog-in')
+  );
+  if (arriving) {
+    finish();
+    return;
+  }
+  dlg.classList.add('is-closing');
+  dlg.addEventListener('animationend', onEnd);
+  setTimeout(finish, DIALOG_OUT_MS + 160); // longer than the CSS animation, as a backstop
+}
+
 function openSettings() {
   $('set-clone').value = state ? state.clone : '';
   $('set-bash').value = state ? state.bash : '';
   $('set-error').hidden = true;
-  $('settings').showModal();
+  openDialog($('settings'));
 }
 
 async function saveSettings(event) {
@@ -3418,7 +3679,7 @@ async function saveSettings(event) {
   const bash = $('set-bash').value.trim();
   try {
     state = await api('api/settings', { method: 'POST', body: { clone, bash } });
-    $('settings').close();
+    closeDialog($('settings'));
     cfgEdits.clear();
     files = null;
     filesSel = null;
@@ -3579,10 +3840,22 @@ function bind() {
   $('set-save').addEventListener('click', saveSettings);
 
   $('chip-update').addEventListener('click', openUpdate);
+
+  // Esc goes through the animated close as well. The dialogs that give a
+  // cancel its own meaning (the delete question, the sudo prompt) keep their
+  // own handlers: they run too, and set the answer before the card has left.
+  for (const dlg of document.querySelectorAll('dialog')) {
+    dlg.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeDialog(dlg);
+    });
+  }
+  $('set-cancel').addEventListener('click', () => closeDialog($('settings')));
+  $('upd-later').addEventListener('click', () => closeDialog($('update')));
   $('upd-go').addEventListener('click', (event) => {
     event.preventDefault();
     if ($('upd-go').dataset.done === '1') {
-      $('update').close();
+      closeDialog($('update'));
       return;
     }
     runUpdate();

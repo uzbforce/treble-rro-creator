@@ -2,10 +2,13 @@
 # =============================================================================
 # Treble Overlay Creator
 # =============================================================================
-# One command for everything. The first run installs whatever is missing,
-# then builds; later runs go straight to the build.
+# One command for everything. With a terminal attached it opens the menu, which
+# reaches every tool the desktop app has; with an argument it does exactly that
+# one thing, as before.
 #
-#   ./build.sh                 build (auto-installs the toolchain if needed)
+#   ./build.sh                 the menu (on a terminal); otherwise: build
+#   ./build.sh menu            the menu, even without a terminal
+#   ./build.sh build           build (auto-installs the toolchain if needed)
 #   ./build.sh setup           install / repair the toolchain only
 #   ./build.sh doctor          check the toolchain (read-only)
 #   ./build.sh check           validate config.env without building
@@ -45,6 +48,7 @@ tools_on_path
 # Options
 # ---------------------------------------------------------------------------
 MODE="build"
+REQUESTED=$#
 CHECK_MODE=false
 DRY_RUN=false
 ASSUME_YES=false
@@ -58,7 +62,9 @@ usage() {
     echo -e "  ${BOLD}Usage:${NC} ./build.sh [command] [options]"
     echo ""
     echo -e "  ${BOLD}Commands${NC}"
-    echo "    (none)             Build the overlay module (installs tools if needed)"
+    echo "    (none)             The menu (on a terminal), otherwise a build"
+    echo "    menu               The menu: build, config.env, addons, device probes"
+    echo "    build              Build the overlay module (installs tools if needed)"
     echo "    setup              Install or repair the build tools"
     echo "    doctor             Check the toolchain, install nothing"
     echo "    check              Validate config.env, build nothing"
@@ -68,6 +74,7 @@ usage() {
     echo -e "  ${BOLD}Options${NC}"
     echo "    -y, --yes              Accept defaults, skip prompts"
     echo "    --with-vendor-hals     With --yes: include src/vendor/ in the module"
+    echo "    --xiaomi-fod           Include the Xiaomi FOD helper (HBM + HIDL touch mode) in the module"
     echo "    --all                  With clean: also remove config and device files"
     echo "    --force                With setup: re-pick the resource dictionary"
     echo "    --allow-unknown-resources  Build even if a resource is missing from the target"
@@ -80,6 +87,7 @@ usage() {
 for arg in "$@"; do
     case "$arg" in
         build)          MODE="build" ;;
+        menu|--menu)    MODE="menu" ;;
         setup|--setup)  MODE="setup" ;;
         doctor|--doctor) MODE="doctor" ;;
         check|--check)  MODE="check" ;;
@@ -87,6 +95,7 @@ for arg in "$@"; do
         dry-run|--dry-run) MODE="dryrun" ;;
         -y|--yes)       ASSUME_YES=true ;;
         --with-vendor-hals) FORCE_VENDOR_HALS=true ;;
+        --xiaomi-fod)   XIAOMI_FOD=true ;;
         --all)          CLEAN_ALL=true ;;
         --force)        FORCE_RES="force" ;;
         --allow-unknown-resources) ALLOW_UNKNOWN_RESOURCES=true ;;
@@ -100,6 +109,12 @@ for arg in "$@"; do
     esac
 done
 
+# No arguments and a terminal to talk on: the menu. Everything scripted passes
+# a verb, so nothing that relied on the old no-argument build needs to change.
+if [ "$REQUESTED" -eq 0 ] && [ "${TREBLE_MENU:-1}" != "0" ] && [ -t 0 ] && [ -t 1 ]; then
+    MODE="menu"
+fi
+
 # A checkout on a Windows drive cannot be built from WSL (shared stuff/tools/).
 wsl_guard
 
@@ -107,6 +122,15 @@ wsl_guard
 # Dispatch
 # ---------------------------------------------------------------------------
 case "$MODE" in
+    menu)
+        # The terminal front end. It shells out to this same script for a build,
+        # so a build started from the menu is the build a user would type.
+        migrate_layout
+        . "$ROOT/stuff/scripts/menu.sh"
+        menu_main
+        exit $?
+        ;;
+
     doctor)
         if run_doctor; then exit 0; else exit 1; fi
         ;;

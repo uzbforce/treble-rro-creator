@@ -9,6 +9,7 @@
 # answer with the source it came from.
 #
 #   bash stuff/scripts/device-probe.sh                 # connected device
+#   bash stuff/scripts/device-probe.sh --device local  # this phone (Termux, needs root)
 #   bash stuff/scripts/device-probe.sh --firmware DIR  # extracted ROM dump
 #   bash stuff/scripts/device-probe.sh --json          # for the desktop app
 #   bash stuff/scripts/device-probe.sh --write         # put the winners in config.env
@@ -31,7 +32,9 @@
 #             ROM. The only source that still has the OEM's cutout path when a
 #             GSI has replaced the system partition.
 #
-# Nothing here is root-only.
+# Over adb nothing here is root-only. In Termux (--device local, or the offer
+# the menu makes there) the same reads happen natively and root is required:
+# `cmd`, `dumpsys` and /vendor are closed to an app UID.
 # =============================================================================
 
 set -uo pipefail
@@ -57,7 +60,7 @@ aapt2="${AAPT2:-}"
 fwdir=""
 
 usage() {
-    sed -n '3,39p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 die() { printf 'device-probe: %s\n' "$1" >&2; exit 1; }
@@ -67,6 +70,14 @@ die() { printf 'device-probe: %s\n' "$1" >&2; exit 1; }
 ADB_DEVICE_LIB="$(cd "$(dirname "$0")" && pwd)/adb-device.sh"
 [ -f "$ADB_DEVICE_LIB" ] || die "stuff/scripts/adb-device.sh is missing — the checkout is incomplete"
 . "$ADB_DEVICE_LIB"
+
+# How the report is drawn: boxes, tables and prose that wraps to the window.
+. "$(cd "$(dirname "$0")" && pwd)/ui.sh"
+
+# How the report is drawn: boxes, tables and wrapped prose that fit the window.
+UI_LIB="$(cd "$(dirname "$0")" && pwd)/ui.sh"
+[ -f "$UI_LIB" ] || die "stuff/scripts/ui.sh is missing — the checkout is incomplete"
+. "$UI_LIB"
 
 note() { notes+=("$1"); }
 warn() { warnings+=("$1"); }
@@ -97,7 +108,9 @@ done
 
 tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t deviceprobe)"
 cleanup() { rm -rf "$tmpdir"; }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 notes=()
 warnings=()
@@ -171,16 +184,8 @@ first_fact() {
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
-resolve_adb() {
-    [ -n "$adb" ] && return 0
-    adb="$(command -v adb 2>/dev/null || true)"
-    [ -n "$adb" ] && return 0
-    for adb in "$ROOT/stuff/tools/platform-tools/adb" "$ROOT/stuff/tools/platform-tools/adb.exe"; do
-        [ -x "$adb" ] && return 0
-    done
-    adb=""
-    return 1
-}
+# adb is located by resolve_adb in stuff/scripts/adb-device.sh, which the probe
+# already sources: one definition, honouring --adb, for every probe.
 
 resolve_aapt2() {
     [ -n "$aapt2" ] && return 0
@@ -228,9 +233,11 @@ apk_dimen_res() {
 # ---------------------------------------------------------------------------
 # Device mode
 # ---------------------------------------------------------------------------
-# </dev/null matters: adb inherits stdin, and a call made inside a `while read`
-# loop would otherwise eat the rest of the loop's input after the first pass.
-shel() { "$adb" ${serial:+-s "$serial"} shell "$1" </dev/null 2>/dev/null | tr -d '\r'; }
+# device_sh (stuff/scripts/adb-device.sh) is `adb shell`, or the same command
+# run as root on this phone in Termux. </dev/null matters either way: adb
+# inherits stdin, and a call made inside a `while read` loop would otherwise eat
+# the rest of the loop's input after the first pass.
+shel() { device_sh "$1"; }
 
 # Overlay state needs root on some ROMs (HyperOS is one): the plain call returns
 # an error, which read as "no overlays" and silently fell back to the GSI's own
@@ -249,15 +256,8 @@ ovl_dump() {
 }
 
 # pull that also works for a root-only file (/vendor/overlay is one): adb pull
-# runs as the shell user, `su 0 cat` does not.
-pull_file() {
-    local remote="$1" local_path="$2"
-    "$adb" ${serial:+-s "$serial"} pull "$remote" "$(winpath "$local_path")" >/dev/null 2>&1 \
-        && [ -s "$local_path" ] && return 0
-    "$adb" ${serial:+-s "$serial"} exec-out "su 0 cat '$remote'" >"$local_path" 2>/dev/null \
-        && [ -s "$local_path" ] && return 0
-    return 1
-}
+# runs as the shell user, `su 0 cat` does not. Local mode is already root.
+pull_file() { device_pull "$1" "$2"; }
 
 # cmd overlay lookup needs the shell permission; fall back to su when a build
 # only allows root. An error string is a miss, not a value.
@@ -299,13 +299,13 @@ dimen_to_px() {
 
 pick_serial() {
     # One phone: use it. Several: ask, or stop with the list and the --device
-    # spelling. See stuff/scripts/adb-device.sh for the states it understands.
-    adb_pick_device "$adb" "$serial" "device-probe" || exit 1
+    # spelling. In Termux the phone is this machine and device_connect asks
+    # about reading it directly. See stuff/scripts/adb-device.sh.
+    device_connect "device-probe" "$serial" || exit 1
     serial="$DEVICE_SERIAL"
 }
 
 probe_device() {
-    resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
     pick_serial
 
     local props size dens_out
@@ -930,7 +930,6 @@ profile_looks_real() {
 }
 
 power_profile_device() {
-    resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
     pick_serial
     resolve_aapt2 || die "aapt2 not found — it is needed to read the APK"
 
@@ -1061,19 +1060,21 @@ emit_json() {
 
 emit_human() {
     local i
-    printf '\n'
+    local -a head=()
     if [ "$mode" = "device" ]; then
-        printf 'Device   %s (%s)  %sx%s @%s dpi\n' \
-            "${MODEL:-unknown}" "${CODENAME:-unknown}" "${W:-?}" "${H:-?}" "${DENS:-?}"
-        printf 'ROM      %s\n' "${rom:-unknown}"
+        ui_title "Auto detect" "Cutout, corners, status bar, brightness, refresh rates and the ROM feature switches, read from the phone."
+        head+=("Device|${MODEL:-unknown} (${CODENAME:-unknown})")
+        head+=("Screen|${W:-?}x${H:-?} @${DENS:-?} dpi")
+        head+=("ROM|${rom:-unknown}")
     else
-        printf 'Firmware %s\n' "$fwdir"
+        ui_title "Auto detect" "Read from an unpacked firmware folder rather than a running phone."
+        head+=("Firmware|$fwdir")
     fi
-    printf '\n'
+    ui_panel "Source" "${head[@]}"
 
     if [ "${#f_key[@]}" -eq 0 ]; then
-        printf 'Nothing found.\n'
-        for i in "${warnings[@]+"${warnings[@]}"}"; do printf '  ! %s\n' "$i"; done
+        ui_mark bad "Nothing found — no source answered."
+        for i in "${warnings[@]+"${warnings[@]}"}"; do ui_mark warn "$i"; done
         return
     fi
 
@@ -1081,15 +1082,15 @@ emit_human() {
     # it is cut to a readable length here and printed in full further down.
     short_value() {
         local v="$1"
-        if [ "${#v}" -gt 44 ]; then printf '%s…' "${v:0:43}"; else printf '%s' "$v"; fi
+        if [ "${#v}" -gt 29 ]; then printf '%s…' "${v:0:28}"; else printf '%s' "$v"; fi
     }
 
-    printf '%-26s %-46s %-20s %s\n' "SETTING" "VALUE" "SOURCE" "CONFIDENCE"
+    local -a table=()
     for i in "${!f_key[@]}"; do
-        printf '%-26s %-46s %-20s %s\n' \
-            "${f_key[$i]}" "$(short_value "${f_value[$i]}${f_unit[$i]:+ ${f_unit[$i]}}")" \
-            "${f_src[$i]}" "${f_conf[$i]}"
+        table+=("${f_key[$i]}|$(short_value "${f_value[$i]}${f_unit[$i]:+ ${f_unit[$i]}}")|${f_src[$i]}|${f_conf[$i]}")
     done
+    ui_heading "Answers"
+    ui_table "SETTING|VALUE|SOURCE|CONFIDENCE" "${table[@]}"
 
     # Disagreement is the interesting case: the same setting with two values
     # means two sources, and the user has to pick which one to believe.
@@ -1106,15 +1107,13 @@ emit_human() {
                 if [ -z "$first" ]; then first="$i"
                 elif [ "${f_value[$i]}" != "${f_value[$first]}" ] && [ -z "$second" ]; then second="$i"; fi
             done
-            printf '\n%s differs: %s says %s, %s says %s\n' \
-                "$key" "${f_src[$first]}" "$(short_value "${f_value[$first]}")" \
-                "${f_src[$second]}" "$(short_value "${f_value[$second]}")"
+            ui_mark warn "$key differs: ${f_src[$first]} says ${f_value[$first]}, ${f_src[$second]} says ${f_value[$second]}"
         else
-            printf '\n%s: %s different answers — pick one from the table\n' "$key" "$distinct"
+            ui_mark warn "$key: $distinct different answers — pick one from the table"
         fi
     done
 
-    printf '\nvalues for config.env:\n'
+    ui_heading "Values for config.env"
     for i in "${!f_key[@]}"; do
         local seen=""
         local j
@@ -1123,13 +1122,24 @@ emit_human() {
         done
         [ -n "$seen" ] && continue
         case "${f_key[$i]}" in
-            DISPLAY_CUTOUT|LIGHT_SENSOR_TYPE) printf '  %s="%s"\n' "${f_key[$i]}" "${f_value[$i]}" ;;
-            *) printf '  %s=%s\n' "${f_key[$i]}" "${f_value[$i]}" ;;
+            DISPLAY_CUTOUT|LIGHT_SENSOR_TYPE)
+                printf '  %s%s%s=\"%s\"\n' "$UI_BOLD" "${f_key[$i]}" "$UI_OFF" "${f_value[$i]}" ;;
+            *)
+                printf '  %s%s%s=%s\n' "$UI_BOLD" "${f_key[$i]}" "$UI_OFF" "${f_value[$i]}" ;;
         esac
     done
 
-    for i in "${notes[@]+"${notes[@]}"}"; do printf '\nnote: %s\n' "$i"; done
-    for i in "${warnings[@]+"${warnings[@]}"}"; do printf '\nwarning: %s\n' "$i"; done
+    if [ "${#notes[@]}" -gt 0 ] || [ "${#warnings[@]}" -gt 0 ]; then
+        ui_heading "Worth knowing"
+        for i in "${notes[@]+"${notes[@]}"}"; do
+            printf '\n'
+            ui_mark note "$i"
+        done
+        for i in "${warnings[@]+"${warnings[@]}"}"; do
+            printf '\n'
+            ui_mark warn "$i"
+        done
+    fi
 }
 
 # ---------------------------------------------------------------------------

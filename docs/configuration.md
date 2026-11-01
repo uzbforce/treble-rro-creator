@@ -133,7 +133,7 @@ adb shell cmd overlay lookup <package> android:dimen/status_bar_height_default
 
 ### The app ranks it from the phone
 
-The **Match property** card in the Config tab (inside *Overlay activation*)
+The **Submission match** card in the Config tab (in *Overlay repo submission*)
 answers this without guessing. **Ask the phone** reads the selected device's
 `getprop` and `getprop -Z` and ranks every property a static overlay can match
 on, then **Use** stages `HW_OVERLAY_MATCH_PROP` / `HW_OVERLAY_MATCH_VALUE` in the
@@ -173,7 +173,10 @@ with `cmd overlay lookup` after flashing.
 This only decides the **submission** pair (`HW_OVERLAY_MATCH_PROP`/`_VALUE`). The
 module's own `DEVICE_PROP_NAME` stays `persist.sys.overlay.<codename>`: the
 module sets that property at boot, so it always matches and needs no evidence
-from the phone.
+from the phone. That pair has its own card, **Module condition**, under
+*Overlay activation*: **Ask the phone** there reads the codename and **Use**
+stages `persist.sys.overlay.<codename>` = `true` into `DEVICE_PROP_NAME` /
+`DEVICE_PROP_VALUE`, leaving `HW_OVERLAY_MATCH_*` alone.
 
 ---
 

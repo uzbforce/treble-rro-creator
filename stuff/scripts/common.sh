@@ -92,20 +92,26 @@ fi
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+# The drawing helpers — the window width, the palette, boxes, tables and prose
+# that wraps — are in ui.sh. Everything below is the one-word verb for one of
+# them, so a build log, the menu and a probe report are drawn by the same rules
+# and fit the same phone.
+. "${BASH_SOURCE[0]%/*}/ui.sh"
+
+# Kept for the scripts that still colour a line by hand.
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
-info() { echo -e "  ${YELLOW}→${NC} $*"; }
-warn() { echo -e "  ${YELLOW}⚠${NC} $*"; }
-err()  { echo -e "  ${RED}✗${NC} $*" >&2; }
-step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+ok()   { ui_mark ok "$*"; }
+info() { ui_mark note "$*"; }
+warn() { ui_mark warn "$*"; }
+err()  { ui_mark bad "$*" >&2; }
+step() { printf '\n'; ui_heading "$*"; }
 
+# banner TEXT — a title, ruled to the width of the window.
 banner() {
-    echo ""
-    echo -e "  ${BOLD}$*${NC}"
-    echo -e "  ${BOLD}──────────────────────────────────────────────────────────${NC}"
-    echo ""
+    ui_title "$*"
+    printf '\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -416,6 +422,13 @@ toolchain_missing() {
 # Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER; everything
 # else is derived. A value containing "<" is a template placeholder.
 derive_overlay_identity() {
+    # Remember which identity keys were still the template before they are
+    # replaced, so check/build can warn instead of silently building "generic".
+    IDENTITY_PLACEHOLDER=""
+    [ -n "${DEVICE_MANUFACTURER:-}" ] && [[ "$DEVICE_MANUFACTURER" != *"<"* ]] || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_MANUFACTURER"
+    [ -n "${DEVICE_MODEL:-}" ] && [[ "$DEVICE_MODEL" != *"<"* ]]            || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_MODEL"
+    [ -n "${DEVICE_CODENAME:-}" ] && [[ "$DEVICE_CODENAME" != *"<"* ]]      || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_CODENAME"
+
     [ -z "${DEVICE_MANUFACTURER:-}" ] || [[ "$DEVICE_MANUFACTURER" == *"<"* ]] && DEVICE_MANUFACTURER="generic"
     [ -z "${DEVICE_CODENAME:-}" ]     || [[ "$DEVICE_CODENAME" == *"<"* ]]     && DEVICE_CODENAME="generic"
 
@@ -436,6 +449,11 @@ derive_overlay_identity() {
     [ -z "${OVERLAY_PACKAGE:-}" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
     [ -z "${OVERLAY_PACKAGE_SYSTEMUI:-}" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
     [[ "${DEVICE_PROP_VALUE:-}" == *"<"* ]] && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
+    # The template spells the property as persist.sys.overlay.<codename>, so the
+    # token expands to whatever DEVICE_CODENAME resolved to.
+    if [[ "${DEVICE_PROP_NAME:-}" == *"<codename>"* ]]; then
+        DEVICE_PROP_NAME="${DEVICE_PROP_NAME//<codename>/$DEVICE_CODENAME}"
+    fi
     # Only placeholders are replaced. An EMPTY DEVICE_PROP_NAME is meaningful: it
     # builds an overlay with no match condition (always active), which is the safe
     # default for framework overlays — see the Overlay Activation section of

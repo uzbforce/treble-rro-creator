@@ -4,7 +4,9 @@ rem build.cmd - Windows entry point
 rem ---------------------------------------------------------------------------
 rem Finds Git for Windows (never WSL) and runs build.sh, which does everything:
 rem
-rem   build.cmd                  build (downloads the toolchain on first run)
+rem   build.cmd                  the menu: build, config.env, addons, device probes
+rem   build.cmd menu             the menu, even when there is no terminal
+rem   build.cmd build            the overlay build (installs the toolchain first)
 rem   build.cmd setup            install / repair the build tools
 rem   build.cmd doctor           check the toolchain
 rem   build.cmd check            validate config.env
