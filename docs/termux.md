@@ -113,7 +113,8 @@ With the phone in the same hand, `4` (Device) fills in `DEVICE_CODENAME`,
 what the running ROM says about the hardware — cutout path, corner radii, status
 bar height, refresh rates, the VoLTE and 5G flags, the light sensor and the OEM
 switches — and `6` (UDFPS) finds the fingerprint sensor's real geometry. No PC,
-no typing values between screens.
+no typing values between screens. Those four options need root; see
+[section 5](#5-root-for-the-phone-probes).
 
 Do not forget `src/framework/res/xml/power_profile.xml` — replace it with your
 device's file, see
@@ -121,7 +122,62 @@ device's file, see
 
 ---
 
-## 5. Install the module
+## 5. Root for the phone probes
+
+On a PC the probes ask the phone over `adb shell`. In Termux there is nothing to
+plug in and no server to dial — the phone the probes want is the one the script
+is already running on — so they read it directly instead: the same `getprop`,
+`cmd overlay`, `wm`, `dumpsys` and `/vendor` reads, run natively.
+
+That path needs root. Termux runs as an app UID, and `cmd`, `dumpsys` and most
+of `/vendor` are closed to it. A root shell also lets `/vendor/build.prop` and
+the vendor `overlay/` APKs be read for the firmware values the GSI no longer has.
+
+Start the tool through `su` or `tsu`:
+
+```bash
+tsu ./build.sh          # recommended: root for the whole session
+```
+
+or just run `./build.sh` and let it ask. The first time you pick a probe in
+Termux, the menu explains this once and offers to read the phone directly:
+
+```
+  This is Termux, so the phone is this one rather than a device on a cable.
+  Reading it directly needs root: the same getprop, cmd overlay, wm and
+  dumpsys reads a PC makes over adb.
+  Read this phone as root? [Y/n]
+```
+
+`su` prompts for permission on the first read. The answer is remembered for the
+session: every later probe — and `7` (Match property) — uses it without asking
+again, and the options are labelled **this phone** rather than **the connected
+phone**. Decline and the probes fall back to adb, which is what you want when a
+second phone is on the cable (Termux's `android-tools` can reach one over
+wireless debugging).
+
+If no `su` binary exists:
+
+```bash
+pkg install tsu
+tsu ./build.sh
+```
+
+Root not granted is reported, not worked around — every read would come back
+empty and the report would look like a ROM that answers nothing.
+
+Two practical notes:
+
+- **The device wait.** On a PC a probe waits up to 120s for a cable to be
+  plugged in. That wait cannot end on Termux, so when this machine is the phone
+  the local source is chosen before the wait starts. `Ctrl-C` leaves a wait in
+  any case and puts you back in the submenu.
+- **Speed.** Each read is one root call, about the same count of round trips a
+  PC makes over adb — a few seconds, not instant.
+
+---
+
+## 6. Install the module
 
 ```bash
 cp out/*-ksu.zip /sdcard/

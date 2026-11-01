@@ -12,13 +12,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const lib = join(root, 'stuff', 'scripts', 'adb-device.sh');
+// Some cases run with a PATH that deliberately has nothing on it, so bash is
+// resolved once, up front, by absolute path.
+const BASH = execFileSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim();
 
 const BOTH_READY = `List of devices attached
 RFCM90F5BBX            device product:lineage_r3q model:SM_A908N device:r3q transport_id:36
@@ -397,4 +400,211 @@ test('adb that never answers is cut off with advice, not a hang', () => {
   );
   assert.match(listOut, /status=1/);
   assert.match(listOut, /did not answer within .*adb kill-server/);
+});
+
+// --- this phone, read directly (Termux) --------------------------------------
+// In Termux there is no adb server to dial: the phone is the machine the script
+// is running on, and the reads a PC makes over `adb shell` happen natively as
+// root. These cases pin that the source is chosen without touching adb, that a
+// refused root prompt is a clear line rather than an empty report, and that the
+// probes' `su 0` retries are not a second escalation.
+
+// A bin directory holding `su` (which logs the command it was handed and runs
+// it), on top of the normal PATH.
+function localEnv(extra = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'adb-local-'));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const log = join(dir, 'su.log');
+  // A shell cannot change uid, so the gate's own question (`id -u`) is what is
+  // answered as root; everything else runs as-is. The log is how a test sees
+  // exactly what the tool asked for.
+  writeFileSync(
+    join(bin, 'su'),
+    `#!/bin/sh
+printf '%s\\n' "$2" >> "$FAKE_SU_LOG"
+case "$2" in
+  'id -u') echo 0 ;;
+  *) exec sh -c "$2" ;;
+esac
+`
+  );
+  chmodSync(join(bin, 'su'), 0o755);
+  return {
+    dir,
+    log,
+    env: {
+      PATH: `${bin}:${process.env.PATH}`,
+      FAKE_SU_LOG: log,
+      TERMUX_VERSION: '1',
+      ROOT: root,
+      ...extra,
+    },
+  };
+}
+
+function localRun(env, script) {
+  try {
+    return {
+      out: execFileSync(BASH, ['-c', `{ . "${lib}" && ${script}; } 2>&1`], {
+        env,
+        input: '',
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+      status: 0,
+    };
+  } catch (err) {
+    return { out: `${err.stdout || ''}${err.stderr || ''}`, status: err.status ?? 1 };
+  }
+}
+
+test('Termux is recognised by the environment it sets, and only there', () => {
+  const plain = { PATH: process.env.PATH, HOME: '/home/someone', PREFIX: '/usr' };
+  assert.equal(localRun(plain, 'device_is_termux && echo yes || echo no').out.trim(), 'no');
+  const cases = [
+    { TERMUX_VERSION: '0.118.1' },
+    { PREFIX: '/data/data/com.termux/files/usr' },
+    { HOME: '/data/data/com.termux/files/home' },
+  ];
+  for (const extra of cases) {
+    const out = localRun({ ...plain, ...extra }, 'device_is_termux && echo yes || echo no');
+    assert.equal(out.out.trim(), 'yes', `not detected from ${JSON.stringify(extra)}`);
+  }
+});
+
+test('--device local reads this phone and never runs adb', () => {
+  const { dir, env } = localEnv();
+  // An adb that would be obvious if it were used, and would answer if asked.
+  const marker = join(dir, 'adb-was-run');
+  const adb = join(dir, 'adb');
+  writeFileSync(adb, `#!/bin/sh\n: > "$FAKE_MARKER"\nexit 0\n`);
+  chmodSync(adb, 0o755);
+  const out = localRun(
+    { ...env, adb, FAKE_MARKER: marker },
+    `device_connect test-probe local && printf 'PICKED=%s' "$DEVICE_SERIAL"`
+  );
+  assert.equal(out.status, 0, out.out);
+  assert.match(out.out, /PICKED=local/);
+  assert.ok(!existsSync(marker), 'local mode ran adb');
+  // It says which phone it is reading, and how it got root.
+  assert.match(out.out, /reading this phone directly \(via su\)/);
+});
+
+test('a session answer of "local" is used without announcing it again', () => {
+  // The menu asks once and passes 1 down; every probe would otherwise repeat
+  // the line, which reads like a second, failed attempt.
+  const { env } = localEnv({ DEVICE_LOCAL_REQUEST: '1' });
+  const out = localRun(env, `device_connect test-probe && printf 'PICKED=%s' "$DEVICE_SERIAL"`);
+  assert.equal(out.status, 0, out.out);
+  assert.match(out.out, /PICKED=local/);
+  assert.doesNotMatch(out.out, /reading this phone directly/);
+});
+
+test('a serial typed on the command line outranks the session answer', () => {
+  const { adb, table } = fakeAdb(ONE_READY);
+  const { env } = localEnv({ DEVICE_LOCAL_REQUEST: '1', adb, FAKE_DEVICES: table });
+  const out = localRun(env, `device_connect test-probe RFCM90F5BBX && printf 'PICKED=%s' "$DEVICE_SERIAL"`);
+  assert.equal(out.status, 0, out.out);
+  assert.match(out.out, /PICKED=RFCM90F5BBX/);
+});
+
+test('the local shell is already root, so `su 0` is not escalated twice', () => {
+  const { env, log } = localEnv();
+  const out = localRun(
+    env,
+    `device_connect test-probe local >/dev/null 2>&1; : > "$FAKE_SU_LOG"; device_sh 'su 0 echo hello'`
+  );
+  assert.equal(out.status, 0, out.out);
+  assert.equal(out.out.trim(), 'hello');
+  assert.equal(readFileSync(log, 'utf8').trim(), 'echo hello');
+});
+
+test('a root-only file is read natively, quotes in the path and all', () => {
+  const { dir, env } = localEnv();
+  const remote = join(dir, "vendor's overlay.apk");
+  writeFileSync(remote, 'PK-not-really-an-apk');
+  const dest = join(dir, 'pulled.apk');
+  const out = localRun(env, `device_connect test-probe local >/dev/null 2>&1; device_pull ${JSON.stringify(remote)} ${JSON.stringify(dest)}`);
+  assert.equal(out.status, 0, out.out);
+  assert.equal(readFileSync(dest, 'utf8'), 'PK-not-really-an-apk');
+});
+
+test('no escalator on the phone explains how to get one, and fails', () => {
+  // A PATH with `id` and nothing else: no su, tsu or sudo to find.
+  const dir = mkdtempSync(join(tmpdir(), 'adb-noroot-'));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const id = execFileSync('sh', ['-c', 'command -v id'], { encoding: 'utf8' }).trim();
+  execFileSync('ln', ['-s', id, join(bin, 'id')]);
+  const out = localRun(
+    { PATH: bin, TERMUX_VERSION: '1', ROOT: dir, HOME: '/data/data/com.termux/files/home' },
+    `device_connect test-probe local; printf 'rc=%s SERIAL=%s' "$?" "$DEVICE_SERIAL"`
+  );
+  assert.match(out.out, /rc=1/);
+  assert.match(out.out, /needs root, and no su\/tsu\/sudo was found/);
+  assert.match(out.out, /pkg install tsu/);
+  assert.match(out.out, /SERIAL=$/);
+});
+
+test('root that is refused says so instead of reporting nothing', () => {
+  const { dir } = localEnv();
+  // su that fails the way a denied prompt does.
+  const refused = join(dir, 'refused');
+  mkdirSync(refused, { recursive: true });
+  writeFileSync(join(refused, 'su'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(refused, 'su'), 0o755);
+  const out = localRun(
+    { ...localEnv().env, PATH: `${refused}:${process.env.PATH}` },
+    `device_connect test-probe local; printf 'rc=%s SERIAL=%s' "$?" "$DEVICE_SERIAL"`
+  );
+  assert.match(out.out, /rc=1/);
+  assert.match(out.out, /root was not granted/);
+  assert.match(out.out, /SERIAL=$/);
+});
+
+test('Termux without adb and without an answer offers the phone itself', () => {
+  // A probe run straight from the command line, not through the menu: stdin is
+  // not a terminal, so it cannot ask — and adb has nothing to dial, so the
+  // direct source is the only one that can answer.
+  const { dir, env } = localEnv({ ROOT: mkdtempSync(join(tmpdir(), 'adb-noroot-')) });
+  // An adb that answers with an empty desk: "adb is present but sees no phone",
+  // which is the case the offer exists for.
+  const adb = join(dir, 'adb');
+  writeFileSync(adb, `#!/bin/sh\nprintf 'List of devices attached\\n\\n'\n`);
+  chmodSync(adb, 0o755);
+  const out = localRun(
+    { ...env, adb },
+    `device_connect test-probe && printf 'PICKED=%s' "$DEVICE_SERIAL"`
+  );
+  assert.equal(out.status, 0, out.out);
+  assert.match(out.out, /PICKED=local/);
+});
+
+test('in Termux a phone adb can already see is used, and the direct source is not offered', () => {
+  // Wireless debugging exists on Termux: when adb really has a phone, that is
+  // the phone the user is pointing at. Only an empty `adb devices` makes this
+  // machine the obvious candidate.
+  const { adb, table } = fakeAdb(ONE_READY);
+  const { env } = localEnv({ adb, FAKE_DEVICES: table });
+  const out = localRun(env, `device_connect test-probe && printf 'PICKED=%s' "$DEVICE_SERIAL"`);
+  assert.equal(out.status, 0, out.out);
+  assert.match(out.out, /PICKED=RFCM90F5BBX/);
+  assert.doesNotMatch(out.out, /reading this phone directly/);
+});
+
+test('Termux with the offer declined points at running as root, not at adb', () => {
+  const out = localRun(
+    {
+      PATH: '/nonexistent',
+      TERMUX_VERSION: '1',
+      DEVICE_LOCAL_REQUEST: '0',
+      ROOT: mkdtempSync(join(tmpdir(), 'adb-noroot-')),
+    },
+    `device_connect test-probe; printf 'rc=%s SERIAL=%s' "$?" "$DEVICE_SERIAL"`
+  );
+  assert.match(out.out, /rc=1/);
+  assert.match(out.out, /adb cannot reach a phone from Termux/);
+  assert.match(out.out, /tsu .*\/build\.sh/);
+  assert.doesNotMatch(out.out, /install platform-tools/);
 });

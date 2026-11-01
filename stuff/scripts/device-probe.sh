@@ -9,6 +9,7 @@
 # answer with the source it came from.
 #
 #   bash stuff/scripts/device-probe.sh                 # connected device
+#   bash stuff/scripts/device-probe.sh --device local  # this phone (Termux, needs root)
 #   bash stuff/scripts/device-probe.sh --firmware DIR  # extracted ROM dump
 #   bash stuff/scripts/device-probe.sh --json          # for the desktop app
 #   bash stuff/scripts/device-probe.sh --write         # put the winners in config.env
@@ -31,7 +32,9 @@
 #             ROM. The only source that still has the OEM's cutout path when a
 #             GSI has replaced the system partition.
 #
-# Nothing here is root-only.
+# Over adb nothing here is root-only. In Termux (--device local, or the offer
+# the menu makes there) the same reads happen natively and root is required:
+# `cmd`, `dumpsys` and /vendor are closed to an app UID.
 # =============================================================================
 
 set -uo pipefail
@@ -57,7 +60,7 @@ aapt2="${AAPT2:-}"
 fwdir=""
 
 usage() {
-    sed -n '3,39p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 die() { printf 'device-probe: %s\n' "$1" >&2; exit 1; }
@@ -173,16 +176,8 @@ first_fact() {
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
-resolve_adb() {
-    [ -n "$adb" ] && return 0
-    adb="$(command -v adb 2>/dev/null || true)"
-    [ -n "$adb" ] && return 0
-    for adb in "$ROOT/stuff/tools/platform-tools/adb" "$ROOT/stuff/tools/platform-tools/adb.exe"; do
-        [ -x "$adb" ] && return 0
-    done
-    adb=""
-    return 1
-}
+# adb is located by resolve_adb in stuff/scripts/adb-device.sh, which the probe
+# already sources: one definition, honouring --adb, for every probe.
 
 resolve_aapt2() {
     [ -n "$aapt2" ] && return 0
@@ -230,9 +225,11 @@ apk_dimen_res() {
 # ---------------------------------------------------------------------------
 # Device mode
 # ---------------------------------------------------------------------------
-# </dev/null matters: adb inherits stdin, and a call made inside a `while read`
-# loop would otherwise eat the rest of the loop's input after the first pass.
-shel() { "$adb" ${serial:+-s "$serial"} shell "$1" </dev/null 2>/dev/null | tr -d '\r'; }
+# device_sh (stuff/scripts/adb-device.sh) is `adb shell`, or the same command
+# run as root on this phone in Termux. </dev/null matters either way: adb
+# inherits stdin, and a call made inside a `while read` loop would otherwise eat
+# the rest of the loop's input after the first pass.
+shel() { device_sh "$1"; }
 
 # Overlay state needs root on some ROMs (HyperOS is one): the plain call returns
 # an error, which read as "no overlays" and silently fell back to the GSI's own
@@ -251,15 +248,8 @@ ovl_dump() {
 }
 
 # pull that also works for a root-only file (/vendor/overlay is one): adb pull
-# runs as the shell user, `su 0 cat` does not.
-pull_file() {
-    local remote="$1" local_path="$2"
-    "$adb" ${serial:+-s "$serial"} pull "$remote" "$(winpath "$local_path")" >/dev/null 2>&1 \
-        && [ -s "$local_path" ] && return 0
-    "$adb" ${serial:+-s "$serial"} exec-out "su 0 cat '$remote'" >"$local_path" 2>/dev/null \
-        && [ -s "$local_path" ] && return 0
-    return 1
-}
+# runs as the shell user, `su 0 cat` does not. Local mode is already root.
+pull_file() { device_pull "$1" "$2"; }
 
 # cmd overlay lookup needs the shell permission; fall back to su when a build
 # only allows root. An error string is a miss, not a value.
@@ -301,13 +291,13 @@ dimen_to_px() {
 
 pick_serial() {
     # One phone: use it. Several: ask, or stop with the list and the --device
-    # spelling. See stuff/scripts/adb-device.sh for the states it understands.
-    adb_pick_device "$adb" "$serial" "device-probe" || exit 1
+    # spelling. In Termux the phone is this machine and device_connect asks
+    # about reading it directly. See stuff/scripts/adb-device.sh.
+    device_connect "device-probe" "$serial" || exit 1
     serial="$DEVICE_SERIAL"
 }
 
 probe_device() {
-    resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
     pick_serial
 
     local props size dens_out
@@ -932,7 +922,6 @@ profile_looks_real() {
 }
 
 power_profile_device() {
-    resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
     pick_serial
     resolve_aapt2 || die "aapt2 not found — it is needed to read the APK"
 

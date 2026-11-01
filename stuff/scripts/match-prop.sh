@@ -13,6 +13,7 @@
 #   bash stuff/scripts/match-prop.sh --json           # for scripts
 #
 #   --device SERIAL   with more than one phone attached
+#   --device local    read this phone directly (Termux, needs root)
 #   --adb PATH        adb is looked up on PATH and in stuff/tools/platform-tools
 #   --values FILE --labels FILE   rank saved `getprop` / `getprop -Z` output
 #                                 instead of asking a phone (tests, offline)
@@ -47,7 +48,7 @@ values_file=""
 labels_file=""
 
 usage() {
-    sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 die() { printf 'match-prop: %s\n' "$1" >&2; exit 1; }
@@ -102,17 +103,9 @@ prop_of() {
     awk -F'\t' -v k="$2" '$1 == k { print $2; exit }' "$1"
 }
 
-resolve_adb() {
-    [ -n "$adb" ] && return 0
-    adb="$(command -v adb 2>/dev/null || true)"
-    [ -n "$adb" ] && return 0
-    local candidate
-    for candidate in "$ROOT/stuff/tools/platform-tools/adb" "$ROOT/stuff/tools/platform-tools/adb.exe"; do
-        [ -x "$candidate" ] && { adb="$candidate"; return 0; }
-    done
-    adb=""
-    return 1
-}
+# adb is located by resolve_adb in stuff/scripts/adb-device.sh, which
+# collect_from_device sources below: one definition, honouring --adb, for every
+# probe.
 
 # ---------------------------------------------------------------------------
 # Reading the phone
@@ -121,15 +114,15 @@ resolve_adb() {
 # the same question and accepts the same --device value.
 collect_from_device() {
     . "$ROOT/stuff/scripts/adb-device.sh"
-    resolve_adb || die "adb was not found — install platform-tools, or pass --adb PATH"
-    adb_pick_device "$adb" "$serial" match-prop || exit 1
+    # adb, or this phone read natively in Termux (device_connect in adb-device.sh).
+    device_connect "match-prop" "$serial" || exit 1
     serial="$DEVICE_SERIAL"
 
-    "$adb" -s "$serial" shell getprop </dev/null 2>/dev/null | parse_props >"$tmpdir/values"
+    device_sh getprop | parse_props >"$tmpdir/values"
     [ -s "$tmpdir/values" ] || die "the phone did not answer getprop — is it connected and authorized?"
     # The areas are the second-best signal, never required: `getprop -Z` is
     # missing on old Android, and without it the ranking still works.
-    "$adb" -s "$serial" shell getprop -Z </dev/null 2>/dev/null | parse_props >"$tmpdir/labels"
+    device_sh 'getprop -Z' | parse_props >"$tmpdir/labels"
     : >"$tmpdir/labels.ok"
 }
 

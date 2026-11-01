@@ -38,6 +38,13 @@
 # value can be tested with `index(states, " " $2 " ")`.
 ADB_DEVICE_STATES=" device offline unauthorized bootloader recovery sideload rescue host connecting no "
 
+# Which source the probes read: 0 = a phone on the end of adb, 1 = this phone.
+DEVICE_LOCAL=0
+DEVICE_SERIAL=""
+# How a command is run as root in local mode: "root" when the script already is
+# root, otherwise the binary that escalates (su, tsu, sudo).
+DEVICE_ROOT_CMD=""
+
 # The model and product from one `adb devices -l` line, for a menu a human can
 # read. Both are optional in adb's output, so this never assumes either. A
 # TCP/mDNS serial is called out: with USB and wireless adb on, the same phone
@@ -109,6 +116,221 @@ adb_device_resolve() {
         return 0
     fi
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# This phone, read directly (Termux)
+# ---------------------------------------------------------------------------
+# In Termux there is no adb server to dial: the phone is the machine the script
+# is running on. "Plug the phone in" is advice nobody can follow there, and
+# installing platform-tools only adds a binary that still has nothing to talk to.
+#
+# With root, the same commands the probes send over `adb shell` run natively —
+# getprop, cmd overlay, wm size/density, dumpsys and reads of /vendor — so local
+# mode is not a smaller detector, it is the same one with a shorter cable. Root
+# is not optional: an app UID is refused `cmd`, `dumpsys` and most /vendor files.
+#
+# DEVICE_LOCAL=1 selects it, DEVICE_ROOT_CMD says how to escalate, and the
+# probe's `serial` becomes "local" so nothing tries `adb -s local`.
+
+device_is_termux() {
+    [ -n "${TERMUX_VERSION:-}" ] && return 0
+    case "${PREFIX:-}" in */com.termux/*) return 0 ;; esac
+    case "${HOME:-}" in /data/data/com.termux/*) return 0 ;; esac
+    return 1
+}
+
+# The binary that reaches root on this phone, or "root" when we are already it.
+# su, tsu (Termux's su wrapper) and sudo all take `-c CMD`.
+device_root_cmd() {
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then printf 'root'; return 0; fi
+    local c
+    for c in su tsu sudo; do
+        command -v "$c" >/dev/null 2>&1 && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+# One command string as root on this phone, the same shape `adb shell` takes, so
+# the probes never learn which source they have.
+device_local_run() {
+    case "${DEVICE_ROOT_CMD:-root}" in
+        root) sh -c "$1" ;;
+        su)   su -c "$1" ;;
+        tsu)  tsu -c "$1" ;;
+        sudo) sudo sh -c "$1" ;;
+        *)    sh -c "$1" ;;
+    esac
+}
+
+# Switch the probes over to this phone. PROG names the script in messages.
+# Verifies root before claiming local mode, so a denied prompt is a clear line
+# rather than a probe that silently reports nothing.
+device_local_begin() {
+    local prog="$1" cmd
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        DEVICE_ROOT_CMD=root
+    else
+        cmd="$(device_root_cmd)" || {
+            printf '%s: reading this phone needs root, and no su/tsu/sudo was found.\n' "$prog" >&2
+            printf '  pkg install tsu\n  then start the tool with: tsu ./build.sh\n' >&2
+            return 1
+        }
+        DEVICE_ROOT_CMD="$cmd"
+        if [ "$(device_local_run 'id -u' </dev/null 2>/dev/null | tr -d '\r' | tail -n1)" != 0 ]; then
+            printf '%s: root was not granted — accept the su prompt (or run the tool with tsu) and try again.\n' "$prog" >&2
+            DEVICE_ROOT_CMD=""
+            return 1
+        fi
+    fi
+    DEVICE_LOCAL=1
+    DEVICE_SERIAL=local
+    # The menu announces this once before the probe starts; saying it again on
+    # every run reads like a second, failed attempt. DEVICE_LOCAL_QUIET=1 is set
+    # when the answer was already given.
+    if [ "${DEVICE_LOCAL_QUIET:-0}" != 1 ]; then
+        printf '%s: reading this phone directly%s\n' "$prog" \
+            "$([ "$DEVICE_ROOT_CMD" = root ] && printf ' (already root)' || printf ' (via %s)' "$DEVICE_ROOT_CMD")" >&2
+    fi
+    return 0
+}
+
+# Offer the local source. Only in Termux, and only when nobody already answered
+# the question (DEVICE_LOCAL_REQUEST=1 asked and granted, 0 declined) — the menu
+# asks once per session and passes the answer down.
+device_local_offer() {
+    local prog="$1" answer
+    device_is_termux || return 1
+    if [ -t 0 ] && [ -t 2 ]; then
+        printf '%s: Termux has no adb link to a phone underneath — this machine is the phone.\n' "$prog" >&2
+        printf '%s: read it directly as root? [Y/n] ' "$prog" >&2
+        IFS= read -r answer || answer=y
+        case "$answer" in [nN]*) return 1 ;; esac
+    fi
+    device_local_begin "$prog"
+}
+
+# Whether adb can see a ready device right now, without the 120s wait: that wait
+# is for a cable being plugged in, and in Termux there is nothing to plug in.
+adb_device_ready_now() {
+    local adb="$1" want="${2:-}"
+    adb_device_list "$adb" 25 || return 1
+    if [ -n "$want" ]; then
+        printf '%s\n' "$ADB_DEVICES" | awk -v s="$want" '$1 == s && $2 == "device"' | grep -q .
+    else
+        printf '%s\n' "$ADB_DEVICES" | awk '$2 == "device"' | grep -q .
+    fi
+}
+
+# Where adb is. A probe's `--adb PATH` (in $adb before this file is sourced)
+# wins, then PATH, then the copy the toolchain installs. Defined here rather
+# than in each probe so device_connect does not depend on them defining it.
+adb="${adb:-}"
+resolve_adb() {
+    [ -n "$adb" ] && return 0
+    adb="$(command -v adb 2>/dev/null || true)"
+    [ -n "$adb" ] && return 0
+    for adb in "${ROOT:-.}/stuff/tools/platform-tools/adb" "${ROOT:-.}/stuff/tools/platform-tools/adb.exe"; do
+        [ -x "$adb" ] && return 0
+    done
+    adb=""
+    return 1
+}
+
+# One command on the chosen phone, CRs stripped and errors dropped. The single
+# place the two sources meet: both take a command string.
+device_sh() {
+    if [ "${DEVICE_LOCAL:-0}" = 1 ]; then
+        # The local shell is already root, so the probes' `su 0` retries would be
+        # a second escalation with nothing to gain — and a second su prompt. The
+        # prefix is dropped so those calls stay quiet.
+        case "$1" in
+            'su 0 '*) set -- "${1#su 0 }" ;;
+        esac
+        device_local_run "$1" </dev/null 2>/dev/null | tr -d '\r'
+    else
+        "$adb" ${serial:+-s "$serial"} shell "$1" </dev/null 2>/dev/null | tr -d '\r'
+    fi
+}
+
+# Copy a file off the chosen phone. adb pull runs as the shell user and falls
+# back to `su 0 cat` for root-only paths (/vendor/overlay); local mode is
+# already root, so one cat covers both.
+#
+# The path is quoted for the shell on the other end, not for this one: a name
+# holding a single quote would otherwise end the quoting early and cat something
+# else (or nothing).
+sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+device_pull() {
+    local remote="$1" local_path="$2" to="$2"
+    if [ "${DEVICE_LOCAL:-0}" = 1 ]; then
+        device_local_run "cat $(sh_quote "$remote")" >"$local_path" 2>/dev/null
+        [ -s "$local_path" ] && return 0
+        return 1
+    fi
+    # A Windows adb cannot open an MSYS /tmp path, so the local half is converted
+    # when cygpath exists (Git Bash); elsewhere the path is passed as it is.
+    if command -v cygpath >/dev/null 2>&1; then to="$(cygpath -w "$local_path")"; fi
+    "$adb" ${serial:+-s "$serial"} pull "$remote" "$to" >/dev/null 2>&1 \
+        && [ -s "$local_path" ] && return 0
+    "$adb" ${serial:+-s "$serial"} exec-out "su 0 cat $(sh_quote "$remote")" >"$local_path" 2>/dev/null \
+        && [ -s "$local_path" ] && return 0
+    return 1
+}
+
+# device_connect PROG [WANT] — where the answers come from, for every probe.
+#
+# WANT is the --device value; "local" (also this/self/here) asks for this phone.
+# DEVICE_LOCAL_REQUEST=1/0 forces the answer, which is what the menu sets after
+# asking once. Sets DEVICE_LOCAL, DEVICE_ROOT_CMD, DEVICE_SERIAL and the probe's
+# `serial`; on failure the reason has already been printed.
+#
+# Precedence, most specific first: a serial or "local" typed on the command
+# line, then the session's answer, then what this machine allows (in Termux,
+# adb has nothing to talk to, so the local source is offered there instead).
+device_connect() {
+    local prog="$1" want="${2:-}" mode="${DEVICE_LOCAL_REQUEST:-}"
+    case "$want" in
+        local|this|self|here)
+            device_local_begin "$prog" || return 1
+            serial="$DEVICE_SERIAL"
+            return 0
+            ;;
+        '')
+            ;;
+        *)
+            mode=""
+            ;;
+    esac
+    case "$mode" in
+        1)
+            # The question was answered before this probe started (the menu asks
+            # once a session), so do not announce the switch again.
+            DEVICE_LOCAL_QUIET=1
+            device_local_begin "$prog" || return 1
+            serial="$DEVICE_SERIAL"
+            return 0
+            ;;
+    esac
+    # Termux, and adb cannot see the phone right now: ask about the direct
+    # source before the device wait, because in Termux that wait cannot end.
+    if [ -z "$mode" ] && device_is_termux \
+        && ! { resolve_adb 2>/dev/null && adb_device_ready_now "$adb" "$want"; }; then
+        device_local_offer "$prog" && { serial="$DEVICE_SERIAL"; return 0; }
+    fi
+    resolve_adb || {
+        if device_is_termux; then
+            printf '%s: adb cannot reach a phone from Termux — the phone is this machine, and reading it needs root.\n' "$prog" >&2
+            printf '  start the tool as root: tsu %s/build.sh   (pkg install tsu if it is missing)\n' "${ROOT:-.}" >&2
+        else
+            printf '%s: adb was not found — install platform-tools, or pass --adb PATH\n' "$prog" >&2
+        fi
+        return 1
+    }
+    adb_pick_device "$adb" "$want" "$prog" || return 1
+    serial="$DEVICE_SERIAL"
+    return 0
 }
 
 # Prompt on stderr instead of stdout: stdout is often JSON that a caller parses.

@@ -22,6 +22,9 @@ if [ -z "${ROOT:-}" ]; then
     . "$ROOT/stuff/scripts/common.sh"
 fi
 . "$ROOT/stuff/scripts/config-edit.sh"
+# The device-source helpers (device_is_termux, device_local_begin) live with the
+# adb code the probes share. Sourcing it here defines functions only.
+. "$ROOT/stuff/scripts/adb-device.sh"
 
 # ---------------------------------------------------------------------------
 # Small things
@@ -417,6 +420,42 @@ menu_addons() {
 }
 
 # ---------------------------------------------------------------------------
+# Where the probes read from
+# ---------------------------------------------------------------------------
+# In Termux the phone the probes want is the one the menu is running on, and the
+# reads a PC does over adb (`cmd`, `dumpsys`, /vendor) are what root unlocks
+# there. ADB on Termux has nothing to dial, so without this the answer was
+# always "no device in adb devices".
+#
+# Asked once per session and handed to every probe as DEVICE_LOCAL_REQUEST, so a
+# session that said yes is not asked again on each run — and one that said no is
+# not asked either.
+probe_local=""
+
+probe_source_ask() {
+    [ -z "$probe_local" ] || return 0
+    device_is_termux || return 0
+    echo ""
+    echo "  This is Termux, so the phone is this one rather than a device on a cable."
+    echo "  Reading it directly needs root: the same getprop, cmd overlay, wm and"
+    echo "  dumpsys reads a PC makes over adb."
+    if confirm "  Read this phone as root? [Y/n] " y; then
+        if device_local_begin "menu"; then
+            probe_local=1
+        else
+            probe_local=0
+        fi
+    else
+        probe_local=0
+    fi
+    # The menu itself never reads a phone; only the answer is passed on.
+    DEVICE_LOCAL=0
+    export DEVICE_LOCAL_REQUEST="$probe_local"
+    echo ""
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Probes
 # ---------------------------------------------------------------------------
 # device-probe.sh, udfps-probe.sh and device-id.sh all print a report and, with
@@ -443,14 +482,20 @@ probe_run() {
 probe_menu() { # <title> <script> <note>
     local title="$1" script="$2" note="$3" dir
     while :; do
+        probe_source_ask
         echo ""
         echo -e "  ${BOLD}${title}${NC}"
         hr
         # %b so a note can wrap by itself: a one-paragraph description on a
         # phone-width terminal would otherwise run off the edge.
         [ -n "$note" ] && printf '  %b\n' "$note" && echo ""
-        echo "     1  Read the connected phone (report only)"
-        echo "     2  Read the connected phone and write the answers to config.env"
+        if [ "$probe_local" = 1 ]; then
+            echo "     1  Read this phone (report only)"
+            echo "     2  Read this phone and write the answers to config.env"
+        else
+            echo "     1  Read the connected phone (report only)"
+            echo "     2  Read the connected phone and write the answers to config.env"
+        fi
         echo "     3  Read an unpacked firmware folder instead"
         echo "     0  Back"
         menu_read "  >" || return 0
@@ -493,6 +538,7 @@ menu_udfps() {
 }
 
 menu_match() {
+    probe_source_ask
     probe_run "$ROOT/stuff/scripts/match-prop.sh"
 }
 

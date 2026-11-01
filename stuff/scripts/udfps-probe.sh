@@ -9,6 +9,7 @@
 # where each answer came from.
 #
 #   bash stuff/scripts/udfps-probe.sh                 # connected device
+#   bash stuff/scripts/udfps-probe.sh --device local  # this phone (Termux, needs root)
 #   bash stuff/scripts/udfps-probe.sh --firmware DIR  # extracted ROM dump
 #   bash stuff/scripts/udfps-probe.sh --json          # for the desktop app
 #   bash stuff/scripts/udfps-probe.sh --write         # put the winner in config.env
@@ -26,8 +27,10 @@
 #      needs lpunpack before any APK or build.prop inside it can be read, so a
 #      bare fastboot ROM reports what it is missing instead of guessing.
 #
-# Nothing here is root-only. The overlay APKs and properties it reads are
-# world-readable on a normal boot.
+# Over adb nothing here is root-only: the overlay APKs and properties it reads
+# are world-readable on a normal boot. In Termux (--device local, or the offer
+# the menu makes there) the reads happen natively and root is required — /vendor
+# overlay APKs and `cmd overlay dump` are closed to an app UID.
 # =============================================================================
 
 set -uo pipefail
@@ -54,7 +57,7 @@ fwdir=""
 scan_all_apks=0
 
 usage() {
-    sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 die() { printf 'udfps-probe: %s\n' "$1" >&2; exit 1; }
@@ -220,24 +223,19 @@ fod_rect() {
 # ---------------------------------------------------------------------------
 # Device mode
 # ---------------------------------------------------------------------------
-resolve_adb() {
-    [ -n "$adb" ] && return 0
-    adb="$(command -v adb 2>/dev/null || true)"
-    [ -n "$adb" ] && return 0
-    for adb in "$ROOT/stuff/tools/platform-tools/adb" "$ROOT/stuff/tools/platform-tools/adb.exe"; do
-        [ -x "$adb" ] && return 0
-    done
-    adb=""
-    return 1
+# adb is located by resolve_adb in stuff/scripts/adb-device.sh, which this probe
+# already sources: one definition, honouring --adb, for every probe.
+# device_sh/device_pull (stuff/scripts/adb-device.sh) are the adb calls, or the
+# same work done natively in Termux local mode.
+shel() { device_sh "$1"; }
+
+pick_serial() {
+    device_connect "udfps-probe" "$serial" || exit 1
+    serial="$DEVICE_SERIAL"
 }
 
-adb_dev() { "$adb" ${serial:+-s "$serial"} "$@"; }
-shel() { adb_dev shell "$1" 2>/dev/null | tr -d '\r'; }
-
 probe_device() {
-    resolve_adb || die "adb not found — install platform-tools, or pass --adb PATH"
-    adb_pick_device "$adb" "$serial" "udfps-probe" || exit 1
-    serial="$DEVICE_SERIAL"
+    pick_serial
 
     local props size dens_out
     props="$(shel getprop)"
@@ -300,7 +298,7 @@ probe_device() {
         while IFS='|' read -r pkg path; do
             [ -n "$path" ] || continue
             local local_apk="$tmpdir/$(basename "$path")"
-            if ! adb_dev pull "$path" "$(winpath "$local_apk")" >/dev/null 2>&1; then
+            if ! device_pull "$path" "$local_apk"; then
                 warn "could not pull $path"
                 continue
             fi

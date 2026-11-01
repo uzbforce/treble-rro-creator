@@ -136,6 +136,12 @@ the same `build.sh build` you would type.
 Termux has no window, so this is the full interface there. It also runs over
 ssh, in VS Code's terminal, and in Git Bash.
 
+In Termux the probes read **this** phone instead of one on a cable — the menu
+offers it once per session and the same `getprop`/`dumpsys`/`/vendor` reads run
+natively. That needs root: start it with `tsu ./build.sh` (`pkg install tsu`),
+or accept the `su` prompt when the menu asks. Details in
+[docs/termux.md](docs/termux.md#5-root-for-the-phone-probes).
+
 ---
 
 ## Configure your device
