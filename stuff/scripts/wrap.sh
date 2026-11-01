@@ -68,6 +68,11 @@ if [ -z "$overlay" ] && [ -t 0 ]; then
     ask "  Overlay APK to pack: " ""
     overlay="$REPLY"
 fi
+# A path pasted from Explorer arrives as "C:\...", quotes included. Clean both
+# arguments here so the CLI and the menu take the same input.
+overlay="$(input_path "$overlay")"
+systemui="$(input_path "$systemui")"
+
 [ -n "$overlay" ] || { die "no APK given — ./build.sh wrap --overlay path/to/overlay.apk"; exit 2; }
 
 # ---------------------------------------------------------------------------

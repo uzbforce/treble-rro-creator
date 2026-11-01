@@ -567,6 +567,39 @@ to_win_path() {
     fi
 }
 
+# input_path PATH — clean up a path a person typed or pasted.
+#
+# Explorer's "Copy as path" wraps the path in double quotes, and a Windows path
+# uses a drive letter and backslashes. The shell's own file tests want the MSYS
+# form (/c/...), so both are handled here. On Linux/macOS only the quotes and
+# the spaces around the value are removed: a backslash is a real file-name
+# character there.
+input_path() {
+    local p="$1" drive
+    # Trim the spaces that come with a copied line instead of a path.
+    p="${p#"${p%%[![:space:]]*}"}"
+    p="${p%"${p##*[![:space:]]}"}"
+    # One matching pair of quotes, as Explorer and most chat windows add.
+    case "$p" in
+        \"*\") p=${p#\"}; p=${p%\"} ;;
+        \'*\') p=${p#\'}; p=${p%\'} ;;
+    esac
+    if $IS_WINDOWS; then
+        case "$p" in
+            [A-Za-z]:[\\/]*)
+                drive=$(printf '%s' "${p:0:1}" | tr '[:upper:]' '[:lower:]')
+                p="/$drive/${p:3}"
+                p=${p//\\//}
+                ;;
+            \\\\*)
+                p="//${p#\\\\}"
+                p=${p//\\//}
+                ;;
+        esac
+    fi
+    printf '%s' "$p"
+}
+
 # Create <dest> from the contents of <src>, using whichever zip tool exists:
 # Info-ZIP (Linux/Termux), 7-Zip, or PowerShell's ZipArchive API (Windows).
 create_zip() {

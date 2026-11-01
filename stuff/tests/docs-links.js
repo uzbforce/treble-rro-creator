@@ -62,7 +62,14 @@ function anchorsFor(file) {
   return cache.get(file);
 }
 
-for (const file of markdownFiles(ROOT)) {
+// Only README.md is documentation at the repo root. Anything else dropped
+// there (a chat export, scratch notes) is not part of the docs, and its links
+// are written relative to wherever it came from rather than to this tree.
+const docs = markdownFiles(ROOT).filter(
+  (file) => path.dirname(file) !== ROOT || path.basename(file).toLowerCase() === "readme.md"
+);
+
+for (const file of docs) {
   const text = fs.readFileSync(file, "utf8");
   const rel = path.relative(ROOT, file).replace(/\\/g, "/");
   // [text](target) — the target is everything up to the first ) or space.
