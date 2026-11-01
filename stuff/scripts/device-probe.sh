@@ -71,6 +71,14 @@ ADB_DEVICE_LIB="$(cd "$(dirname "$0")" && pwd)/adb-device.sh"
 [ -f "$ADB_DEVICE_LIB" ] || die "stuff/scripts/adb-device.sh is missing — the checkout is incomplete"
 . "$ADB_DEVICE_LIB"
 
+# How the report is drawn: boxes, tables and prose that wraps to the window.
+. "$(cd "$(dirname "$0")" && pwd)/ui.sh"
+
+# How the report is drawn: boxes, tables and wrapped prose that fit the window.
+UI_LIB="$(cd "$(dirname "$0")" && pwd)/ui.sh"
+[ -f "$UI_LIB" ] || die "stuff/scripts/ui.sh is missing — the checkout is incomplete"
+. "$UI_LIB"
+
 note() { notes+=("$1"); }
 warn() { warnings+=("$1"); }
 
@@ -1052,19 +1060,21 @@ emit_json() {
 
 emit_human() {
     local i
-    printf '\n'
+    local -a head=()
     if [ "$mode" = "device" ]; then
-        printf 'Device   %s (%s)  %sx%s @%s dpi\n' \
-            "${MODEL:-unknown}" "${CODENAME:-unknown}" "${W:-?}" "${H:-?}" "${DENS:-?}"
-        printf 'ROM      %s\n' "${rom:-unknown}"
+        ui_title "Auto detect" "Cutout, corners, status bar, brightness, refresh rates and the ROM feature switches, read from the phone."
+        head+=("Device|${MODEL:-unknown} (${CODENAME:-unknown})")
+        head+=("Screen|${W:-?}x${H:-?} @${DENS:-?} dpi")
+        head+=("ROM|${rom:-unknown}")
     else
-        printf 'Firmware %s\n' "$fwdir"
+        ui_title "Auto detect" "Read from an unpacked firmware folder rather than a running phone."
+        head+=("Firmware|$fwdir")
     fi
-    printf '\n'
+    ui_panel "Source" "${head[@]}"
 
     if [ "${#f_key[@]}" -eq 0 ]; then
-        printf 'Nothing found.\n'
-        for i in "${warnings[@]+"${warnings[@]}"}"; do printf '  ! %s\n' "$i"; done
+        ui_mark bad "Nothing found — no source answered."
+        for i in "${warnings[@]+"${warnings[@]}"}"; do ui_mark warn "$i"; done
         return
     fi
 
@@ -1072,15 +1082,15 @@ emit_human() {
     # it is cut to a readable length here and printed in full further down.
     short_value() {
         local v="$1"
-        if [ "${#v}" -gt 44 ]; then printf '%s…' "${v:0:43}"; else printf '%s' "$v"; fi
+        if [ "${#v}" -gt 29 ]; then printf '%s…' "${v:0:28}"; else printf '%s' "$v"; fi
     }
 
-    printf '%-26s %-46s %-20s %s\n' "SETTING" "VALUE" "SOURCE" "CONFIDENCE"
+    local -a table=()
     for i in "${!f_key[@]}"; do
-        printf '%-26s %-46s %-20s %s\n' \
-            "${f_key[$i]}" "$(short_value "${f_value[$i]}${f_unit[$i]:+ ${f_unit[$i]}}")" \
-            "${f_src[$i]}" "${f_conf[$i]}"
+        table+=("${f_key[$i]}|$(short_value "${f_value[$i]}${f_unit[$i]:+ ${f_unit[$i]}}")|${f_src[$i]}|${f_conf[$i]}")
     done
+    ui_heading "Answers"
+    ui_table "SETTING|VALUE|SOURCE|CONFIDENCE" "${table[@]}"
 
     # Disagreement is the interesting case: the same setting with two values
     # means two sources, and the user has to pick which one to believe.
@@ -1097,15 +1107,13 @@ emit_human() {
                 if [ -z "$first" ]; then first="$i"
                 elif [ "${f_value[$i]}" != "${f_value[$first]}" ] && [ -z "$second" ]; then second="$i"; fi
             done
-            printf '\n%s differs: %s says %s, %s says %s\n' \
-                "$key" "${f_src[$first]}" "$(short_value "${f_value[$first]}")" \
-                "${f_src[$second]}" "$(short_value "${f_value[$second]}")"
+            ui_mark warn "$key differs: ${f_src[$first]} says ${f_value[$first]}, ${f_src[$second]} says ${f_value[$second]}"
         else
-            printf '\n%s: %s different answers — pick one from the table\n' "$key" "$distinct"
+            ui_mark warn "$key: $distinct different answers — pick one from the table"
         fi
     done
 
-    printf '\nvalues for config.env:\n'
+    ui_heading "Values for config.env"
     for i in "${!f_key[@]}"; do
         local seen=""
         local j
@@ -1114,13 +1122,24 @@ emit_human() {
         done
         [ -n "$seen" ] && continue
         case "${f_key[$i]}" in
-            DISPLAY_CUTOUT|LIGHT_SENSOR_TYPE) printf '  %s="%s"\n' "${f_key[$i]}" "${f_value[$i]}" ;;
-            *) printf '  %s=%s\n' "${f_key[$i]}" "${f_value[$i]}" ;;
+            DISPLAY_CUTOUT|LIGHT_SENSOR_TYPE)
+                printf '  %s%s%s=\"%s\"\n' "$UI_BOLD" "${f_key[$i]}" "$UI_OFF" "${f_value[$i]}" ;;
+            *)
+                printf '  %s%s%s=%s\n' "$UI_BOLD" "${f_key[$i]}" "$UI_OFF" "${f_value[$i]}" ;;
         esac
     done
 
-    for i in "${notes[@]+"${notes[@]}"}"; do printf '\nnote: %s\n' "$i"; done
-    for i in "${warnings[@]+"${warnings[@]}"}"; do printf '\nwarning: %s\n' "$i"; done
+    if [ "${#notes[@]}" -gt 0 ] || [ "${#warnings[@]}" -gt 0 ]; then
+        ui_heading "Worth knowing"
+        for i in "${notes[@]+"${notes[@]}"}"; do
+            printf '\n'
+            ui_mark note "$i"
+        done
+        for i in "${warnings[@]+"${warnings[@]}"}"; do
+            printf '\n'
+            ui_mark warn "$i"
+        done
+    fi
 }
 
 # ---------------------------------------------------------------------------

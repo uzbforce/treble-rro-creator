@@ -509,17 +509,38 @@ download_manual_tools() {
 # ---------------------------------------------------------------------------
 # Doctor — verify the toolchain actually works on THIS platform
 # ---------------------------------------------------------------------------
-check_runs() {
-    local label="$1"; shift
+# doctor_row GLYPH COLOUR LABEL TEXT [NOTE] — one line of the doctor report.
+#
+# The columns are fixed (a glyph, an 11-character name, then the answer) and the
+# answer wraps under itself when the window is narrow, so a long path or a long
+# error reads as a continuation instead of running off the edge.
+doctor_row() {
+    local glyph="$1" color="$2" label="$3" text="$4" note="${5:-}" cols line
+    cols=$(ui_cols)
+    if [ -z "$text" ] || [ $(( 17 + ${#text} )) -le "$cols" ]; then
+        printf '  %s%s%s %s%s%s  %s\n' "$color" "$glyph" "$UI_OFF" \
+            "$UI_BOLD" "$(ui_pad "$label" 11)" "$UI_OFF" "$text"
+    else
+        printf '  %s%s%s %s%s%s\n' "$color" "$glyph" "$UI_OFF" "$UI_BOLD" "$label" "$UI_OFF"
+        ui_wrap "$text" 17 | while IFS= read -r line; do
+            printf '%s\n' "$line"
+        done
+    fi
+    [ -n "$note" ] && ui_mark note "$note" 15
+    return 0
+}
+
+check_runs() { # <tool> <what was run> <command...>
+    local tool="$1" what="$2"; shift 2
     local out rc=0
     out=$("$@" 2>&1) || rc=$?
     if printf '%s' "$out" | grep -qiE 'cannot execute binary file|exec format error|not a valid win32|bad cpu type'; then
-        printf '    %-22s ✗ %s\n' "$label" "$(printf '%s' "$out" | head -1 | cut -c1-70)"
+        doctor_row "$UI_CROSS" "$UI_RED" "$tool" "$(printf '%s' "$out" | head -1)" "$what"
         return 1
     fi
-    printf '    %-22s ✓ ran\n' "$label"
+    doctor_row "$UI_TICK" "$UI_GREEN" "$tool" "ran"
     if [ "$rc" -ne 0 ]; then
-        printf '    %-22s   (exit %s — normal for tools without arguments)\n' "" "$rc"
+        ui_mark note "exit $rc — normal for a tool without arguments" 15
     fi
     return 0
 }
@@ -532,21 +553,20 @@ run_doctor() {
     else
         banner "Toolchain check  (build.sh doctor)"
     fi
-    echo -e "  ${BOLD}Environment${NC}"
-    printf '    %-12s %s\n' "Shell:" "$(uname -s 2>/dev/null || echo unknown)  (MSYSTEM=${MSYSTEM:-unset})"
+    local -a env_rows=("Shell|$(uname -s 2>/dev/null || echo unknown)  (MSYSTEM=${MSYSTEM:-unset})")
     if $IS_WINDOWS; then
-        printf '    %-12s %s\n' "Platform:" "Windows (Git Bash / MSYS2)"
+        env_rows+=("Platform|Windows (Git Bash / MSYS2)")
     elif $IS_TERMUX; then
-        printf '    %-12s %s\n' "Platform:" "Android / Termux"
+        env_rows+=("Platform|Android / Termux")
     elif $IS_WSL; then
-        printf '    %-12s %s\n' "Platform:" "WSL (Linux)"
+        env_rows+=("Platform|WSL (Linux)")
     else
-        printf '    %-12s %s\n' "Platform:" "Linux"
+        env_rows+=("Platform|Linux")
     fi
-    printf '    %-12s %s\n' "Project:" "$ROOT"
-    printf '    %-12s %s\n' "Tools dir:" "$TOOLS_DIR"
-    echo ""
-    echo -e "  ${BOLD}Tools${NC}"
+    env_rows+=("Project|$ROOT" "Tools dir|$TOOLS_DIR")
+    ui_panel "Environment" "${env_rows[@]}"
+
+    ui_heading "Tools"
 
     for t in aapt2 zipalign apksigner; do
         usable=""; bad=""
@@ -560,54 +580,60 @@ run_doctor() {
             fi
         done <<< "$(tool_candidates "$t")"
 
+        echo ""
         if [ -n "$usable" ]; then
-            printf '    %-12s ✓ %s  [%s]\n' "$t" "$usable" "$(kind_label "$(classify_binary "$usable")")"
+            doctor_row "$UI_TICK" "$UI_GREEN" "$t" "$usable" \
+                "$(kind_label "$(classify_binary "$usable")")"
             if [ -n "$bad" ]; then
-                printf '    %-12s   ⚠ shadows it, cannot run here: %s\n' "" "$bad"
+                ui_mark warn "shadows it, cannot run here: $bad" 14
                 problems=$((problems + 1))
             fi
         elif [ -n "$bad" ]; then
-            printf '    %-12s ✗ only unusable copies: %s\n' "$t" "$bad"
+            doctor_row "$UI_CROSS" "$UI_RED" "$t" "only unusable copies" "$bad"
             problems=$((problems + 1))
         elif [ "$t" = "zipalign" ] && $IS_TERMUX; then
-            printf '    %-12s – missing; install with: pkg install aapt\n' "$t"
+            doctor_row "$UI_DOT" "$UI_YELLOW" "$t" "missing" "install with: pkg install aapt"
         else
-            printf '    %-12s ✗ not found\n' "$t"
+            doctor_row "$UI_CROSS" "$UI_RED" "$t" "not found"
             problems=$((problems + 1))
         fi
     done
 
     local res
+    echo ""
     if res=$(framework_res_path); then
-        printf '    %-12s ✓ %s  [%s]\n' "resources" "$res" "$(kind_label "$(classify_binary "$res")")"
+        doctor_row "$UI_TICK" "$UI_GREEN" "resources" "$res" \
+            "$(kind_label "$(classify_binary "$res")")"
     else
-        printf '    %-12s ✗ not found — build.sh will download it\n' "resources"
+        doctor_row "$UI_CROSS" "$UI_RED" "resources" "not found" "build.sh download it"
         problems=$((problems + 1))
     fi
 
     local jpath
+    echo ""
     jpath=$(command -v java 2>/dev/null || true)
     if [ -n "$jpath" ]; then
-        printf '    %-12s ✓ %s  [%s]\n' "java" "$jpath" "$(kind_label "$(classify_binary "$jpath")")"
+        doctor_row "$UI_TICK" "$UI_GREEN" "java" "$jpath" "$(kind_label "$(classify_binary "$jpath")")"
     else
-        printf '    %-12s ✗ not found — apksigner will fail\n' "java"
+        doctor_row "$UI_CROSS" "$UI_RED" "java" "not found" "apksigner will fail"
         problems=$((problems + 1))
     fi
 
     echo ""
-    echo -e "  ${BOLD}Do they actually run here?${NC}"
+    ui_heading "Do they actually run here?"
     local rbin
     for t in aapt2 zipalign apksigner; do
         rbin=$(tool_path "$t") || continue
+        echo ""
         case "$t" in
-            aapt2)     check_runs "$t version" "$rbin" version || problems=$((problems + 1)) ;;
-            zipalign)  check_runs "$t" "$rbin" || problems=$((problems + 1)) ;;
-            apksigner) check_runs "$t --version" "$rbin" --version || problems=$((problems + 1)) ;;
+            aapt2)     check_runs "$t" "ran aapt2 version" "$rbin" version || problems=$((problems + 1)) ;;
+            zipalign)  check_runs "$t" "ran zipalign" "$rbin" || problems=$((problems + 1)) ;;
+            apksigner) check_runs "$t" "ran apksigner --version" "$rbin" --version || problems=$((problems + 1)) ;;
         esac
     done
 
     echo ""
-    echo -e "  ${BOLD}Contamination check${NC}"
+    ui_heading "Contamination check"
     local found_foreign=false f fkind
     for f in "$TOOLS_DIR"/*; do
         [ -f "$f" ] || continue

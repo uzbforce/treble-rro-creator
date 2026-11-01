@@ -66,6 +66,11 @@ die() { printf 'udfps-probe: %s\n' "$1" >&2; exit 1; }
 ADB_DEVICE_LIB="$(cd "$(dirname "$0")" && pwd)/adb-device.sh"
 [ -f "$ADB_DEVICE_LIB" ] || die "stuff/scripts/adb-device.sh is missing — the checkout is incomplete"
 . "$ADB_DEVICE_LIB"
+# The report is drawn with the shared UI layer: width-aware, colour off when
+# piped, ASCII glyphs when UI_ASCII=1.
+UI_LIB="$(cd "$(dirname "$0")" && pwd)/ui.sh"
+[ -f "$UI_LIB" ] || die "stuff/scripts/ui.sh is missing — the checkout is incomplete"
+. "$UI_LIB"
 note() { notes+=("$1"); }
 warn() { warnings+=("$1"); }
 
@@ -597,52 +602,94 @@ emit_json() {
     printf '}\n'
 }
 
+# udfps_row NUM CHOSEN SOURCE CONF X Y R DETAIL — one candidate.
+#
+# The triple is the answer, so it is bold; the source is the line under it. The
+# chosen one trades its number for a tick, and the confidence word carries the
+# colour, because "high" and "guess" are the two answers a reader is looking for.
+udfps_row() { # NUM CHOSEN SOURCE CONF X Y R DETAIL
+    local num="$1" chosen="$2" source="$3" conf="$4" x="$5" y="$6" r="$7" detail="$8"
+    local mark color line
+    if [ "$chosen" = "1" ]; then mark="$UI_TICK"; color="$UI_GREEN"
+    else mark="$UI_DOT"; color="$UI_DIM"; fi
+    printf '  %s%s%s %s%d%s  %s%d, %d%s %sr=%d%s  %s%s%s\n' \
+        "$color" "$mark" "$UI_OFF" "$UI_DIM" "$num" "$UI_OFF" \
+        "$UI_BOLD" "$x" "$y" "$UI_OFF" "$UI_DIM" "$r" "$UI_OFF" \
+        "$(ui_trust_color "$conf")" "$conf" "$UI_OFF"
+    printf '    %s%s%s\n' "$UI_BOLD" "$source" "$UI_OFF"
+    [ -n "$detail" ] || return 0
+    ui_wrap "$detail" 6 | while IFS= read -r line; do
+        printf '%s%s%s\n' "$UI_DIM" "$line" "$UI_OFF"
+    done
+}
+
 emit_human() {
     local idx="$1" i
-    printf '\n'
+    ui_title 'UDFPS' 'in-display fingerprint geometry — where the sensor sits'
     if [ "$mode" = "device" ]; then
-        printf 'Device   %s (%s)  %sx%s @%s dpi\n' \
-            "${MODEL:-unknown}" "${CODENAME:-unknown}" "${W:-?}" "${H:-?}" "${DENS:-?}"
-        printf 'ROM      %s\n' "${rom:-unknown}"
+        ui_panel 'Device' \
+            "Model|${MODEL:-unknown}" \
+            "Codename|${CODENAME:-unknown}" \
+            "Panel|${W:-?} x ${H:-?} px at ${DENS:-?} dpi" \
+            "ROM|${rom:-unknown}"
     else
-        printf 'Firmware %s\n' "$fwdir"
+        ui_panel 'Firmware' "Folder|${fwdir:-unknown}"
     fi
-    printf '\n'
 
     if [ "${#c_x[@]}" -eq 0 ]; then
-        printf 'No UDFPS geometry found.\n'
-        for i in "${warnings[@]+"${warnings[@]}"}"; do printf '  ! %s\n' "$i"; done
+        ui_mark warn 'No UDFPS geometry found.'
+        for i in "${warnings[@]+"${warnings[@]}"}"; do ui_mark warn "$i" 4; done
         return
     fi
 
-    printf '%-6s  %-36s %6s %6s %6s  %s\n' "CONF" "SOURCE" "X" "Y" "RADIUS" "DETAIL"
+    printf '\n  %s%d source(s) answered%s\n' "$UI_DIM" "${#c_x[@]}" "$UI_OFF"
     for i in "${!c_x[@]}"; do
-        printf '%-6s  %-36s %6s %6s %6s  %s\n' \
-            "${c_conf[$i]}" "${c_source[$i]}" "${c_x[$i]}" "${c_y[$i]}" "${c_r[$i]}" "${c_detail[$i]}"
+        local chosen=0
+        [ "$i" = "$idx" ] && chosen=1
+        udfps_row "$((i + 1))" "$chosen" "${c_source[$i]}" "${c_conf[$i]}" \
+            "${c_x[$i]}" "${c_y[$i]}" "${c_r[$i]}" "${c_detail[$i]}"
     done
 
     if [ -n "$idx" ]; then
-        printf '\nChosen: %s, %s, r=%s  (%s, %s)\n' \
-            "${c_x[$idx]}" "${c_y[$idx]}" "${c_r[$idx]}" "${c_conf[$idx]}" "${c_source[$idx]}"
+        ui_panel 'Chosen' \
+            "Centre|${c_x[$idx]}, ${c_y[$idx]}" \
+            "Radius|${c_r[$idx]} px" \
+            "Confidence|${c_conf[$idx]}" \
+            "Source|${c_source[$idx]}"
         # Disagreement is the interesting case: it usually means one source is a
         # leftover from another device, and the user should see both numbers.
         for i in "${!c_x[@]}"; do
             [ "$i" = "$idx" ] && continue
             if [ "${c_x[$i]}" -ne "${c_x[$idx]}" ] || [ "${c_y[$i]}" -ne "${c_y[$idx]}" ]; then
-                printf '  differs: %s says %s, %s\n' "${c_source[$i]}" "${c_x[$i]}" "${c_y[$i]}"
+                ui_mark warn "${c_source[$i]} says ${c_x[$i]}, ${c_y[$i]} — not the same sensor"
             fi
         done
-        printf '\nconfig.env:\n'
-        printf '  HAS_UDFPS=true\n  UDFPS_X=%s\n  UDFPS_Y=%s\n  UDFPS_RADIUS=%s\n' \
-            "${c_x[$idx]}" "${c_y[$idx]}" "${c_r[$idx]}"
+        ui_heading 'config.env'
+        ui_kv HAS_UDFPS true 12
+        ui_kv UDFPS_X "${c_x[$idx]}" 12
+        ui_kv UDFPS_Y "${c_y[$idx]}" 12
+        ui_kv UDFPS_RADIUS "${c_r[$idx]}" 12
     fi
 
+    # Paths are the longest thing on the page, so they wrap at a deeper indent
+    # rather than being cut: a truncated /product/overlay/... is unreadable.
     if [ "${#files[@]}" -gt 0 ]; then
-        printf '\nRead from:\n'
-        for i in "${files[@]}"; do printf '  %s\n' "${i%%|*}"; done
+        ui_heading 'Read from'
+        for i in "${files[@]}"; do
+            ui_wrap "${i%%|*}" 4 | while IFS= read -r line; do
+                printf '%s%s%s\n' "$UI_DIM" "$line" "$UI_OFF"
+            done
+        done
     fi
-    for i in "${notes[@]+"${notes[@]}"}"; do printf '\nnote: %s\n' "$i"; done
-    for i in "${warnings[@]+"${warnings[@]}"}"; do printf 'warning: %s\n' "$i"; done
+    if [ "${#notes[@]}" -gt 0 ]; then
+        printf '\n'
+        for i in "${notes[@]}"; do ui_mark note "$i"; done
+    fi
+    if [ "${#warnings[@]}" -gt 0 ]; then
+        printf '\n'
+        for i in "${warnings[@]}"; do ui_mark warn "$i"; done
+    fi
+    printf '\n'
 }
 
 # ---------------------------------------------------------------------------

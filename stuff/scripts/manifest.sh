@@ -231,21 +231,61 @@ write_webui_manifest() { # <outfile>
 }
 
 # Human-readable plan: the same rows the manifest is built from.
+#
+# A resource name and its value are what the reader is comparing, so they get the
+# line; where it came from (which APK, which type, whether it can be patched) is
+# the dim note under it. The old fixed four-column row was 60 columns before the
+# value started and ran off a phone every time.
 print_resource_plan() {
-    local rank group apk ro type name value count=0 last=""
+    local rank group apk ro type name value count=0 last="" line cols note
+    cols=$(ui_cols)
     while IFS=$'\t' read -r rank group apk ro type name value; do
         [ -n "$name" ] || continue
         if [ "$group" != "$last" ]; then
-            printf '\n  %b%s%b\n' "${BOLD:-}" "$group" "${NC:-}"
+            ui_heading "$group"
             last="$group"
         fi
-        printf '    %-3s %-8s %-42s %s%s\n' "$apk" "$type" "$name" "$value" \
-            "$([ "$ro" = "1" ] && printf '  (read-only — rebuild)' || true)"
+        # A read-only array can be named with no value in config.env; printing
+        # `name = ` with nothing after the equals reads like a bug.
+        if [ -z "$value" ]; then line="$name"; else line="$name = $value"; fi
+        if [ $(( ${#line} + 5 )) -le "$cols" ]; then
+            if [ -z "$value" ]; then
+                printf '    %s%s%s\n' "$UI_BOLD" "$name" "$UI_OFF"
+            else
+                printf '    %s%s%s = %s\n' "$UI_BOLD" "$name" "$UI_OFF" "$value"
+            fi
+        elif [ $(( ${#name} + 5 )) -le "$cols" ]; then
+            printf '    %s%s%s\n' "$UI_BOLD" "$name" "$UI_OFF"
+            ui_wrap "$value" 6 $((cols - 7)) | while IFS= read -r line; do
+                printf '%s\n' "$line"
+            done
+        else
+            # A brightness curve name is longer than a phone: it wraps under
+            # itself, deeper than the next resource's indent, so a continuation
+            # never reads as another entry.
+            local first=1
+            ui_wrap "$name" 0 $((cols - 9)) | while IFS= read -r line; do
+                if [ "$first" = 1 ]; then
+                    printf '    %s%s%s\n' "$UI_BOLD" "$line" "$UI_OFF"
+                    first=0
+                else
+                    printf '        %s%s%s\n' "$UI_BOLD" "$line" "$UI_OFF"
+                fi
+            done
+            ui_wrap "$value" 6 $((cols - 7)) | while IFS= read -r line; do
+                printf '%s\n' "$line"
+            done
+        fi
+        note="$apk $UI_DOT $type"
+        [ "$ro" = "1" ] && note="$note $UI_DOT read-only, rebuild to change it"
+        ui_wrap "$note" 6 $((cols - 7)) | while IFS= read -r line; do
+            printf '%s%s%s\n' "$UI_DIM" "$line" "$UI_OFF"
+        done
         count=$((count + 1))
     done <<EOF
 $(manifest_rows)
 EOF
-    printf '\n  %s resource(s) from config.env\n' "$count"
+    printf '\n  %s%d resource(s)%s from config.env\n' "$UI_DIM" "$count" "$UI_OFF"
 }
 
 # ---------------------------------------------------------------------------

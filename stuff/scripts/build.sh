@@ -282,32 +282,51 @@ derive_overlay_identity
 # Device identity check
 # ---------------------------------------------------------------------------
 # All identity values are filled — show summary and confirm
-echo ""
-echo -e "  ${GREEN}┌──────────────────────────────────────────────────────────┐${NC}"
-echo -e "  ${GREEN}│${NC}  Device configuration detected                       ${GREEN}│${NC}"
-echo -e "  ${GREEN}└──────────────────────────────────────────────────────────┘${NC}"
-echo -e ""
-echo -e "  ${BOLD}Identity:${NC}"
-echo -e "    Device:        ${DEVICE_MANUFACTURER} ${DEVICE_MODEL} (${DEVICE_CODENAME})"
-echo -e "    Overlay:       ${OVERLAY_NAME}"
-echo -e "    Package:       ${OVERLAY_PACKAGE}"
-echo -e "    Match:         ${CONDITION_DESC}"
-echo -e "    Version:       ${OVERLAY_VERSION} (${OVERLAY_VERSION_CODE})"
-echo -e "    Author:        ${MODULE_AUTHOR}"
-echo -e ""
-echo -e "  ${BOLD}Display:${NC}"
-[ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] && echo -e "    Rounded corners: ${ROUNDED_CORNER_RADIUS}px"
-[ -n "$STATUS_BAR_HEIGHT" ] && [[ "$STATUS_BAR_HEIGHT" != *"<"* ]] && echo -e "    Status bar:      ${STATUS_BAR_HEIGHT}px"
-echo -e ""
-echo -e "  ${BOLD}Features:${NC}"
-echo -e "    UDFPS:           ${HAS_UDFPS}"
-echo -e "    AOD:             ${HAS_AOD}"
-echo -e "    Doze:            ${HAS_DOZE}"
-echo -e "    5G:              ${HAS_5G}"
-echo -e "    VoLTE:           ${HAS_VOLTE}"
-echo -e ""
-echo -e "  ${BOLD}Builder:${NC}"
-echo -e "    Android:         ${ANDROID_VERSION} (API ${COMPILE_SDK_VERSION})"
+# The summary used to be a hand-drawn 58-column box with a fixed column per
+# value, which is one long line per field on a phone and a broken border on a
+# narrow window. Panels wrap inside the window instead.
+ui_title "Device configuration" \
+    "Every value below comes from config.env. Check the phone and the codename before building."
+ui_panel "Identity" \
+    "Device|${DEVICE_MANUFACTURER} ${DEVICE_MODEL} (${DEVICE_CODENAME})" \
+    "Overlay|${OVERLAY_NAME}" \
+    "Package|${OVERLAY_PACKAGE}" \
+    "Match|${CONDITION_DESC}" \
+    "Version|${OVERLAY_VERSION} (${OVERLAY_VERSION_CODE})" \
+    "Author|${MODULE_AUTHOR}"
+
+local_display=()
+[ -n "$ROUNDED_CORNER_RADIUS" ] && [[ "$ROUNDED_CORNER_RADIUS" != *"<"* ]] \
+    && local_display+=("Corners|${ROUNDED_CORNER_RADIUS}px")
+[ -n "$STATUS_BAR_HEIGHT" ] && [[ "$STATUS_BAR_HEIGHT" != *"<"* ]] \
+    && local_display+=("Status bar|${STATUS_BAR_HEIGHT}px")
+[ "${#local_display[@]}" -gt 0 ] && ui_panel "Display" "${local_display[@]}"
+
+# Two rows rather than one row per flag: a feature that is off is a word, not a
+# column of "false" five times over.
+feature_on=()
+feature_off=()
+for feature_flag in "UDFPS:$HAS_UDFPS" "AOD:$HAS_AOD" "Doze:$HAS_DOZE" \
+                    "5G:$HAS_5G" "VoLTE:$HAS_VOLTE"; do
+    if [ "${feature_flag#*:}" = "true" ]; then
+        feature_on+=("${feature_flag%%:*}")
+    else
+        feature_off+=("${feature_flag%%:*}")
+    fi
+done
+feature_join() {
+    local out="" f
+    for f in "$@"; do
+        if [ -z "$out" ]; then out="$f"; else out="$out $UI_DOT $f"; fi
+    done
+    printf '%s' "${out:-none}"
+}
+ui_panel "Features" \
+    "On|$(feature_join "${feature_on[@]:-}")" \
+    "Off|$(feature_join "${feature_off[@]:-}")"
+
+ui_panel "Builder" \
+    "Android|${ANDROID_VERSION} (API ${COMPILE_SDK_VERSION})"
 echo ""
 
 # ---------------------------------------------------------------------------

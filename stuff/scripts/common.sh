@@ -92,20 +92,26 @@ fi
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+# The drawing helpers — the window width, the palette, boxes, tables and prose
+# that wraps — are in ui.sh. Everything below is the one-word verb for one of
+# them, so a build log, the menu and a probe report are drawn by the same rules
+# and fit the same phone.
+. "${BASH_SOURCE[0]%/*}/ui.sh"
+
+# Kept for the scripts that still colour a line by hand.
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
-info() { echo -e "  ${YELLOW}→${NC} $*"; }
-warn() { echo -e "  ${YELLOW}⚠${NC} $*"; }
-err()  { echo -e "  ${RED}✗${NC} $*" >&2; }
-step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+ok()   { ui_mark ok "$*"; }
+info() { ui_mark note "$*"; }
+warn() { ui_mark warn "$*"; }
+err()  { ui_mark bad "$*" >&2; }
+step() { printf '\n'; ui_heading "$*"; }
 
+# banner TEXT — a title, ruled to the width of the window.
 banner() {
-    echo ""
-    echo -e "  ${BOLD}$*${NC}"
-    echo -e "  ${BOLD}──────────────────────────────────────────────────────────${NC}"
-    echo ""
+    ui_title "$*"
+    printf '\n'
 }
 
 # ---------------------------------------------------------------------------

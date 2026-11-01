@@ -67,30 +67,79 @@ adb_device_label() {
     fi
 }
 
+# Text folded at INDENT, using the shared wrapper when the caller has ui.sh and
+# a plain indented line when it does not (this file is sourced by probes that
+# print JSON and never draw a box).
+adb_device_wrap() { # TEXT INDENT
+    if command -v ui_wrap >/dev/null 2>&1; then
+        ui_wrap "$1" "$2"
+    else
+        printf '%*s%s\n' "${2:-0}" '' "$1"
+    fi
+}
+
 # One line per device on stdin, already in `devices -l` form.
+#
+# Numbered, because the prompt right after the list accepts a number. The model
+# sits beside the serial when the window is wide enough for it and moves to its
+# own indented line on a phone, rather than being cut or pushing the row wide.
 adb_device_table() {
-    local line serial state
+    local -a serials=() states=() labels=()
+    local line serial state label cols n=0 sw=0 stw=0 numw=2
+    cols="${COLUMNS:-80}"
+    if command -v ui_cols >/dev/null 2>&1; then cols="$(ui_cols)"; fi
+    case "$cols" in ''|*[!0-9]*) cols=80 ;; esac
     while IFS= read -r line; do
         [ -n "$line" ] || continue
+        n=$((n + 1))
         serial="${line%% *}"
         state="$(printf '%s\n' "$line" | awk '{print $2}')"
-        printf '  %-18s %-13s %s\n' "$serial" "$state" "$(adb_device_label "$line")"
+        label="$(adb_device_label "$line")"
+        serials+=("$serial"); states+=("$state"); labels+=("$label")
+        [ "${#serial}" -gt "$sw" ] && sw=${#serial}
+        [ "${#state}" -gt "$stw" ] && stw=${#state}
+    done
+    [ "${#serials[@]}" -gt 0 ] || return 0
+    [ "${#serials[@]}" -lt 10 ] || numw=3
+    # One line each when the widest row fits, otherwise the label drops to its
+    # own wrapped line, and when even `number serial state` is too wide the
+    # serial goes below the number. Padded to the widest value, not to a guess.
+    local i head
+    for i in "${!serials[@]}"; do
+        head=$(( 2 + numw + 2 + sw + 2 + stw ))
+        if [ -n "${labels[$i]}" ] && [ $(( head + 2 + ${#labels[$i]} )) -le "$cols" ]; then
+            printf '  %*d  %-*s  %-*s  %s\n' "$numw" "$((i + 1))" \
+                "$sw" "${serials[$i]}" "$stw" "${states[$i]}" "${labels[$i]}"
+        elif [ "$head" -le "$cols" ]; then
+            printf '  %*d  %-*s  %s\n' "$numw" "$((i + 1))" \
+                "$sw" "${serials[$i]}" "${states[$i]}"
+            [ -n "${labels[$i]}" ] && adb_device_wrap "${labels[$i]}" 6
+        else
+            printf '  %*d  %s\n' "$numw" "$((i + 1))" "${serials[$i]}"
+            adb_device_wrap "${states[$i]}" 6
+            [ -n "${labels[$i]}" ] && adb_device_wrap "${labels[$i]}" 6
+        fi
     done
 }
 
 # The fix for every device that is attached but not ready. Printed after the
 # table so the last thing on screen is the action, not the list.
 adb_device_advice() {
+    local serial message
     printf '%s\n' "${1:-}" | awk '
-        $2 == "unauthorized" { print "  " $1 ": unlock the phone and accept the USB debugging prompt" }
-        $2 == "offline"      { print "  " $1 ": offline — unplug and replug it, or run adb kill-server" }
-        $2 == "no"           { print "  " $1 ": no permissions — Linux needs a udev rule, Windows a driver" }
-        $2 == "connecting"   { print "  " $1 ": still connecting — wait a moment and run it again" }
-        $2 == "bootloader"   { print "  " $1 ": in the bootloader — boot Android to read the running ROM" }
-        $2 == "recovery"     { print "  " $1 ": in recovery — adb works there, but dumpsys and getprop of the ROM do not" }
-        $2 == "sideload"     { print "  " $1 ": sideload mode — reboot to Android first" }
-        $2 == "rescue"       { print "  " $1 ": rescue mode — reboot to Android first" }
-    '
+        $2 == "unauthorized" { print $1 "|unlock the phone and accept the USB debugging prompt" }
+        $2 == "offline"      { print $1 "|offline — unplug and replug it, or run adb kill-server" }
+        $2 == "no"           { print $1 "|no permissions — Linux needs a udev rule, Windows a driver" }
+        $2 == "connecting"   { print $1 "|still connecting — wait a moment and run it again" }
+        $2 == "bootloader"   { print $1 "|in the bootloader — boot Android to read the running ROM" }
+        $2 == "recovery"     { print $1 "|in recovery — adb works there, but dumpsys and getprop of the ROM do not" }
+        $2 == "sideload"     { print $1 "|sideload mode — reboot to Android first" }
+        $2 == "rescue"       { print $1 "|rescue mode — reboot to Android first" }
+    ' | while IFS='|' read -r serial message; do
+        [ -n "$serial" ] || continue
+        printf '  %s%s%s\n' "${UI_BOLD:-}" "$serial" "${UI_OFF:-}"
+        adb_device_wrap "$message" 4
+    done
 }
 
 # Turn what the user typed into a serial from READY (the `devices -l` lines of

@@ -30,6 +30,11 @@ export MSYS_NO_PATHCONV=1
 
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 . "$ROOT/stuff/scripts/config-edit.sh"
+# The report is drawn with the shared UI layer, so it folds onto a phone the same
+# way the menu does.
+UI_LIB="$ROOT/stuff/scripts/ui.sh"
+[ -f "$UI_LIB" ] || { printf 'device-id: stuff/scripts/ui.sh is missing\n' >&2; exit 1; }
+. "$UI_LIB"
 
 adb="${ADB:-}"
 serial=""
@@ -287,48 +292,88 @@ emit_json() {
     printf ']}\n'
 }
 
+# did_candidate NUM PROP VALUE ZONE SCORE WHY DETAIL — one ranked property.
+#
+# Same shape as the match-property report: the score is the thing being compared
+# down the page, so it keeps its meter and its own line; the property follows.
+# WHY is printed only for the ones that could still win (DETAIL=1).
+did_candidate() {
+    local num="$1" prop="$2" value="$3" zone="$4" score="$5" why="$6" detail="$7"
+    local line w
+    w=$(ui_cols)
+    printf '\n  %s%2d%s  %s %s%3d%s\n' "$UI_BOLD" "$num" "$UI_OFF" \
+        "$(ui_meter "$score" 120 10)" "$UI_BOLD" "$score" "$UI_OFF"
+    line="$prop = $value"
+    if [ $(( ${#line} + 4 )) -le "$w" ]; then
+        printf '    %s%s%s = %s\n' "$UI_BOLD" "$prop" "$UI_OFF" "$value"
+    else
+        printf '    %s%s%s\n' "$UI_BOLD" "$prop" "$UI_OFF"
+        ui_wrap "$value" 6 | while IFS= read -r line; do
+            printf '      %s\n' "$line"
+        done
+    fi
+    printf '    %s%s%s\n' "$UI_DIM" "$zone" "$UI_OFF"
+    [ "$detail" = "1" ] || return 0
+    ui_mark note "$why" 6
+}
+
 emit_human() {
     local i n=0
-    printf '\n  Device — what the overlay will claim\n\n'
-    printf '  %-13s %-24s %s\n' 'Manufacturer' "${manufacturer:-not found}" "$manufacturer_prop"
-    printf '  %-13s %-24s %s\n' 'Model' "${model:-not found}" "$model_prop"
-    printf '  %-13s %-24s %s\n' 'Codename' "${codename:-not found}" "$codename_prop"
+    ui_title 'Device' 'what the overlay will claim, and which property said so'
+    ui_panel 'Identity' \
+        "Manufacturer|${manufacturer:-not found}" \
+        "Model|${model:-not found}" \
+        "Codename|${codename:-not found}"
+    ui_heading 'Read from'
+    ui_kv Manufacturer "${manufacturer_prop:-not found}" 14
+    ui_kv Model "${model_prop:-not found}" 14
+    ui_kv Codename "${codename_prop:-not found}" 14
     if [ -n "$module_prop" ]; then
-        printf '\n  Module condition (the overlay only loads where this is true)\n'
-        printf '    DEVICE_PROP_NAME="%s"\n    DEVICE_PROP_VALUE="true"\n' "$module_prop"
+        ui_heading 'Module condition'
+        ui_wrap 'The overlay only loads on a phone where this is true.' 2
+        ui_kv DEVICE_PROP_NAME "$module_prop" 18
+        ui_kv DEVICE_PROP_VALUE true 18
     fi
 
+    # The three that could win keep their explanation; the rest are one compact
+    # line each, so a phone that answers twelve properties is still a list you
+    # can read down instead of a wall of paragraphs.
     if [ "${#sorted[@]}" -gt 0 ]; then
-        printf '\n  Codename candidates\n\n'
-        printf '     %-29s %-12s %-10s %s\n' 'property' 'value' 'zone' 'score'
+        ui_heading "Codename candidates (${#sorted[@]})"
         for i in "${sorted[@]}"; do
             n=$((n + 1))
-            printf '  %2d %-29s %-12s %-10s %s\n' "$n" "${c_prop[$i]}" "${c_val[$i]}" "${c_zone[$i]}" "${c_score[$i]}"
-            printf '     · %s\n' "${c_why[$i]}"
+            if [ "$n" -le 3 ]; then
+                did_candidate "$n" "${c_prop[$i]}" "${c_val[$i]}" \
+                    "${c_zone[$i]}" "${c_score[$i]}" "${c_why[$i]}" 1
+            else
+                did_candidate "$n" "${c_prop[$i]}" "${c_val[$i]}" \
+                    "${c_zone[$i]}" "${c_score[$i]}" "" 0
+            fi
         done
     else
-        printf '\n  No property on this phone names the device.\n'
+        ui_mark warn 'No property on this phone names the device.'
     fi
 
     if [ "${#r_prop[@]}" -gt 0 ]; then
-        printf '\n  Ruled out\n\n'
+        ui_heading "Ruled out (${#r_prop[@]})"
         for i in "${!r_prop[@]}"; do
-            printf '    %-29s %-18s %s\n' "${r_prop[$i]}" "${r_val[$i]}" "${r_reason[$i]}"
+            printf '\n  %s%s%s\n' "$UI_BOLD" "${r_prop[$i]}" "$UI_OFF"
+            ui_kv value "${r_val[$i]}" 6
+            ui_mark bad "${r_reason[$i]}" 4
         done
+        printf '\n'
     fi
 
-    printf '\n  Confidence: %s\n' "$confidence"
+    ui_panel 'Verdict' "Confidence|$confidence"
     case "$confidence" in
         high)
-            printf '    %s reads the codename from the partition a GSI leaves alone.\n' "$codename_prop"
+            ui_mark ok "$codename_prop reads the codename from the partition a GSI leaves alone." 2
             ;;
         medium)
-            printf '    The codename came from a partition a GSI replaces, so it is right\n'
-            printf '    for the ROM on the phone now, not necessarily for the GSI.\n'
+            ui_mark note 'The codename came from a partition a GSI replaces, so it is right for the ROM on the phone now, not necessarily for the GSI.' 2
             ;;
         *)
-            printf '    Nothing usable was found — set DEVICE_CODENAME by hand in config.env,\n'
-            printf '    or point this at a different phone.\n'
+            ui_mark bad 'Nothing usable was found — set DEVICE_CODENAME by hand in config.env, or point this at a different phone.' 2
             ;;
     esac
     printf '\n'
@@ -351,14 +396,17 @@ write_device() {
             cfg_set DEVICE_PROP_NAME "$module_prop" || return 1
             ;;
         *)
-            printf '  Left DEVICE_PROP_NAME alone: it is set to %s, not the default shape.\n' "$current_prop"
+            ui_mark note "Left DEVICE_PROP_NAME alone: it is set to $current_prop, not the default shape."
             ;;
     esac
     [ -n "$current_value" ] || cfg_set DEVICE_PROP_VALUE "true"
-    printf '\n  Written to config.env:\n'
-    printf '    DEVICE_MANUFACTURER="%s"\n    DEVICE_MODEL="%s"\n    DEVICE_CODENAME="%s"\n' \
-        "$manufacturer" "$model" "$codename"
-    printf '  Build now (./build.sh, or 1 in the menu) to pick it up.\n\n'
+    ui_heading 'Written to config.env'
+    ui_kv DEVICE_MANUFACTURER "$manufacturer" 21
+    ui_kv DEVICE_MODEL "$model" 21
+    ui_kv DEVICE_CODENAME "$codename" 21
+    printf '\n'
+    ui_mark ok 'Build now (./build.sh, or 1 in the menu) to pick it up.'
+    printf '\n'
 }
 
 main() {

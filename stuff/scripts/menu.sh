@@ -31,7 +31,9 @@ fi
 # ---------------------------------------------------------------------------
 MENU_SLEEP="${MENU_SLEEP:-0}"
 
-hr() { printf '  %s\n' "──────────────────────────────────────────────────────────"; }
+# A width-aware rule under a section title. Every screen used to draw a fixed
+# 58-character one, which wrapped onto a second line on a phone.
+hr() { ui_rule 2; }
 
 # Read one line. Returns 1 at EOF (piped input, a launcher with no console) so
 # callers can leave the menu instead of looping forever.
@@ -77,30 +79,31 @@ output_summary() {
 # ---------------------------------------------------------------------------
 # Screen
 # ---------------------------------------------------------------------------
+# The state of the checkout in one box: which phone, how much of config.env is
+# filled in, what the last build left behind.
 menu_header() {
     cfg_counts
-    echo ""
-    echo -e "  ${BOLD}Treble Overlay Creator${NC}"
-    hr
-    printf '  %-11s %s\n' 'Device' "$(cfg_identity)"
-    printf '  %-11s %s set · %s off\n' 'config.env' "$CFG_ON" "$CFG_OFF"
-    printf '  %-11s %s\n' 'Output' "$(output_summary)"
-    echo ""
+    ui_panel "Treble Overlay Creator" \
+        "Device|$(cfg_identity)" \
+        "config.env|${CFG_ON} set ${UI_DOT} ${CFG_OFF} off" \
+        "Output|$(output_summary)"
 }
 
+# 11 is the width of the longest label here, so every description starts in the
+# same column instead of ragging after each label.
+MENU_LW=14
+
 menu_items() {
-    cat << 'ITEMS'
-     1  Build              dry run, build, check, doctor, clean
-     2  config.env         browse and edit one key at a time
-     3  Addons             module tweaks: settings and overlay resources
-     4  Device             read manufacturer, model, codename from the phone
-     5  Auto Detect        ROM answers: cutout, corners, refresh rate, VoLTE, 5G
-     6  UDFPS              in-display fingerprint geometry
-     7  Match property     which property the submission should match on
-     8  Files              what was built, and where it is
-     9  Docs               the guides in docs/
-     q  Quit
-ITEMS
+    ui_item 1 'Build'          'dry run, build, check, doctor, clean' "$MENU_LW"
+    ui_item 2 'config.env'     'browse and edit one key at a time' "$MENU_LW"
+    ui_item 3 'Addons'         'module tweaks: settings and overlay resources' "$MENU_LW"
+    ui_item 4 'Device'         'read manufacturer, model, codename from the phone' "$MENU_LW"
+    ui_item 5 'Auto Detect'    'ROM answers: cutout, corners, refresh rate, VoLTE, 5G' "$MENU_LW"
+    ui_item 6 'UDFPS'          'in-display fingerprint geometry' "$MENU_LW"
+    ui_item 7 'Match property' 'which property the submission should match on' "$MENU_LW"
+    ui_item 8 'Files'          'what was built, and where it is' "$MENU_LW"
+    ui_item 9 'Docs'           'the guides in docs/' "$MENU_LW"
+    ui_item q 'Quit' '' "$MENU_LW"
 }
 
 # ---------------------------------------------------------------------------
@@ -114,17 +117,14 @@ run_entry() {
 
 menu_build() {
     while :; do
-        echo ""
-        echo -e "  ${BOLD}Build${NC}"
-        hr
-        echo "     1  Dry run         print the resources config.env emits, build nothing"
-        echo "     2  Build           build the module (installs tools if needed)"
-        echo "     3  Check           validate config.env without building"
-        echo "     4  Doctor          check the toolchain, install nothing"
-        echo "     5  Clean           remove build output"
-        echo "     6  Clean --all     start over for a different device"
-        echo "     0  Back"
-        echo ""
+        ui_heading 'Build'
+        ui_item 1 'Dry run'     'print the resources config.env emits, build nothing' 11
+        ui_item 2 'Build'       'build the module (installs tools if needed)' 11
+        ui_item 3 'Check'       'validate config.env without building' 11
+        ui_item 4 'Doctor'      'check the toolchain, install nothing' 11
+        ui_item 5 'Clean'       'remove build output' 11
+        ui_item 6 'Clean --all' 'start over for a different device' 11
+        ui_item 0 'Back' '' 11
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
             1) run_entry --dry-run; pause_menu ;;
@@ -149,21 +149,24 @@ menu_build() {
 # Files
 # ---------------------------------------------------------------------------
 menu_files() {
-    echo ""
-    echo -e "  ${BOLD}Files${NC}"
-    hr
-    printf '  %-12s %s\n' 'Project' "$ROOT"
-    printf '  %-12s %s\n' 'config.env' "$ROOT/config.env"
-    printf '  %-12s %s\n' 'Build tree' "${BUILD_DIR#$ROOT/}"
+    local -a table=() f
+    ui_heading 'Files'
+    ui_panel 'Where things are' \
+        "Project|$ROOT" \
+        "config.env|$ROOT/config.env" \
+        "Build tree|${BUILD_DIR#$ROOT/}"
     echo ""
     if [ -d "$OUT_DIR" ] && [ -n "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
-        echo "  Output"
-        find "$OUT_DIR" -maxdepth 2 -type f \( -name '*.zip' -o -name '*.apk' \) 2>/dev/null |
-            while IFS= read -r f; do
-                printf '    %-10s %s\n' "$(du -h "$f" 2>/dev/null | cut -f1)" "${f#$ROOT/}"
-            done
+        while IFS= read -r f; do
+            table+=("$(du -h "$f" 2>/dev/null | cut -f1)|${f#$ROOT/}")
+        done < <(find "$OUT_DIR" -maxdepth 2 -type f \( -name '*.zip' -o -name '*.apk' \) 2>/dev/null | LC_ALL=C sort)
+        if [ "${#table[@]}" -gt 0 ]; then
+            ui_table 'Size|Built file' "${table[@]}"
+        else
+            info "out/ exists but holds no .zip or .apk yet."
+        fi
     else
-        echo "  Nothing built yet — 1 → 2 builds the module."
+        info "Nothing built yet — 1 → 2 builds the module."
     fi
     pause_menu
 }
@@ -173,15 +176,13 @@ menu_files() {
 # ---------------------------------------------------------------------------
 menu_docs() {
     local files=() i
-    echo ""
-    echo -e "  ${BOLD}Docs${NC}"
-    hr
+    ui_heading 'Docs'
     [ -d "$ROOT/docs" ] || { warn "docs/ is missing from this checkout."; pause_menu; return 0; }
     while IFS= read -r f; do
         files+=("$f")
     done < <(find "$ROOT/docs" -maxdepth 1 -name '*.md' 2>/dev/null | LC_ALL=C sort)
     for i in "${!files[@]}"; do
-        printf '  %2d  %s\n' "$((i + 1))" "$(basename "${files[$i]}")"
+        ui_item "$((i + 1))" "$(basename "${files[$i]}")"
     done
     echo ""
     menu_read "  number to read, Enter to go back >" || return 0
@@ -216,6 +217,64 @@ cfg_each_row() { # <section> -> `key<TAB>active<TAB>value` rows of that section
     cfg_rows 2>/dev/null | awk -F'\t' -v s="$section" '$4 == s { print $1 "\t" $2 "\t" $5 }'
 }
 
+cfg_section_stats() { # -> `section<TAB>set<TAB>off`, in file order
+    cfg_rows 2>/dev/null | awk -F'\t' '
+        { if (!($4 in seen)) { seen[$4] = 1; order[n++] = $4 }
+          if ($2 == 1) on[$4]++ ; else off[$4]++ }
+        END { for (i = 0; i < n; i++) printf "%s\t%d\t%d\n", order[i], on[order[i]], off[order[i]] }
+    '
+}
+
+# cfg_list_row NUM KEYW KEY ACTIVE VALUE — one line of a config.env section.
+#
+# A key has three things worth seeing at once: whether it is switched on, its
+# name, and its value. They are three aligned columns when the window has room
+# and two lines when it does not — the state keeps its colour either way, so
+# scanning down the page is still "find the green ones".
+cfg_list_row() {
+    local num="$1" keyw="$2" key="$3" active="$4" value="$5"
+    local cols state statepad color avail vw vcolor
+    cols=$(ui_cols)
+    if [ "$active" = "1" ]; then state='on'; color="$UI_GREEN"; else state='off'; color="$UI_DIM"; fi
+    printf -v statepad '%*s' $((3 - ${#state})) ''
+    # The colour is kept out of the text until printing, so measuring the value
+    # never counts escape bytes.
+    if [ -z "$value" ]; then value='(empty)'; vcolor="$UI_DIM"; else vcolor="$UI_BOLD"; fi
+    # A key longer than the shared column is measured on its own: the column is
+    # a convenience, not a licence to print past the window.
+    [ "${#key}" -gt "$keyw" ] && keyw=${#key}
+
+    avail=$((cols - (2 + 3 + 2 + 3 + 2 + keyw + 2)))
+    # Three columns only when the whole value fits in the one that is left: a
+    # value cut to `Redmi Not…` is worse than the two-line form, which has the
+    # rest of the window to wrap into.
+    if [ "$avail" -ge 8 ] && [ "${#value}" -le $((avail - 1)) ]; then
+        vw=$((avail - 1))
+        printf '  %s%3d%s  %s%-3s%s  %s%-*s%s  %s%s%s\n' \
+            "$UI_DIM" "$num" "$UI_OFF" "$color" "$state" "$UI_OFF" \
+            "$UI_DIM" "$keyw" "$key" "$UI_OFF" \
+            "$vcolor" "$(ui_fit "$value" "$vw")" "$UI_OFF"
+        return 0
+    fi
+    # No room for three columns: the key starts on the number's line and wraps
+    # under itself, and the value wraps below. A 24-character property name is
+    # wider than a phone, so both are wrapped rather than run off the edge.
+    local l first=1
+    ui_wrap "$key" 0 $((cols - 13)) | while IFS= read -r l; do
+        if [ "$first" = 1 ]; then
+            printf '  %s%3d%s  %s%-3s%s  %s%s%s\n' \
+                "$UI_DIM" "$num" "$UI_OFF" "$color" "$state" "$UI_OFF" \
+                "$UI_BOLD" "$l" "$UI_OFF"
+            first=0
+        else
+            printf '            %s%s%s\n' "$UI_BOLD" "$l" "$UI_OFF"
+        fi
+    done
+    ui_wrap "$value" 12 $((cols - 13)) | while IFS= read -r l; do
+        printf '%s%s%s\n' "$vcolor" "$l" "$UI_OFF"
+    done
+}
+
 cfg_edit_value() {
     local key="$1" current value
     current="$(cfg_get "$key")"
@@ -247,16 +306,21 @@ cfg_section() { # <section title>
             pause_menu
             return 0
         fi
+        # One width for the key column, so the values line up down the page.
+        local keyw=0
+        for i in "${!rows[@]}"; do
+            local k="${rows[$i]%%$'\t'*}"
+            [ "${#k}" -gt "$keyw" ] && keyw=${#k}
+        done
+        [ "$keyw" -le 30 ] || keyw=30
         for i in "${!rows[@]}"; do
             local key="${rows[$i]%%$'\t'*}" rest="${rows[$i]#*$'\t'}"
             local active="${rest%%$'\t'*}" value="${rest#*$'\t'}"
-            local state='on '
-            [ "$active" = "1" ] || state='off'
             value="$(printf '%s' "$value" | sed 's/^"\(.*\)"$/\1/')"
-            printf '  %3d  %s  %-30s %-34.34s\n' "$((i + 1))" "$state" "$key" "$value"
+            cfg_list_row "$((i + 1))" "$keyw" "$key" "$active" "$value"
         done
         echo ""
-        echo "    number = edit value · d number = switch off · e number = switch on"
+        ui_mark note "number = edit ${UI_DOT} d<number> = switch off ${UI_DOT} e<number> = switch on ${UI_DOT} 0 = back"
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
             ''|0|q) return 0 ;;
@@ -287,27 +351,55 @@ cfg_section() { # <section title>
 }
 
 menu_config() {
-    local sections=() i
+    local sections=() i lw name on off
     while :; do
         sections=()
-        while IFS= read -r s; do
-            [ -n "$s" ] && sections+=("$s")
-        done < <(cfg_sections 2>/dev/null)
+        local -a counts=()
+        while IFS=$'\t' read -r name on off; do
+            [ -n "$name" ] || continue
+            sections+=("$name")
+            counts+=("$(printf '%s set %s %s off' "$on" "$UI_DOT" "$off")")
+        done < <(cfg_section_stats 2>/dev/null)
+        # A config.env with no section headers still has keys.
+        if [ "${#sections[@]}" -eq 0 ]; then
+            while IFS= read -r name; do
+                [ -n "$name" ] && { sections+=("$name"); counts+=(''); }
+            done < <(cfg_sections 2>/dev/null)
+        fi
 
         cfg_counts
-        echo ""
-        echo -e "  ${BOLD}config.env${NC}"
-        hr
-        printf '  %s set · %s off · %s\n\n' "$CFG_ON" "$CFG_OFF" "$ROOT/config.env"
+        ui_heading 'config.env'
+        local hdr_cols hdr_path
+        hdr_cols=$(ui_cols)
+        hdr_path="$ROOT/config.env"
+        if [ $(( 2 + ${#CFG_ON} + 5 + ${#CFG_OFF} + 6 + ${#hdr_path} )) -le "$hdr_cols" ]; then
+            printf '  %s%d set%s %s %s%d off%s   %s%s%s\n\n' \
+                "$UI_GREEN" "$CFG_ON" "$UI_OFF" "$UI_DOT" \
+                "$UI_DIM" "$CFG_OFF" "$UI_OFF" "$UI_DIM" "$hdr_path" "$UI_OFF"
+        else
+            # A full checkout path is wider than a phone: the counts keep the
+            # first line, the path wraps under them.
+            printf '  %s%d set%s %s %s%d off%s\n' \
+                "$UI_GREEN" "$CFG_ON" "$UI_OFF" "$UI_DOT" \
+                "$UI_DIM" "$CFG_OFF" "$UI_OFF"
+            ui_wrap "$hdr_path" 4 $((hdr_cols - 5)) | while IFS= read -r name; do
+                printf '%s%s%s\n' "$UI_DIM" "$name" "$UI_OFF"
+            done
+            printf '\n'
+        fi
         if [ "${#sections[@]}" -eq 0 ]; then
             err "config.env is missing or empty: $ROOT/config.env"
             pause_menu
             return 0
         fi
+        lw=0
         for i in "${!sections[@]}"; do
-            printf '  %2d  %s\n' "$((i + 1))" "${sections[$i]}"
+            [ "${#sections[$i]}" -gt "$lw" ] && lw=${#sections[$i]}
         done
-        echo "     0  Back"
+        for i in "${!sections[@]}"; do
+            ui_item "$((i + 1))" "${sections[$i]}" "${counts[$i]}" "$lw"
+        done
+        ui_item 0 'Back'
         menu_read "  section >" || return 0
         case "$MENU_ANSWER" in
             ''|0|q) return 0 ;;
@@ -343,6 +435,34 @@ addons_saved() { # <id> -> the value in addons.conf, empty when unset
     awk -F= -v id="$1" '$1 == id { sub(/^[^=]*=/, ""); print; exit }' "$file"
 }
 
+# addons_row NUM MARK LABEL VALUE CHOICES [ (overlay) ] — one addon.
+#
+# MARK is `*` for a value you chose, `-` for one you chose that happens to be
+# the ROM's own, and a space for an untouched addon. The chosen value is the
+# bright one; the alternatives stay dim, so the page reads as a list of current
+# settings and a menu of choices at the same time.
+addons_row() {
+    local num="$1" mark="$2" label="$3" value="$4" choices="$5" extra="${6:-}"
+    local cols lw=30 vw=10 avail color
+    cols=$(ui_cols)
+    [ "$lw" -le "$cols" ] || lw=$((cols - 10))
+    avail=$((cols - (2 + 3 + 1 + 2 + lw + 2 + vw + 2)))
+    if [ "$mark" = '*' ]; then color="$UI_GREEN"; else color="$UI_DIM"; fi
+
+    if [ "$avail" -ge 10 ]; then
+        printf '  %s%3d%s %s%s%s  %s%-*s%s  %s%-*s%s  %s%s%s%s\n' \
+            "$UI_DIM" "$num" "$UI_OFF" "$color" "$mark" "$UI_OFF" \
+            "$UI_BOLD" "$lw" "$label" "$UI_OFF" \
+            "$color" "$vw" "$value" "$UI_OFF" \
+            "$UI_DIM" "$choices" "$extra" "$UI_OFF"
+        return 0
+    fi
+    printf '  %s%3d%s %s%s%s  %s%s%s%s%s\n' \
+        "$UI_DIM" "$num" "$UI_OFF" "$color" "$mark" "$UI_OFF" \
+        "$UI_BOLD" "$label" "$UI_OFF" "$extra" ''
+    printf '       %s%s%s  %s%s%s\n' "$color" "$value" "$UI_OFF" "$UI_DIM" "$choices" "$UI_OFF"
+}
+
 menu_addons() {
     local script rows=() row i ans id label choices default kind value saved mark
     script="$(addons_script)"
@@ -357,11 +477,9 @@ menu_addons() {
             [ -n "$row" ] && rows+=("$row")
         done < <(addons_call catalog 2>/dev/null)
 
+        ui_heading 'Addons'
+        ui_mark note "A setting changes on the phone now; an overlay resource needs a rebuild."
         echo ""
-        echo -e "  ${BOLD}Addons${NC}"
-        hr
-        echo "  A setting changes on the phone now; an overlay resource needs a rebuild."
-        echo "    #  addon                          now          choices"
         for i in "${!rows[@]}"; do
             IFS='|' read -r id choices default label _ kind <<<"${rows[$i]}"
             saved="$(addons_saved "$id")"
@@ -371,12 +489,13 @@ menu_addons() {
                 mark='*'
                 [ "$saved" = "$default" ] && mark='-'
             fi
-            printf '  %3d %s %-30.30s %-12.12s %s%s\n' "$((i + 1))" "$mark" "$label" "$value" \
-                "$(printf '%s' "$choices" | tr ',' '/')" "$([ "$kind" = overlay ] && echo ' (overlay)')"
+            addons_row "$((i + 1))" "$mark" "$label" "$value" \
+                "$(printf '%s' "$choices" | tr ',' '/')" \
+                "$([ "$kind" = overlay ] && echo " ${UI_DIM}(overlay)${UI_OFF}")"
         done
         echo ""
-        echo "    * = chosen · - = chosen as the default · plain = the ROM's own value"
-        echo "    number = choose a value · number=value = set both · r = reset · Enter = back"
+        ui_mark note "* chosen  ${UI_DOT}  - chosen, same as the ROM  ${UI_DOT}  plain = the ROM's own value"
+        ui_mark note "number = choose a value   number=value = set both   r = reset   Enter = back"
         menu_read "  >" || return 0
         ans="$MENU_ANSWER"
         case "$ans" in
@@ -407,11 +526,13 @@ menu_addons() {
             continue
         fi
         IFS='|' read -r id choices default label row kind <<<"${rows[$((ans - 1))]}"
+        ui_heading "$label"
+        ui_mark note "$row"
+        ui_panel "$label" \
+            "now|$(addons_saved "$id" || printf '%s' "$default")" \
+            "choices|$(printf '%s' "$choices" | tr ',' '/')" \
+            "changes|$([ "$kind" = overlay ] && echo 'after the next build' || echo 'on the phone now')"
         echo ""
-        echo -e "  ${BOLD}${label}${NC}"
-        printf '  %s\n' "$row"
-        echo ""
-        printf '  choices: %s · now: %s\n' "$(printf '%s' "$choices" | tr ',' '/')" "$(addons_saved "$id" || printf '%s' "$default")"
         menu_read "  value (Enter keeps it)" || return 0
         value="$MENU_ANSWER"
         [ -z "$value" ] && continue
@@ -483,21 +604,16 @@ probe_menu() { # <title> <script> <note>
     local title="$1" script="$2" note="$3" dir
     while :; do
         probe_source_ask
-        echo ""
-        echo -e "  ${BOLD}${title}${NC}"
-        hr
-        # %b so a note can wrap by itself: a one-paragraph description on a
-        # phone-width terminal would otherwise run off the edge.
-        [ -n "$note" ] && printf '  %b\n' "$note" && echo ""
-        if [ "$probe_local" = 1 ]; then
-            echo "     1  Read this phone (report only)"
-            echo "     2  Read this phone and write the answers to config.env"
-        else
-            echo "     1  Read the connected phone (report only)"
-            echo "     2  Read the connected phone and write the answers to config.env"
-        fi
-        echo "     3  Read an unpacked firmware folder instead"
-        echo "     0  Back"
+        ui_heading "$title"
+        # ui_mark wraps the note itself: a one-paragraph description on a
+        # phone-width terminal used to run off the edge.
+        [ -n "$note" ] && ui_mark note "$note" && echo ""
+        local who='the connected phone'
+        [ "$probe_local" = 1 ] && who='this phone'
+        ui_item 1 "Read $who" 'report only, nothing written' 24
+        ui_item 2 "Read $who" 'and write the answers to config.env' 24
+        ui_item 3 'Read a firmware folder' 'an unpacked ROM instead of a running phone' 24
+        ui_item 0 'Back' '' 24
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
             1) probe_run "$script" ;;
@@ -529,7 +645,7 @@ menu_device() {
 
 menu_detect() {
     probe_menu "Auto Detect" "$ROOT/stuff/scripts/device-probe.sh" \
-        "What the ROM says about the hardware: cutout path, corner radius, status\n  bar height, refresh rates, VoLTE and 5G flags, the light sensor and the OEM\n  switches. Anything it cannot read is reported, not guessed."
+        "What the ROM says about the hardware: cutout path, corner radius, status bar height, refresh rates, VoLTE and 5G flags, the light sensor and the OEM switches. Anything it cannot read is reported, not guessed."
 }
 
 menu_udfps() {
@@ -548,6 +664,7 @@ menu_match() {
 menu_main() {
     while :; do
         menu_header
+        echo ""
         menu_items
         echo ""
         menu_read "  >" || { echo ""; return 0; }

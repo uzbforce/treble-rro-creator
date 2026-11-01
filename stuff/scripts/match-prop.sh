@@ -38,6 +38,7 @@ export MSYS_NO_PATHCONV=1
 
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 . "$ROOT/stuff/scripts/config-edit.sh"
+. "$ROOT/stuff/scripts/ui.sh"
 
 adb="${ADB:-}"
 serial=""
@@ -411,58 +412,193 @@ emit_json() {
     printf ']}\n'
 }
 
+# Emit one why/risk string as one bullet per fact.
+#
+# Both are a list joined with " · " — "read from /system · zygote can read it ·
+# holds the codename" — which wrapped as prose is the wall of text this report
+# used to be. Split, each fact is a line the eye can check off.
+emit_facts() {
+    local kind="$1" indent="$2" rest="$3" fact
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            *" · "*) fact="${rest%% · *}"; rest="${rest#* · }" ;;
+            *) fact="$rest"; rest="" ;;
+        esac
+        [ -n "$fact" ] && ui_mark "$kind" "$fact" "$indent"
+    done
+}
+
+# emit_candidate INDEX RANK DETAIL — one ranked property.
+#
+# The score, the property and its facts, stacked: a fixed table cannot hold a
+# 24-character property name and a 26-character value on a phone, and cutting
+# either is worse than reading down.
+emit_candidate() {
+    local i="$1" n="$2" detail="$3" line w
+    w=$(ui_cols)
+    printf '\n  %s%2d%s  %s %s%3d%s\n' "$UI_BOLD" "$n" "$UI_OFF" \
+        "$(ui_meter "${c_score[$i]:-0}" 120 10)" "$UI_BOLD" "${c_score[$i]:-0}" "$UI_OFF"
+    line="${c_prop[$i]} = ${c_val[$i]}"
+    if [ $(( ${#line} + 4 )) -le "$w" ]; then
+        printf '    %s%s%s = %s\n' "$UI_BOLD" "${c_prop[$i]}" "$UI_OFF" "${c_val[$i]}"
+    else
+        printf '    %s%s%s\n' "$UI_BOLD" "${c_prop[$i]}" "$UI_OFF"
+        ui_wrap "${c_val[$i]}" 6 | while IFS= read -r line; do
+            printf '      %s\n' "$line"
+        done
+    fi
+    printf '    %s%s %s %s %s trust %s%s%s\n' "$UI_DIM" "${c_zone[$i]}" "$UI_DOT" \
+        "${c_label[$i]:-not reported}" "$UI_DOT" \
+        "$(ui_trust_color "${c_trust[$i]:-low}")" "${c_trust[$i]:-unknown}" "$UI_OFF"
+    [ "$detail" = "1" ] || return 0
+    emit_facts note 6 "${c_why[$i]}"
+    [ -n "${c_risk[$i]}" ] && emit_facts warn 6 "${c_risk[$i]}"
+    return 0
+}
+
+# emit_tail INDEX:RANK ... — every property after the top three, as a table.
+#
+# Twelve cards, each with a paragraph of facts, is a page nobody reads to the
+# end. The three that could win keep their facts; the rest become one row each —
+# rank, score, property, value, trust — so the list is something to scan down
+# rather than a wall of prose. On a phone the row is two lines instead of one:
+# the score line, then `property = value` wrapped under it.
+emit_tail() {
+    local -a pairs=("$@") idx=() ranks=()
+    local p i k cols pw=0 vw=0 need line
+    for p in "${pairs[@]}"; do
+        idx+=("${p%%:*}")
+        ranks+=("${p#*:}")
+    done
+    cols=$(ui_cols)
+    for i in "${idx[@]}"; do
+        [ "${#c_prop[$i]}" -gt "$pw" ] && pw=${#c_prop[$i]}
+        [ "${#c_val[$i]}" -gt "$vw" ] && vw=${#c_val[$i]}
+    done
+    # 2 margin, 3 rank, 2, 6 meter, 1, 3 score, 2, property, 2, value, 2, trust
+    need=$(( 2 + 3 + 2 + 10 + 2 + pw + 2 + vw + 2 + 6 ))
+
+    if [ "$need" -le "$cols" ]; then
+        printf '\n  %s%3s  %-10s  %-*s  %-*s  %-6s%s\n' "$UI_DIM" '#' 'score' \
+            "$pw" 'property' "$vw" 'value' 'trust' "$UI_OFF"
+        printf '  %s%s%s\n' "$UI_DIM" "$(ui_repeat $((need - 2)) "$UI_H")" "$UI_OFF"
+        for k in "${!idx[@]}"; do
+            i="${idx[$k]}"
+            printf '  %s%3s%s  %s %s%3d%s  %s%-*s%s  %-*s  %s%s%s\n' \
+                "$UI_DIM" "${ranks[$k]}" "$UI_OFF" \
+                "$(ui_meter "${c_score[$i]:-0}" 140 6)" \
+                "$UI_DIM" "${c_score[$i]:-0}" "$UI_OFF" \
+                "$UI_BOLD" "$pw" "${c_prop[$i]}" "$UI_OFF" \
+                "$vw" "${c_val[$i]}" \
+                "$(ui_trust_color "${c_trust[$i]:-low}")" "${c_trust[$i]:-unknown}" "$UI_OFF"
+        done
+        return 0
+    fi
+
+    for k in "${!idx[@]}"; do
+        i="${idx[$k]}"
+        printf '\n  %s%3s%s  %s %s%3d%s  %s%s%s\n' \
+            "$UI_DIM" "${ranks[$k]}" "$UI_OFF" \
+            "$(ui_meter "${c_score[$i]:-0}" 140 6)" \
+            "$UI_DIM" "${c_score[$i]:-0}" "$UI_OFF" \
+            "$(ui_trust_color "${c_trust[$i]:-low}")" "${c_trust[$i]:-unknown}" "$UI_OFF"
+        line="${c_prop[$i]} = ${c_val[$i]}"
+        if [ $(( ${#line} + 4 )) -le "$cols" ]; then
+            printf '    %s%s%s = %s\n' "$UI_BOLD" "${c_prop[$i]}" "$UI_OFF" "${c_val[$i]}"
+        elif [ $(( ${#c_prop[$i]} + 8 )) -le "$cols" ]; then
+            # The name fits and only the value does not: hang the value under it,
+            # two columns further in, so the wrapped piece still belongs to the
+            # row above instead of looking like the next candidate.
+            printf '    %s%s%s =\n' "$UI_BOLD" "${c_prop[$i]}" "$UI_OFF"
+            ui_wrap "${c_val[$i]}" 6 | while IFS= read -r line; do
+                printf '%s\n' "$line"
+            done
+        else
+            # ui_wrap already indents every line by four, so print it as it is.
+            ui_wrap "$line" 4 | while IFS= read -r line; do
+                printf '%s\n' "$line"
+            done
+        fi
+    done
+}
+
 emit_human() {
     local i n=0 saved_prop saved_value
     saved_prop="$(cfg_get HW_OVERLAY_MATCH_PROP)"
     saved_value="$(cfg_get HW_OVERLAY_MATCH_VALUE)"
 
-    printf '\n  Match property — what the submitted overlay requires\n\n'
-    printf '  %-12s %s\n' 'Phone' "${model:-unknown}${manuf:+ ($manuf)}"
+    local -a panel=()
+    panel+=("Phone|${model:-unknown}${manuf:+ ($manuf)}")
     if [ -n "$codename" ]; then
-        printf '  %-12s %s  (%s)\n' 'Codename' "$codename" "$codename_prop"
+        panel+=("Codename|$codename ($codename_prop)")
     else
-        printf '  %-12s %s\n' 'Codename' 'not found — no property carries a device name'
+        panel+=("Codename|not found — no property carries a device name")
     fi
-    [ -n "$module_prop" ] && printf '  %-12s %s  (DEVICE_PROP_NAME)\n' 'Module' "$module_prop"
+    [ -n "$module_prop" ] && panel+=("Module|$module_prop")
     if [ -n "$saved_prop" ] || [ -n "$saved_value" ]; then
-        printf '  %-12s %s = %s\n' 'Current' "${saved_prop:-ro.product.vendor.device}" "$saved_value"
+        panel+=("Current|${saved_prop:-ro.product.vendor.device} = $saved_value")
     fi
 
+    ui_title "Match property" \
+        "Which property the overlay requires, so the module only applies to this phone."
+    ui_panel "This phone" "${panel[@]}"
+
     if [ "${#sorted[@]}" -gt 0 ]; then
-        printf '\n  Ranked properties\n\n'
-        printf '    #  score  %-28s %-18s %-10s %s\n' 'property' 'value' 'zone' 'SELinux area'
+        local -a rest_pairs=()
+        ui_heading "Ranked properties"
         for i in "${sorted[@]}"; do
             n=$((n + 1))
-            printf '  %3d %6d  %-28s %-18s %-10s %s\n' \
-                "$n" "${c_score[$i]}" "${c_prop[$i]}" "${c_val[$i]}" "${c_zone[$i]}" "${c_label[$i]:-not reported}"
-            printf '            · %s\n' "${c_why[$i]}"
-            [ -n "${c_risk[$i]}" ] && printf '            ! %s\n' "${c_risk[$i]}"
+            # The three that could plausibly be chosen get their facts spelled
+            # out; the rest become table rows, so twelve properties stay a list.
+            if [ "$n" -le 3 ]; then
+                emit_candidate "$i" "$n" 1
+            else
+                rest_pairs+=("$i:$n")
+            fi
         done
+        [ "${#rest_pairs[@]}" -gt 0 ] && emit_tail "${rest_pairs[@]}"
     else
-        printf '\n  No property could be ranked — nothing on this phone names the device.\n'
+        ui_heading "Ranked properties"
+        ui_mark bad "No property could be ranked — nothing on this phone names the device."
     fi
 
     if [ "${#r_prop[@]}" -gt 0 ]; then
-        printf '\n  Ruled out\n\n'
+        local cols line
+        cols=$(ui_cols)
+        ui_heading "Ruled out"
         for i in "${!r_prop[@]}"; do
-            printf '    %-28s %-18s %s\n' "${r_prop[$i]}" "${r_val[$i]}" "${r_reason[$i]}"
+            line="${r_prop[$i]} = ${r_val[$i]}"
+            printf '\n'
+            if [ $(( ${#line} + 2 )) -le "$cols" ]; then
+                printf '  %s%s%s = %s%s%s\n' "$UI_BOLD" "${r_prop[$i]}" "$UI_OFF" \
+                    "$UI_DIM" "${r_val[$i]}" "$UI_OFF"
+            else
+                # A fingerprint value is wider than a phone; wrap rather than
+                # run off the edge, keeping the name on its own line.
+                printf '  %s%s%s\n' "$UI_BOLD" "${r_prop[$i]}" "$UI_OFF"
+                ui_wrap "${r_val[$i]}" 4 | while IFS= read -r line; do
+                    printf '%s%s%s\n' "$UI_DIM" "$line" "$UI_OFF"
+                done
+            fi
+            ui_mark note "${r_reason[$i]}" 4
         done
     fi
 
-    printf '\n  Confidence: %s\n' "$confidence"
+    local -a verdict=("Confidence|$confidence")
+    if [ "${#sorted[@]}" -gt 0 ]; then
+        verdict+=("Best match|${c_prop[${sorted[0]}]}")
+        verdict+=("Value|${c_val[${sorted[0]}]}")
+    fi
+    ui_panel "Verdict" "${verdict[@]}" 
     case "$confidence" in
         high)
-            printf '    %s carries the codename, zygote can read it, and a GSI leaves\n' "${c_prop[${sorted[0]}]}"
-            printf '    its partition alone. This is the answer.\n'
+            ui_mark ok "${c_prop[${sorted[0]}]} carries the codename, zygote can read it, and a GSI leaves its partition alone. This is the answer."
             ;;
         medium)
-            printf '    The best property holds the codename, but something else about it\n'
-            printf '    is a gamble (readability, or a GSI replaces its partition). It works\n'
-            printf '    today on this ROM; keeping the match you already have is safer.\n'
+            ui_mark warn "The best property holds the codename, but something else about it is a gamble (readability, or a GSI replaces its partition). It works today on this ROM; keeping the match you already have is safer."
             ;;
         *)
-            printf '    No property satisfies every rule. Keep the HW_OVERLAY_MATCH_* you\n'
-            printf '    already have, or set the pair by hand from config.env.\n'
+            ui_mark bad "No property satisfies every rule. Keep the HW_OVERLAY_MATCH_* you already have, or set the pair by hand from config.env."
             ;;
     esac
     printf '\n'
