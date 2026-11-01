@@ -64,10 +64,6 @@ YOUR BACKUPS/
 .module_tmp/
 tmp/
 
-# Chat exports dropped into the clone are conversation logs, not source: they
-# are large and the links copied into them are not documentation links.
-freebuff-chat-*.md
-
 # IDE / OS
 .idea/
 *.iml
