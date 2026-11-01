@@ -51,11 +51,30 @@ cd treble-rro-creator
 ./build.sh
 ```
 
-The first run checks the toolchain. If something is missing it installs it
-(aapt2/zipalign/apksigner via `pkg`, `framework-res.apk` by download), then
-builds. To choose things yourself:
+On a terminal this opens the **menu**, which is the desktop app's toolkit in a
+numbered list — the same build, the same `config.env` editor, the same phone
+probes. Termux has no window, so this is the full interface on the phone:
+
+```
+     1  Build              dry run, build, check, doctor, clean
+     2  config.env         browse and edit one key at a time
+     3  Addons             module tweaks: settings and overlay resources
+     4  Device             read manufacturer, model, codename from the phone
+     5  Auto Detect        ROM answers: cutout, corners, refresh rate, VoLTE, 5G
+     6  UDFPS              in-display fingerprint geometry
+     7  Match property     which property the submission should match on
+     8  Files              what was built, and where it is
+     9  Docs               the guides in docs/
+```
+
+`1 → 2` is the build. The first run checks the toolchain: if something is
+missing it installs it (aapt2/zipalign/apksigner via `pkg`,
+`framework-res.apk` by download), then builds.
+
+To skip the menu, use the verbs directly:
 
 ```bash
+./build.sh build     # build, installing tools if needed
 ./build.sh setup     # [3] Android / Termux, then [1] Android 13 resources
 ./build.sh doctor    # verify
 ./build.sh check     # validate config.env only
@@ -68,7 +87,12 @@ to run. `./build.sh setup` walks through the options interactively.
 
 ## 4. Edit the config
 
-Use a text editor in Termux:
+`2` in the menu lists `config.env` by section with the value next to each key,
+`on`/`off` for the ones that are commented out, and writes the change in place —
+the comments and the file's shape stay as they are. That is quicker on a phone
+than hunting for a `#` in a 240-line file.
+
+Use a text editor when you want to see the notes above each key:
 
 ```bash
 nano config.env
@@ -83,6 +107,13 @@ MT Manager at:
 
 Required values and every optional flag are listed in
 [configuration.md](configuration.md).
+
+With the phone in the same hand, `4` (Device) fills in `DEVICE_CODENAME`,
+`DEVICE_MANUFACTURER` and `DEVICE_MODEL` from `getprop`, `5` (Auto Detect) reads
+what the running ROM says about the hardware — cutout path, corner radii, status
+bar height, refresh rates, the VoLTE and 5G flags, the light sensor and the OEM
+switches — and `6` (UDFPS) finds the fingerprint sensor's real geometry. No PC,
+no typing values between screens.
 
 Do not forget `src/framework/res/xml/power_profile.xml` — replace it with your
 device's file, see

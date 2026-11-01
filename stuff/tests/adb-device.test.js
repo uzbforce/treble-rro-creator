@@ -11,8 +11,8 @@
 // Run: node --test stuff/tests/adb-device.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -68,13 +68,13 @@ exit 0
 // Runs adb_pick_device in a bash that sources the library, and returns both the
 // chosen serial and whatever the helper printed. stdin is a pipe unless a menu
 // answer is supplied, which is exactly the non-interactive case the app sees.
-function pickUsing(adb, table, serialArg, { stdin = '' } = {}) {
+function pickUsing(adb, table, serialArg, { stdin = '', env = {} } = {}) {
   // 2>&1: the helper explains itself on stderr, and these tests are about that
   // explanation as much as about the serial.
   const script = `{ . "${lib}" && adb_pick_device "$FAKE_ADB" ${JSON.stringify(serialArg)} test-probe && printf 'PICKED=%s' "$DEVICE_SERIAL"; } 2>&1`;
   const run = () =>
     execFileSync('bash', ['-c', script], {
-      env: { ...process.env, FAKE_ADB: adb, FAKE_DEVICES: table, TERM: 'dumb' },
+      env: { ...process.env, FAKE_ADB: adb, FAKE_DEVICES: table, TERM: 'dumb', ...env },
       input: stdin,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -86,9 +86,9 @@ function pickUsing(adb, table, serialArg, { stdin = '' } = {}) {
   }
 }
 
-function pick(devicesOutput, serialArg, { stdin = '' } = {}) {
+function pick(devicesOutput, serialArg, { stdin = '', env = {} } = {}) {
   const { adb, table } = fakeAdb(devicesOutput);
-  return pickUsing(adb, table, serialArg, { stdin });
+  return pickUsing(adb, table, serialArg, { stdin, env });
 }
 
 test('one ready phone is used even when another is unauthorized', () => {
@@ -264,6 +264,59 @@ exit 0
   assert.match(out, /PICKED=RFCM90F5BBX/);
 });
 
+// The menu case: a serial is named (or was set in config.env) while the phone is
+// still showing its debugging prompt. Failing there means the user plugs in,
+// accepts, and then runs the menu again — so it waits instead.
+test('a named serial that is not ready yet is waited for', () => {
+  const { adb, table, dir } = fakeAdbScript(
+    `if [ "$1" = "devices" ]; then
+  if [ -f "$FAKE_COUNTER" ]; then cat "$FAKE_DEVICES"; else : > "$FAKE_COUNTER"; printf 'List of devices attached\nRFCM90F5BBX  unauthorized\n'; fi
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$3" = "get-state" ]; then echo device; exit 0; fi
+exit 0
+`,
+    ONE_READY
+  );
+  const { out, status } = pickUsing(adb, table, 'RFCM90F5BBX', {
+    env: { FAKE_COUNTER: join(dir, 'calls'), ADB_WAIT_SECONDS: '5' },
+  });
+  assert.equal(status, 0, out);
+  assert.match(out, /RFCM90F5BBX is attached but unauthorized/);
+  assert.match(out, /waiting for a device to become ready/);
+  assert.match(out, /PICKED=RFCM90F5BBX/);
+});
+
+// Plugging the phone in after the menu opened should be enough on its own.
+test('an empty desk is waited on until a phone appears', () => {
+  const { adb, table, dir } = fakeAdbScript(
+    `if [ "$1" = "devices" ]; then
+  if [ -f "$FAKE_COUNTER" ]; then cat "$FAKE_DEVICES"; else : > "$FAKE_COUNTER"; printf 'List of devices attached\n\n'; fi
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$3" = "get-state" ]; then echo device; exit 0; fi
+exit 0
+`,
+    ONE_READY
+  );
+  const { out, status } = pickUsing(adb, table, '', {
+    env: { FAKE_COUNTER: join(dir, 'calls'), ADB_WAIT_SECONDS: '5' },
+  });
+  assert.equal(status, 0, out);
+  assert.match(out, /no device in adb devices/);
+  assert.match(out, /PICKED=RFCM90F5BBX/);
+});
+
+// Nothing ever appears: the deadline is reported, not waited out forever.
+test('a wait that times out says how long it waited', () => {
+  const { out, status } = pick('List of devices attached\n\n', '', {
+    env: { ADB_WAIT_SECONDS: '2' },
+  });
+  assert.notEqual(status, 0);
+  assert.match(out, /no device appeared within 2s/);
+  assert.doesNotMatch(out, /PICKED=/);
+});
+
 // Ready in the listing, dead on the wire: the snapshot is checked, not trusted.
 test('a phone that is listed but will not answer get-state is refused', () => {
   const { adb, table } = fakeAdbScript(
@@ -277,6 +330,47 @@ exit 0
   assert.notEqual(status, 0);
   assert.match(out, /did not answer get-state/);
   assert.doesNotMatch(out, /PICKED=/);
+});
+
+// The wait promises "Ctrl-C stops this" on screen, so Ctrl-C has to stop it. A
+// trap that only runs the cleanup (`trap cleanup EXIT HUP INT TERM`) replaces the
+// default action, so the interrupt cleaned up and the loop carried on polling —
+// three presses and the prompt did not come back.
+test('Ctrl-C ends the wait instead of being swallowed', async () => {
+  for (const name of ['match-prop', 'device-probe', 'udfps-probe', 'device-id']) {
+    const body = readFileSync(join(root, 'stuff', 'scripts', `${name}.sh`), 'utf8');
+    for (const line of body.match(/^trap .*$/gm) || []) {
+      if (/\bINT\b/.test(line)) {
+        assert.match(line, /\bexit\b/, `${name}.sh traps INT without exiting: ${line}`);
+      }
+    }
+  }
+
+  // And in practice: a 120s wait is cut short by a real SIGINT. The trap is set
+  // by the probe, so the probe is what runs — match-prop is the one from the
+  // bug report.
+  const { adb, table, dir: tmp } = fakeAdb('List of devices attached\n\n');
+  const child = spawn('bash', [join(root, 'stuff', 'scripts', 'match-prop.sh'), '--adb', adb], {
+    env: {
+      ...process.env,
+      FAKE_DEVICES: table,
+      ADB_WAIT_SECONDS: '120',
+      CFG_FILE: join(tmp, 'config.env'),
+      TERM: 'dumb',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => (stderr += chunk));
+  const started = Date.now();
+  const exited = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  process.kill(-child.pid, 'SIGINT');
+  const { code } = await exited;
+  const took = Date.now() - started;
+  assert.ok(took < 6000, `the wait ignored SIGINT for ${took}ms`);
+  assert.equal(code, 130, `expected the interrupt exit code, got ${code}: ${stderr}`);
 });
 
 // A wedged adb server otherwise hangs the probe with nothing on screen, which

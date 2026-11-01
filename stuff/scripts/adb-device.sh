@@ -230,6 +230,62 @@ adb_device_alive() {
     return "$status"
 }
 
+# A probe run from the menu is usually started while the phone is still in the
+# user's hand. Failing on the spot ("plug the phone in") is the wrong answer
+# there: the next thing the user does is plug it in, and then has to run the
+# menu again. Wait for a device to appear instead — but only on a terminal, so a
+# script still gets an immediate answer.
+#
+# ADB_WAIT_SECONDS sets the deadline and also allows waiting without a terminal
+# (0 never waits); that is the switch the tests use.
+#
+# On success ADB_DEVICES holds the new listing, ready devices included.
+adb_device_wait() {
+    local adb="$1" prog="$2" limit waited=0 ready attached now last=""
+    if [ -n "${ADB_WAIT_SECONDS:-}" ]; then
+        limit="$ADB_WAIT_SECONDS"
+    elif [ -t 0 ] && [ -t 2 ]; then
+        limit=120
+    else
+        return 1
+    fi
+    case "$limit" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$limit" -gt 0 ] || return 1
+
+    printf '%s: waiting for a device to become ready — plug the phone in and allow USB debugging\n' "$prog" >&2
+    printf '  (up to %ss; Ctrl-C stops this)\n' "$limit" >&2
+    while [ "$waited" -lt "$limit" ]; do
+        sleep 1
+        waited=$((waited + 1))
+        # adb is allowed to be unplugged and replugged while this runs: only a
+        # listing that could not be produced at all ends the wait early.
+        adb_device_list "$adb" || {
+            case "${ADB_DEVICES_NOTE:-}" in
+                *'was not found'*) return 1 ;;
+            esac
+            continue
+        }
+        attached="$ADB_DEVICES"
+        ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+        if [ -n "$ready" ]; then
+            printf '  found %s\n' "$(printf '%s\n' "$ready" | awk '{print $1}' | tr '\n' ' ' | sed 's/ *$//')" >&2
+            return 0
+        fi
+        # Say something when the state changes (unauthorized → device is the
+        # prompt being accepted, offline → nothing yet) and otherwise stay quiet
+        # apart from a nudge, so a slow wait does not scroll the screen away.
+        now="$(printf '%s\n' "$attached" | awk 'NF { print "  " $1 " (" $2 ")" }')"
+        if [ "$now" != "$last" ]; then
+            [ -z "$now" ] || printf '%s\n' "$now" >&2
+            last="$now"
+        elif [ $((waited % 15)) -eq 0 ]; then
+            printf '  still waiting — %ss of %ss\n' "$waited" "$limit" >&2
+        fi
+    done
+    printf '%s: no device appeared within %ss.\n' "$prog" "$limit" >&2
+    return 1
+}
+
 adb_pick_device() {
     local adb="$1" want="$2" prog="$3"
     local attached ready ready_count state serial sleeping waited=0
@@ -274,10 +330,29 @@ adb_pick_device() {
                 printf '%s\n' "$attached" | adb_device_table >&2
                 adb_device_advice "$attached" >&2
             else
-                printf 'No device is attached — plug one in and allow USB debugging.\n' >&2
-                [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '  %s\n' "$ADB_DEVICES_NOTE" >&2
+                [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '%s: %s\n' "$prog" "$ADB_DEVICES_NOTE" >&2
+                printf '%s: %s is not attached — plug the phone in and allow USB debugging.\n' "$prog" "$want" >&2
             fi
-            return 1
+            # Waiting is the point here: the phone was named but is not ready
+            # yet (just plugged in, or its debugging prompt is still on screen).
+            # Both resolve in seconds, so wait rather than fail and be re-run.
+            if adb_device_wait "$adb" "$prog"; then
+                attached="$ADB_DEVICES"
+                ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+                ready_count="$(printf '%s\n' "$ready" | grep -c . || true)"
+                state="$(printf '%s\n' "$attached" | awk -v s="$want" '$1 == s { print $2; exit }')"
+                [ "$state" = "device" ] && serial="$want"
+                # The serial that came up may not be the one typed (a phone that
+                # was off reports a new one), so a single ready device is taken
+                # as the one meant.
+                if [ -z "$serial" ] && [ "$ready_count" -eq 1 ]; then
+                    serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
+                fi
+            fi
+            if [ -z "$serial" ]; then
+                printf '%s: %s did not become ready.\n' "$prog" "$want" >&2
+                return 1
+            fi
         fi
     elif [ "$ready_count" -eq 0 ]; then
         [ -z "${ADB_DEVICES_NOTE:-}" ] || printf '%s: %s\n' "$prog" "$ADB_DEVICES_NOTE" >&2
@@ -288,7 +363,25 @@ adb_pick_device() {
             printf '%s: no device in adb devices — plug the phone in and allow USB debugging.\n' "$prog" >&2
         fi
         adb_device_advice "$attached" >&2
-        return 1
+        # A phone left unauthorized or offline is fixed in a second; waiting
+        # turns that into the same run instead of another menu trip.
+        adb_device_wait "$adb" "$prog" || return 1
+        attached="$ADB_DEVICES"
+        ready="$(printf '%s\n' "$attached" | awk '$2 == "device"')"
+        ready_count="$(printf '%s\n' "$ready" | grep -c . || true)"
+        if [ "$ready_count" -eq 1 ]; then
+            serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
+        elif [ "$ready_count" -eq 0 ]; then
+            return 1
+        elif [ ! -t 0 ]; then
+            printf '%s: %d devices are ready:\n' "$prog" "$ready_count" >&2
+            printf '%s\n' "$ready" | adb_device_table >&2
+            printf '%s: choose one with --device SERIAL\n' "$prog" >&2
+            return 1
+        elif ! serial="$(adb_device_choose "$ready")"; then
+            printf '%s: no device chosen.\n' "$prog" >&2
+            return 1
+        fi
     elif [ "$ready_count" -eq 1 ]; then
         serial="$(printf '%s\n' "$ready" | awk '{print $1}' | head -n1)"
         sleeping="$(printf '%s\n' "$attached" | awk '$2 != "device" { print $1 " (" $2 ")" }' | tr '\n' ' ')"

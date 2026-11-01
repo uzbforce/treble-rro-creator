@@ -5,19 +5,21 @@ your phone's hardware: rounded corners, display cutout, brightness curve, UDFPS,
 AOD/doze, 5G/VoLTE — and optional vendor HALs for fingerprint or vibrator.
 
 Two ways in, same tool: the **desktop app**, which puts every setting and the
-whole build in a window, or **one command** from a terminal. Both edit the same
-`config.env` and run the same build.
+whole build in a window, or the **terminal menu**, which offers the same things
+in a numbered list. Both edit the same `config.env` and run the same build.
 
 ```bash
 treble-rro-creator.cmd    # Windows: the app (double-click it too)
 ./treble-rro-creator.sh   # Linux: the app
-./build.sh                # or just build: Linux / Termux / Git Bash
-build.cmd                 #                 Windows
+./build.sh                # the terminal menu: Linux / Termux / Git Bash
+build.cmd                 #                      Windows
 ```
 
 The first run installs the Android build tools automatically (about 33 MB on
 disk; on Linux it uses your package manager when permitted, and otherwise
-prints the exact command to run). Every later run goes straight to the build.
+prints the exact command to run). Every later run goes straight to the menu.
+No terminal (a script, a CI job)? `./build.sh` without a terminal still builds,
+and `./build.sh build` always builds.
 
 ---
 
@@ -100,6 +102,40 @@ cd treble-rro-creator
 
 Full Termux walkthrough: [docs/termux.md](docs/termux.md).
 
+### The terminal menu (Linux / Termux / Git Bash)
+
+`./build.sh` with no arguments opens a menu. It runs the same build, the same
+`config.env`, and the same phone probes as the window, so nothing needs the app
+(and the app needs nothing from the menu):
+
+```
+  Treble Overlay Creator
+  ──────────────────────────────────────────────────────────
+  Device      Xiaomi Redmi Note 17 (Zephyr)
+  config.env  49 set · 37 off
+  Output      out/treble-overlay-xiaomi-zephyr-hardware-overlay-test.zip  (2 APKs)
+
+     1  Build              dry run, build, check, doctor, clean
+     2  config.env         browse and edit one key at a time
+     3  Addons             module tweaks: settings and overlay resources
+     4  Device             read manufacturer, model, codename from the phone
+     5  Auto Detect        ROM answers: cutout, corners, refresh rate, VoLTE, 5G
+     6  UDFPS              in-display fingerprint geometry
+     7  Match property     which property the submission should match on
+     8  Files              what was built, and where it is
+     9  Docs               the guides in docs/
+     q  Quit
+```
+
+Each screen says what the setting does before you change it, writes straight to
+`config.env`, and offers the phone-reading tools (`adb devices`-style detection,
+the display probe, UDFPS geometry, the submission match property) instead of
+asking you to run `getprop` and copy numbers by hand. A build started here is
+the same `build.sh build` you would type.
+
+Termux has no window, so this is the full interface there. It also runs over
+ssh, in VS Code's terminal, and in Git Bash.
+
 ---
 
 ## Configure your device
@@ -138,7 +174,9 @@ project is called by them.
 | Command | What it does |
 |---|---|
 | `./treble-rro-creator.sh` / `treble-rro-creator.cmd` | **Open the desktop app** — the window for everything below. Builds it on the first run, then just launches it. |
-| `./build.sh` | Build. Installs missing tools first. |
+| `./build.sh` | **The terminal menu** (on a terminal); a plain build without a terminal. |
+| `./build.sh menu` | The menu, even when there is no terminal |
+| `./build.sh build` | Build. Installs missing tools first. |
 | `./build.sh setup` | Install or repair the toolchain (menu: distro / resource version) |
 | `./build.sh doctor` | Check the toolchain, install nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
@@ -292,7 +330,7 @@ The status bar uses `status_bar_height_default` (Android 12L+), not the old
 ├── out/                        APKs and flashable zips (git-ignored)
 ├── gui/                        desktop app sources (+ go.mod at the root)
 └── stuff/                      everything the build uses and you do not
-    ├── scripts/                internals used by build.sh (not run directly)
+    ├── scripts/                internals used by build.sh and the menu (not run directly)
     ├── templates/              reference scripts + clean templates
     ├── keys/                   platform signing key (shipped)
     ├── windows/                helpers for build.cmd
@@ -321,7 +359,7 @@ still work like this:
 | `./setup.sh` / `setup.cmd` | `./build.sh setup` / `build.cmd setup` |
 | `./setup.sh --doctor` / `setup.cmd --doctor` | `./build.sh doctor` / `build.cmd doctor` |
 | `./cleanup.sh` / `cleanup.cmd` | `./build.sh clean` / `build.cmd clean` |
-| `./build.sh` / `build.cmd` | unchanged |
+| `./build.sh` / `build.cmd` | unchanged, but with no arguments it now opens the menu on a terminal (use `build` for the old behaviour) |
 
 | Old location | New location |
 |---|---|

@@ -103,7 +103,8 @@ if command -v node >/dev/null 2>&1; then
     node --test stuff/tests/arsc.test.js stuff/tests/manifest.test.js \
         stuff/tests/hw-overlay.test.js stuff/tests/gui-ui.test.js \
         stuff/tests/adb-device.test.js stuff/tests/udfps-probe.test.js \
-        stuff/tests/apply-sh.test.js stuff/tests/addons-sh.test.js || status=1
+        stuff/tests/apply-sh.test.js stuff/tests/addons-sh.test.js \
+        stuff/tests/match-prop.test.js || status=1
 else
     echo "node is not installed — skipping the resource-table tests"
     status=1
