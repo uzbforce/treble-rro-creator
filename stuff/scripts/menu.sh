@@ -115,8 +115,23 @@ run_entry() {
     ( cd "$ROOT" && bash "$ROOT/build.sh" "$@" )
 }
 
+# Whether the Xiaomi FOD helper ships in the module. Off by default: it is only
+# useful on Xiaomi optical UDFPS phones, and on anything else it is a binary
+# that never starts. `./build.sh --xiaomi-fod menu` starts it already on.
+MENU_XIAOMI_FOD="${XIAOMI_FOD:-false}"
+
+# The --xiaomi-fod argument for a build started from here, or nothing at all.
+xiaomi_fod_arg() {
+    [ "$MENU_XIAOMI_FOD" = "true" ] && printf '%s' '--xiaomi-fod'
+}
+
 menu_build() {
     while :; do
+        if [ "$MENU_XIAOMI_FOD" = "true" ]; then
+            fod_state='on'
+        else
+            fod_state='off'
+        fi
         ui_heading 'Build'
         ui_item 1 'Dry run'     'print the resources config.env emits, build nothing' 11
         ui_item 2 'Build'       'build the module (installs tools if needed)' 11
@@ -124,11 +139,16 @@ menu_build() {
         ui_item 4 'Doctor'      'check the toolchain, install nothing' 11
         ui_item 5 'Clean'       'remove build output' 11
         ui_item 6 'Clean --all' 'start over for a different device' 11
+        ui_item 7 'Xiaomi FOD' "$fod_state · HBM + touch-panel FOD mode for Xiaomi UDFPS" 11
         ui_item 0 'Back' '' 11
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
             1) run_entry --dry-run; pause_menu ;;
-            2) run_entry build; pause_menu ;;
+            2)
+                # shellcheck disable=SC2046 # the flag is one word or none
+                run_entry build $(xiaomi_fod_arg)
+                pause_menu
+                ;;
             3) run_entry check; pause_menu ;;
             4) run_entry doctor; pause_menu ;;
             5) run_entry clean; pause_menu ;;
@@ -138,6 +158,14 @@ menu_build() {
                     run_entry clean --all
                 fi
                 pause_menu
+                ;;
+            7)
+                if [ "$MENU_XIAOMI_FOD" = "true" ]; then
+                    MENU_XIAOMI_FOD=false
+                else
+                    MENU_XIAOMI_FOD=true
+                    info "Next build ships fod/xiaomi-fod — use only if your phone is Xiaomi and has a UDFPS sensor."
+                fi
                 ;;
             0|q|'') return 0 ;;
             *) warn "Not one of the numbers above." ;;

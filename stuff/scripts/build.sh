@@ -924,14 +924,22 @@ else
     ok "service.sh auto-generated (package: ${OVERLAY_PACKAGE})"
 fi
 
-# Xiaomi touch-panel FOD helper. The binary is built from src/module/fod/main.go
-# for arm64; service.sh starts it only when the device has Xiaomi FOD hardware.
-# Only pack it for UDFPS builds, where service.sh can actually use it.
-if [ "$HAS_UDFPS" = "true" ] && [ -f "$MODULE_DIR/fod/xiaomi-fod" ]; then
-    mkdir -p "${MODULE_TMP}/fod"
-    cp "$MODULE_DIR/fod/xiaomi-fod" "${MODULE_TMP}/fod/xiaomi-fod"
-    chmod 0755 "${MODULE_TMP}/fod/xiaomi-fod"
-    ok "fod/xiaomi-fod included (Xiaomi touch-panel FOD mode)"
+# Xiaomi touch-panel FOD helper (fod/xiaomi-fod). Opt-in with --xiaomi-fod, or
+# the checkbox in the app / menu: it writes Xiaomi's touch-panel FOD mode and
+# asks the vendor HAL for high-brightness mode, so on any other vendor it is a
+# binary nobody starts and extra bytes in the zip. service.sh still checks the
+# hardware at boot, so the flag is only about what ships.
+if [ "${XIAOMI_FOD:-false}" = "true" ]; then
+    if [ "${HAS_UDFPS:-false}" != "true" ]; then
+        warn "--xiaomi-fod ignored: HAS_UDFPS is not true, so there is no in-display sensor to help"
+    elif [ ! -f "$MODULE_DIR/fod/xiaomi-fod" ]; then
+        warn "--xiaomi-fod ignored: src/module/fod/xiaomi-fod is missing from this checkout"
+    else
+        mkdir -p "${MODULE_TMP}/fod"
+        cp "$MODULE_DIR/fod/xiaomi-fod" "${MODULE_TMP}/fod/xiaomi-fod"
+        chmod 0755 "${MODULE_TMP}/fod/xiaomi-fod"
+        ok "fod/xiaomi-fod included (Xiaomi touch-panel FOD mode)"
+    fi
 fi
 
 # post-fs-data.sh — set a persist.* match property before zygote starts

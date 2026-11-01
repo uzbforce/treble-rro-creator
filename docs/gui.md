@@ -84,6 +84,8 @@ WebView2 on Windows, WebKitGTK on Linux.
 Flags appear only on the commands that accept them:
 
 - `--with-vendor-hals` — include `src/vendor/` in the module (Build)
+- `--xiaomi-fod` — include the Xiaomi FOD helper, `fod/xiaomi-fod` (Build). It is
+  off by default and does nothing on a non-Xiaomi phone
 - `--allow-unknown-resources` — build even if a resource is missing (Build)
 - `--force` — re-pick the resource dictionary (Setup)
 - `--all` — also remove config and device files (Clean)

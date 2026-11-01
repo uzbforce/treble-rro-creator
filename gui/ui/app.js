@@ -21,9 +21,17 @@ function el(tag, cls, text) {
 
 const FLAG_HELP = {
   '--with-vendor-hals': 'include src/vendor/ in the module',
+  '--xiaomi-fod': 'include the Xiaomi FOD helper in the module',
   '--allow-unknown-resources': 'build even if a resource is missing',
   '--force': 're-pick the resource dictionary',
   '--all': 'also remove config and device files',
+};
+
+// A flag whose name does not say enough gets a ? beside it, and the text below
+// is what that ? opens. Only the one flag needs it: fod/xiaomi-fod is
+// vendor-specific, so ticking it on a Samsung is pointless.
+const FLAG_DETAIL = {
+  '--xiaomi-fod': 'Use only if your phone is Xiaomi and has a UDFPS sensor.',
 };
 
 let state = null;
@@ -222,7 +230,24 @@ function renderFlags() {
     });
 
     label.append(input, el('span', 'flag-name', flag));
-    box.appendChild(label);
+
+    if (!FLAG_DETAIL[flag]) {
+      box.appendChild(label);
+      continue;
+    }
+
+    // The ? sits beside the checkbox, not inside the label, so clicking it
+    // reads the explanation instead of ticking the box. It is a span with a
+    // tabindex because tabbing to it is how the tooltip works without a mouse,
+    // and aria-label carries the same text for a screen reader.
+    const help = el('span', 'flag-help', '?');
+    help.tabIndex = 0;
+    help.setAttribute('role', 'note');
+    help.setAttribute('aria-label', FLAG_DETAIL[flag]);
+    help.dataset.help = FLAG_DETAIL[flag];
+    const group = el('span', 'flag-group');
+    group.append(label, help);
+    box.appendChild(group);
   }
 }
 

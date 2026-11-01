@@ -74,6 +74,7 @@ usage() {
     echo -e "  ${BOLD}Options${NC}"
     echo "    -y, --yes              Accept defaults, skip prompts"
     echo "    --with-vendor-hals     With --yes: include src/vendor/ in the module"
+    echo "    --xiaomi-fod           Include the Xiaomi FOD helper (HBM + HIDL touch mode) in the module"
     echo "    --all                  With clean: also remove config and device files"
     echo "    --force                With setup: re-pick the resource dictionary"
     echo "    --allow-unknown-resources  Build even if a resource is missing from the target"
@@ -94,6 +95,7 @@ for arg in "$@"; do
         dry-run|--dry-run) MODE="dryrun" ;;
         -y|--yes)       ASSUME_YES=true ;;
         --with-vendor-hals) FORCE_VENDOR_HALS=true ;;
+        --xiaomi-fod)   XIAOMI_FOD=true ;;
         --all)          CLEAN_ALL=true ;;
         --force)        FORCE_RES="force" ;;
         --allow-unknown-resources) ALLOW_UNKNOWN_RESOURCES=true ;;

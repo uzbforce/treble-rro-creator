@@ -106,7 +106,7 @@ Two things worth knowing before the first build:
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
 | `./build.sh menu` | Force the menu when there is no terminal |
 
-Flags: `-y` / `--yes`, `--with-vendor-hals`, `--allow-unknown-resources`, `--force` (with `setup`), `--help`. Same words on Windows with `build.cmd`.
+Flags: `-y` / `--yes`, `--with-vendor-hals`, `--xiaomi-fod`, `--allow-unknown-resources`, `--force` (with `setup`), `--help`. Same words on Windows with `build.cmd`.
 
 `--dry-run` is the fast loop: it prints type, name, value and target APK for each resource without aapt2, signing or packaging.
 
