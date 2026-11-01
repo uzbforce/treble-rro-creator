@@ -128,6 +128,17 @@ func (a *App) handleProfilesAction(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	// A build reads config.env as it goes, and switching replaces that file under
+	// it, so the module would be named for one device and filled from another.
+	// Waiting costs nothing; the dialog says so and the button stays where it is.
+	if a.runner != nil && a.runner.Snapshot().Running {
+		switch body.Action {
+		case "new", "switch", "delete":
+			writeError(w, http.StatusConflict, "a build is running \u2014 change profiles after it finishes")
+			return
+		}
+	}
+
 	var args []string
 	switch body.Action {
 	case "new":

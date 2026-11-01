@@ -34,6 +34,19 @@ are profiles — `./build.sh profiles`, `p` in the terminal menu, or **Profiles*
 in the app header. Switching one copies it over `config.env`; nothing else
 changes.
 
+A few rules the tool enforces, so the list always stays usable:
+
+- names are unique, compared ignoring case and extra spaces — "Pixel  8" and
+  "pixel 8" are the same name;
+- there is always at least one profile, and the one in use cannot be deleted;
+- a change that writes `config.env` waits for a running build to finish (the app
+  says so; on the CLI you just run it after the build exits);
+- `out/` is not per profile, so a switch warns when it still holds the previous
+  device's zip. Build again before installing.
+
+The profiles themselves are `stuff/profiles/p1/…` and are git-ignored: they are
+device data, like `config.env`.
+
 ---
 
 ## Checking values before a build

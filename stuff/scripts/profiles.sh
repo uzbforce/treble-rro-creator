@@ -52,9 +52,30 @@ profiles_ids() {
     done | sort -t p -k 2 -n
 }
 
-profiles_has() { [ -n "${1:-}" ] && [ -d "$PROFILES_DIR/$1" ]; }
-profiles_cfg() { printf '%s/%s/config.env' "$PROFILES_DIR" "$1"; }
-profiles_name_file() { printf '%s/%s/name' "$PROFILES_DIR" "$1"; }
+# Every path below is built from an id, so the shape is checked here as well as
+# at the verb that was handed one: a caller that forgets (or a marker file
+# edited by hand) then gets an empty answer, never ../../etc.
+profiles_has() { profiles_valid_id "${1:-}" && [ -d "$PROFILES_DIR/$1" ]; }
+profiles_cfg() {
+    profiles_valid_id "${1:-}" || return 1
+    printf '%s/%s/config.env' "$PROFILES_DIR" "$1"
+}
+profiles_name_file() {
+    profiles_valid_id "${1:-}" || return 1
+    printf '%s/%s/name' "$PROFILES_DIR" "$1"
+}
+
+# Write a file whole or not at all: written beside it, then renamed over it. A
+# switch interrupted halfway through must not leave a truncated config.env, and
+# an interrupted marker write must not leave the list pointing at nothing.
+profiles_put() {
+    local dest="$1" tmp="$1.tmp.$$"
+    if cat >"$tmp" 2>/dev/null && mv -f "$tmp" "$dest" 2>/dev/null; then
+        return 0
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return 1
+}
 
 # The profile config.env belongs to, or nothing on a checkout that has none.
 profiles_active() {
@@ -68,8 +89,9 @@ profiles_active() {
 }
 
 profiles_set_active() {
+    profiles_valid_id "${1:-}" || return 1
     mkdir -p "$PROFILES_DIR" || return 1
-    printf '%s\n' "$1" >"$PROFILES_DIR/active"
+    printf '%s\n' "$1" | profiles_put "$PROFILES_DIR/active"
 }
 
 # A name is one line and fits a menu column. Anything else (a newline from a
@@ -77,7 +99,9 @@ profiles_set_active() {
 # caller.
 profiles_clean_name() {
     local name
-    name="$(printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177')"
+    # Control characters would end a line or a table cell early; a pipe is the
+    # separator the tables are built from, so it becomes a slash.
+    name="$(printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' | tr '|' '/')"
     name="${name#"${name%%[![:space:]]*}"}"
     name="${name%"${name##*[![:space:]]}"}"
     while [ "${#name}" -gt 0 ] && [ "${name: -1}" = ' ' ]; do name="${name% }" ; done
@@ -85,6 +109,14 @@ profiles_clean_name() {
         name="${name:0:$PROFILES_MAX_NAME}"
     fi
     printf '%s' "$name"
+}
+
+# A table cell is joined to the next one by a pipe, and the listing parsed by
+# gui/profiles.go by a tab. A device name comes from config.env, which is edited
+# by hand, so one of those characters in it used to split the row — the app then
+# showed half a device and silently dropped the rest.
+profiles_cell() {
+    printf '%s' "${1:-}" | LC_ALL=C tr '\t\177' '  ' | tr '|' '/' | sed 's/  */ /g'
 }
 
 profiles_name() {
@@ -95,6 +127,41 @@ profiles_name() {
     name="$(profiles_clean_name "$name")"
     [ -n "$name" ] || name="Profile #${id#p}"
     printf '%s' "$name"
+}
+
+# Two rows that read the same are worse than no names at all: the list is what
+# the user picks from. Comparison ignores case and runs of spaces, so "Pixel  8"
+# cannot sit next to "pixel 8".
+profiles_name_key() {
+    printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' | sed 's/  */ /g; s/^ //; s/ $//'
+}
+
+# The id of the profile already called NAME (except itself, when renaming).
+profiles_named() {
+    local want id
+    want="$(profiles_name_key "$1")"
+    [ -n "$want" ] || return 1
+    for id in $(profiles_ids); do
+        [ "$id" = "${2:-}" ] && continue
+        if [ "$(profiles_name_key "$(profiles_name "$id")")" = "$want" ]; then
+            printf '%s' "$id"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# out/ is not per profile: it keeps what the last build produced, named for that
+# device, and nothing about a switch cleans it. Installing the previous device's
+# module looks like a working phone until something reads the wrong overlay, so
+# say it once, on stderr, and carry on.
+profiles_out_note() {
+    local count
+    [ -d "$ROOT/out" ] || return 0
+    count="$(find "$ROOT/out" -maxdepth 1 -name '*.zip' 2>/dev/null | grep -c . || true)"
+    [ "${count:-0}" -gt 0 ] || return 0
+    printf 'profiles: out/ still holds the previous build (%s zip%s) — build again for this device\n' \
+        "$count" "$(if [ "$count" = 1 ]; then printf ''; else printf 's'; fi)" >&2
 }
 
 # Manufacturer, model and codename as that profile's config.env has them. For
@@ -126,47 +193,85 @@ profiles_save() {
     [ -n "$id" ] || return 1
     [ -f "$ROOT/config.env" ] || return 1
     mkdir -p "$PROFILES_DIR/$id" || return 1
-    cp -f "$ROOT/config.env" "$(profiles_cfg "$id")" || return 1
-    return 0
+    cat "$ROOT/config.env" | profiles_put "$(profiles_cfg "$id")"
 }
 
 # Create the next profile and make it active. It starts as a copy of config.env
 # (that is the point: one device's answers, tweaked for the next), or of the
 # example on a checkout that has no config.env yet. Prints the new id.
 profiles_new_with() {
-    local name id n src
+    local name id n m src taken
     mkdir -p "$PROFILES_DIR" || return 1
+    # The folder is claimed with mkdir, which fails when it exists: two shells
+    # creating a profile at the same moment then land on p3 and p4, where a
+    # `[ -d ]` check first would hand both of them p3 and one would overwrite
+    # the other's answers.
     n=1
-    while [ -d "$PROFILES_DIR/p$n" ]; do n=$((n + 1)); done
+    until mkdir "$PROFILES_DIR/p$n" 2>/dev/null; do
+        [ -d "$PROFILES_DIR/p$n" ] || return 1
+        n=$((n + 1))
+        [ "$n" -le 999999 ] || return 1
+    done
     id="p$n"
     name="$(profiles_clean_name "${1:-}")"
-    [ -n "$name" ] || name="Profile #$n"
-    mkdir -p "$PROFILES_DIR/$id" || return 1
+    if [ -n "$name" ]; then
+        # Both checks skip the folder just claimed: it is empty, so its name is
+        # its own default, and that must not read as a collision with itself.
+        if taken="$(profiles_named "$name" "$id")"; then
+            rmdir "$PROFILES_DIR/$id" 2>/dev/null || true
+            printf 'profiles: "%s" is already taken by p%s — name this one something else\n' \
+                "$name" "${taken#p}" >&2
+            return 1
+        fi
+    else
+        # The default name follows the folder number, but a rename or a delete
+        # can leave that number in use, so the first free one is used. The
+        # counter is its own: bumping the folder number here would name p3
+        # "Profile #4" and leave the pair looking unrelated.
+        m=$n
+        while [ -n "$(profiles_named "Profile #$m" "$id")" ]; do m=$((m + 1)); done
+        name="Profile #$m"
+    fi
     src="$ROOT/config.env"
     [ -f "$src" ] || src="$ROOT/config.env.example"
-    if [ -f "$src" ]; then
-        cp -f "$src" "$(profiles_cfg "$id")" || return 1
-    else
-        : >"$(profiles_cfg "$id")" || return 1
+    # A half-made profile (a folder with no answers, or with no name) would show
+    # up in the list as a device with nothing set and switch to an empty file, so
+    # the failure of any step takes the whole folder with it.
+    if ! { if [ -f "$src" ]; then cp -f "$src" "$(profiles_cfg "$id")"; else : >"$(profiles_cfg "$id")"; fi; } \
+        || ! printf '%s\n' "$name" | profiles_put "$(profiles_name_file "$id")" \
+        || ! profiles_set_active "$id"; then
+        rm -rf "$PROFILES_DIR/$id"
+        printf 'profiles: could not create %s\n' "$id" >&2
+        return 1
     fi
-    printf '%s\n' "$name" >"$(profiles_name_file "$id")" || return 1
-    profiles_set_active "$id" || return 1
     printf '%s' "$id"
 }
 
 # A checkout that has never seen a profile gets Profile #1 from whatever
 # config.env holds, so the first look at the list is not an empty box.
+#
+# When folders exist but the marker does not, the profile config.env came from
+# is the one holding the same bytes — that is provable, and it is the only case
+# adopted automatically. Guessing the first folder instead is not harmless: the
+# next switch saves config.env into the profile it is active for, so a wrong
+# guess overwrites the other device's saved answers.
 profiles_ensure() {
     local id
     id="$(profiles_active)"
     [ -n "$id" ] && return 0
     if [ -d "$PROFILES_DIR" ]; then
-        id="$(profiles_ids | head -n 1)"
-        if [ -n "$id" ]; then
-            # Profiles exist but the marker was lost, or pointed at a folder
-            # that was deleted out from under it: adopt the first one.
-            profiles_set_active "$id"
-            return $?
+        if [ -f "$ROOT/config.env" ]; then
+            for id in $(profiles_ids); do
+                if cmp -s "$ROOT/config.env" "$(profiles_cfg "$id")"; then
+                    profiles_set_active "$id"
+                    return $?
+                fi
+            done
+        fi
+        if [ -n "$(profiles_ids | head -n 1)" ]; then
+            printf 'profiles: no profile is active — the marker was lost.\n' >&2
+            printf 'profiles: `profiles switch <id>` to say which one config.env belongs to.\n' >&2
+            return 1
         fi
     fi
     [ -n "$(profiles_new_with '')" ]
@@ -174,26 +279,35 @@ profiles_ensure() {
 
 # Keep what config.env holds, then load that profile into it.
 profiles_switch() {
-    local id="$1"
+    local id="$1" src
     profiles_valid_id "$id" || { printf 'profiles: %s is not a profile id\n' "$id" >&2; return 2; }
     profiles_has "$id" || { printf 'profiles: no such profile: %s\n' "$id" >&2; return 1; }
+    src="$(profiles_cfg "$id")"
+    # A profile folder whose config.env went missing (deleted by hand, a sync
+    # that skipped it) would otherwise be copied as nothing and empty out
+    # config.env — the one file everything reads.
+    if [ ! -f "$src" ]; then
+        printf 'profiles: %s has no config.env — that folder is damaged; delete it or save over it\n' "$id" >&2
+        return 1
+    fi
     profiles_save >/dev/null 2>&1 || true
-    cp -f "$(profiles_cfg "$id")" "$ROOT/config.env" || return 1
+    cat "$src" | profiles_put "$ROOT/config.env" || return 1
     profiles_set_active "$id" || return 1
+    profiles_out_note
     return 0
 }
 
 # Save this one, then carry on in a copy of it.
 profiles_new() {
     local id
-    profiles_ensure >/dev/null 2>&1 || true
+    profiles_ensure >/dev/null || true
     id="$(profiles_new_with "${1:-}")" || return 1
     profiles_switch "$id" || return 1
     printf '%s' "$id"
 }
 
 profiles_rename() {
-    local id="$1" name
+    local id="$1" name taken
     profiles_valid_id "$id" || { printf 'profiles: %s is not a profile id\n' "$id" >&2; return 2; }
     profiles_has "$id" || { printf 'profiles: no such profile: %s\n' "$id" >&2; return 1; }
     name="$(profiles_clean_name "${2:-}")"
@@ -201,8 +315,11 @@ profiles_rename() {
         printf 'profiles: a profile needs a name\n' >&2
         return 2
     fi
-    printf '%s\n' "$name" >"$(profiles_name_file "$id")" || return 1
-    return 0
+    if taken="$(profiles_named "$name" "$id")"; then
+        printf 'profiles: "%s" is already taken by p%s\n' "$name" "${taken#p}" >&2
+        return 1
+    fi
+    printf '%s\n' "$name" | profiles_put "$(profiles_name_file "$id")"
 }
 
 # The profile in use is not deletable: config.env would be left belonging to
@@ -220,20 +337,25 @@ profiles_delete() {
         printf 'profiles: that is the only profile — there has to be one\n' >&2
         return 1
     fi
-    rm -rf "$PROFILES_DIR/$id"
+    rm -rf "$PROFILES_DIR/$id" 2>/dev/null || true
+    if [ -d "$PROFILES_DIR/$id" ]; then
+        printf 'profiles: could not delete %s — its folder is still there\n' "$id" >&2
+        return 1
+    fi
+    return 0
 }
 
 # One line per profile, tab separated: id, active(0|1), name, device. This is
 # what gui/profiles.go parses; it is not meant for a person to read.
 profiles_list() {
     local id active mark
-    profiles_ensure >/dev/null 2>&1 || true
+    profiles_ensure >/dev/null || true
     active="$(profiles_active)"
     for id in $(profiles_ids); do
         mark=0
         [ "$id" = "$active" ] && mark=1
         printf '%s\t%s\t%s\t%s\n' "$id" "$mark" \
-            "$(profiles_name "$id")" "$(profiles_identity "$id")"
+            "$(profiles_name "$id")" "$(profiles_cell "$(profiles_identity "$id")")"
     done
 }
 
@@ -241,7 +363,7 @@ profiles_list() {
 profiles_print() {
     local -a rows=() ids=()
     local id active n=0 mark name device
-    profiles_ensure >/dev/null 2>&1 || true
+    profiles_ensure >/dev/null || true
     active="$(profiles_active)"
     for id in $(profiles_ids); do ids+=("$id"); done
     if [ "${#ids[@]}" -eq 0 ]; then
@@ -252,7 +374,7 @@ profiles_print() {
         n=$((n + 1))
         mark=' '
         [ "$id" = "$active" ] && mark='*'
-        rows+=("$mark|$(profiles_name "$id")|$(profiles_identity "$id")")
+        rows+=("$mark|$(profiles_name "$id")|$(profiles_cell "$(profiles_identity "$id")")")
     done
     if command -v ui_table >/dev/null 2>&1; then
         ui_table 'Use|Profile|Device' "${rows[@]}"

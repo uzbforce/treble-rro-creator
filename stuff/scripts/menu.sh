@@ -843,7 +843,7 @@ menu_profiles() {
     local -a rows=()
     local id active n=0 mark cur
     while :; do
-        profiles_ensure >/dev/null 2>&1 || true
+        profiles_ensure >/dev/null || true
         active="$(profiles_active)"
         ui_heading 'Profiles'
         ui_mark note "config.env holds one device. A profile is a named copy of it; * is the one in use."
@@ -853,7 +853,7 @@ menu_profiles() {
             n=$((n + 1))
             mark=' '
             [ "$id" = "$active" ] && mark='*'
-            rows+=("$mark|$n $(profiles_name "$id")|$(profiles_identity "$id")")
+            rows+=("$mark|$n $(profiles_name "$id")|$(profiles_cell "$(profiles_identity "$id")")")
         done
         echo ""
         if [ "${#rows[@]}" -gt 0 ]; then
