@@ -22,6 +22,7 @@ if [ -z "${ROOT:-}" ]; then
     . "$ROOT/stuff/scripts/common.sh"
 fi
 . "$ROOT/stuff/scripts/config-edit.sh"
+. "$ROOT/stuff/scripts/profiles.sh"
 # The device-source helpers (device_is_termux, device_local_begin) live with the
 # adb code the probes share. Sourcing it here defines functions only.
 . "$ROOT/stuff/scripts/adb-device.sh"
@@ -83,7 +84,7 @@ output_summary() {
 # filled in, what the last build left behind.
 menu_header() {
     cfg_counts
-    ui_panel "Treble Overlay Creator" \
+    ui_panel "Treble Overlay Creator ${TOOL_VERSION}" \
         "Device|$(cfg_identity)" \
         "config.env|${CFG_ON} set ${UI_DOT} ${CFG_OFF} off" \
         "Output|$(output_summary)"
@@ -103,6 +104,7 @@ menu_items() {
     ui_item 7 'Match property' 'which property the submission should match on' "$MENU_LW"
     ui_item 8 'Files'          'what was built, and where it is' "$MENU_LW"
     ui_item 9 'Docs'           'the guides in docs/' "$MENU_LW"
+    ui_item p 'Profiles'       'saved config.env setups: switch, rename, delete' "$MENU_LW"
     ui_item q 'Quit' '' "$MENU_LW"
 }
 
@@ -140,6 +142,7 @@ menu_build() {
         ui_item 5 'Clean'       'remove build output' 11
         ui_item 6 'Clean --all' 'start over for a different device' 11
         ui_item 7 'Xiaomi FOD' "$fod_state · HBM + touch-panel FOD mode for Xiaomi UDFPS" 11
+        ui_item 8 'Install' "copy out/<name>-ksu.zip to the phone, install it, reboot, check" 11
         ui_item 0 'Back' '' 11
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
@@ -166,6 +169,13 @@ menu_build() {
                     MENU_XIAOMI_FOD=true
                     info "Next build ships fod/xiaomi-fod — use only if your phone is Xiaomi and has a UDFPS sensor."
                 fi
+                ;;
+            8)
+                # A child, so it can ask about the reboot and show the manager's
+                # own output without this screen having to parse it.
+                printf '\n'
+                bash "$ROOT/stuff/scripts/install-module.sh"
+                pause_menu
                 ;;
             0|q|'') return 0 ;;
             *) warn "Not one of the numbers above." ;;
@@ -795,6 +805,129 @@ menu_match() {
 }
 
 # ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+# One device per config.env. A profile is a saved copy with a name, so a second
+# phone does not mean keeping config.env.a90 next to config.env.zephyr.
+# The listing and every action come from profiles.sh, which is also what the app
+# calls; this screen only picks a row and asks the question.
+MENU_IDS=()
+MENU_PICK=""
+
+# The number from the list above -> MENU_PICK holds that profile's id. An id
+# typed straight in (p2) works too, for someone coming from the docs.
+profiles_pick() {
+    local ans id n=0
+    MENU_IDS=()
+    for id in $(profiles_ids); do MENU_IDS+=("$id"); done
+    if [ "${#MENU_IDS[@]}" -eq 0 ]; then
+        warn "There is no profile yet — n makes the first one."
+        return 1
+    fi
+    menu_read "  $1 (number from the list) >" || return 1
+    ans="$MENU_ANSWER"
+    case "$ans" in ''|q) return 1 ;; esac
+    if [[ "$ans" =~ ^[0-9]+$ ]] && [ "$ans" -ge 1 ] && [ "$ans" -le "${#MENU_IDS[@]}" ]; then
+        MENU_PICK="${MENU_IDS[$((ans - 1))]}"
+        return 0
+    fi
+    if profiles_valid_id "$ans" && profiles_has "$ans"; then
+        MENU_PICK="$ans"
+        return 0
+    fi
+    warn "Not one of the numbers above."
+    return 1
+}
+
+menu_profiles() {
+    local -a rows=()
+    local id active n=0 mark cur
+    while :; do
+        profiles_ensure >/dev/null 2>&1 || true
+        active="$(profiles_active)"
+        ui_heading 'Profiles'
+        ui_mark note "config.env holds one device. A profile is a named copy of it; * is the one in use."
+        rows=()
+        n=0
+        for id in $(profiles_ids); do
+            n=$((n + 1))
+            mark=' '
+            [ "$id" = "$active" ] && mark='*'
+            rows+=("$mark|$n $(profiles_name "$id")|$(profiles_identity "$id")")
+        done
+        echo ""
+        if [ "${#rows[@]}" -gt 0 ]; then
+            ui_table 'Use|Profile|Device' "${rows[@]}"
+        else
+            info "No profiles yet — n makes the first one from this config.env."
+        fi
+        echo ""
+        ui_item n 'New'      'a copy of this config.env, for another device' 11
+        ui_item s 'Switch'   'load a profile into config.env' 11
+        ui_item r 'Rename'   'name a profile after the phone it is for' 11
+        ui_item d 'Delete'   'remove one you no longer need' 11
+        ui_item 0 'Back' '' 11
+        menu_read "  >" || return 0
+        case "$MENU_ANSWER" in
+            n|N)
+                echo ""
+                info "The new profile starts as a copy of config.env: change the device, keep the rest."
+                menu_read "  name (Enter for the next Profile #) >" || continue
+                if ! id="$(profiles_new "$MENU_ANSWER")" || [ -z "$id" ]; then
+                    err "Could not create the profile."
+                    pause_menu
+                    continue
+                fi
+                ui_mark ok "Now using \"$(profiles_name "$id")\" — config.env holds it."
+                pause_menu
+                ;;
+            s|S)
+                profiles_pick "Switch to which profile" || { pause_menu; continue; }
+                echo ""
+                if profiles_switch "$MENU_PICK"; then
+                    ui_mark ok "config.env now holds \"$(profiles_name "$MENU_PICK")\""
+                    ui_mark note "$(profiles_identity "$MENU_PICK")"
+                else
+                    err "Could not load that profile."
+                fi
+                pause_menu
+                ;;
+            r|R)
+                profiles_pick "Rename which profile" || { pause_menu; continue; }
+                cur="$(profiles_name "$MENU_PICK")"
+                menu_read "  new name [$cur] >" || continue
+                [ -n "$MENU_ANSWER" ] || continue
+                if profiles_rename "$MENU_PICK" "$MENU_ANSWER"; then
+                    ui_mark ok "Renamed to \"$(profiles_name "$MENU_PICK")\"."
+                else
+                    err "Could not rename it."
+                fi
+                pause_menu
+                ;;
+            d|D)
+                profiles_pick "Delete which profile" || { pause_menu; continue; }
+                if [ "$MENU_PICK" = "$(profiles_active)" ]; then
+                    warn "That is the profile in use. Switch to another one first."
+                    pause_menu
+                    continue
+                fi
+                echo ""
+                if confirm "  Delete \"$(profiles_name "$MENU_PICK")\" and its config.env? [y/N] " n; then
+                    if profiles_delete "$MENU_PICK"; then
+                        ui_mark ok "Deleted."
+                    else
+                        err "Could not delete it."
+                    fi
+                fi
+                pause_menu
+                ;;
+            0|q|'') return 0 ;;
+            *) warn "Pick n, s, r, d, or 0 to go back." ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 menu_main() {
@@ -814,6 +947,7 @@ menu_main() {
             7) menu_match ;;
             8) menu_files ;;
             9) menu_docs ;;
+            p|P) menu_profiles ;;
             q|Q|quit|exit) return 0 ;;
             '') return 0 ;;
             *) warn "Pick a number from the list, or q to quit." ;;

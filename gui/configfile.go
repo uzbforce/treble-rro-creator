@@ -205,7 +205,9 @@ func unescape(s string, quote byte) string {
 	}
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '\\' || s[i+1] == '"') {
+		// The characters formatValue escapes, so what comes back out of the
+		// form is what the user typed, not the escaping.
+		if s[i] == '\\' && i+1 < len(s) && strings.ContainsRune("\\\"$`", rune(s[i+1])) {
 			b.WriteByte(s[i+1])
 			i++
 			continue
@@ -305,11 +307,14 @@ func formatValue(value string, quote byte, original string) string {
 	return `"` + escapeDouble(value) + `"`
 }
 
+// escapeDouble escapes everything bash expands inside double quotes. `$` and
+// the backtick matter most: the file is sourced by the build, so a saved value
+// like $(reboot) would run as a command on the next build if it went in as-is.
 func escapeDouble(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
-		case '\\', '"':
+		case '\\', '"', '$', '`':
 			b.WriteByte('\\')
 		}
 		b.WriteByte(s[i])

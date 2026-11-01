@@ -425,6 +425,71 @@ func readDoc(root, name string) (string, error) {
 	return string(b), nil
 }
 
+// DocHit is one line of a guide that matched a search, with the heading it sits
+// under so a result reads as "Submitting › What to send" rather than a stray
+// fragment of a paragraph.
+type DocHit struct {
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	Heading string `json:"heading"`
+	Line    int    `json:"line"`
+	Text    string `json:"text"`
+}
+
+// searchDocs matches a query against the guides' titles, headings and body text.
+// Titles are matched by listDocs in the window already; what this adds is the
+// text, because "where is the part about pwsh" was not answerable before.
+func searchDocs(root, query string) []DocHit {
+	query = strings.TrimSpace(query)
+	hits := []DocHit{}
+	if len([]rune(query)) < 2 {
+		return hits
+	}
+	needle := strings.ToLower(query)
+	for _, doc := range listDocs(root) {
+		b, err := os.ReadFile(filepath.Join(root, "docs", doc.Name))
+		if err != nil {
+			continue
+		}
+		heading := ""
+		inFence := false
+		for i, raw := range strings.Split(string(b), "\n") {
+			line := strings.TrimSpace(raw)
+			if strings.HasPrefix(line, "```") {
+				inFence = !inFence
+				continue
+			}
+			if !inFence && strings.HasPrefix(line, "#") {
+				heading = strings.TrimSpace(strings.TrimLeft(line, "#"))
+			}
+			if !strings.Contains(strings.ToLower(line), needle) {
+				continue
+			}
+			hits = append(hits, DocHit{
+				Name:    doc.Name,
+				Title:   doc.Title,
+				Heading: heading,
+				Line:    i + 1,
+				Text:    clipLine(line, 160),
+			})
+			if len(hits) >= 60 {
+				return hits
+			}
+		}
+	}
+	return hits
+}
+
+// clipLine shortens a long line on a rune boundary, so a table row or a wrapped
+// paragraph does not arrive cut in half a UTF-8 sequence.
+func clipLine(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return strings.TrimSpace(string(r[:max])) + "…"
+}
+
 func readConfig(root string) string {
 	b, err := os.ReadFile(filepath.Join(root, "config.env"))
 	if err != nil {
@@ -555,6 +620,7 @@ func (a *App) watchUpdates() {
 type State struct {
 	Clone      string      `json:"clone"`
 	CloneValid bool        `json:"cloneValid"`
+	Version    string      `json:"version"`
 	Bash       string      `json:"bash"`
 	BashValid  bool        `json:"bashValid"`
 	ConfigText string      `json:"configText"`
@@ -594,6 +660,7 @@ func (a *App) State() State {
 	return State{
 		Clone:      root,
 		CloneValid: isClone(root),
+		Version:    toolVersion(root),
 		Bash:       bash,
 		BashValid:  fileExists(bash),
 		ConfigText: text,

@@ -24,6 +24,10 @@ src/systemui/res/values-*-v4/generated.xml
 # Backups (config.env, module scripts, extracted vendor files)
 stuff/backups/
 
+# Saved profiles: each one is a copy of config.env, so it is device data like
+# config.env itself. The script that makes them is tracked; the folders are not.
+stuff/profiles/
+
 # Extracted vendor files are device-specific and must not be committed.
 # The folder itself keeps a README so a fresh clone still has it.
 src/vendor/*

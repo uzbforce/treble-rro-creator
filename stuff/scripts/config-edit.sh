@@ -19,19 +19,45 @@ cfg_file() {
     printf '%s' "${CFG_FILE:-${CONFIG_FILE:-$ROOT/config.env}}"
 }
 
-# cfg_unquote VALUE -> the value without the quotes config.env puts around text.
+# cfg_unquote VALUE -> the value without the quotes config.env puts around text,
+# and without the escapes cfg_quote adds inside them.
 cfg_unquote() {
-    local v="$1"
+    local v="$1" dq=0
     case "$v" in
-        \"*\") v="${v#\"}"; v="${v%\"}" ;;
-        \'*\') v="${v#\'}"; v="${v%\'}" ;;
+        \"*) v="${v#\"}"; v="${v%\"}"; dq=1 ;;
+        \'*) v="${v#\'}"; v="${v%\'}" ;;
     esac
+    if [ "$dq" = 1 ] && [[ "$v" == *\\* ]]; then
+        # bash inside double quotes only treats a backslash specially before
+        # these four characters, so undo exactly those and leave C:\path alone.
+        v="$(printf '%s' "$v" | sed 's/\\\([$`"\\]\)/\1/g')"
+    fi
     printf '%s' "$v"
+}
+
+# cfg_safe_value VALUE -> the value with the characters that would break the
+# file's one-key-per-line shape removed. A probe writes what the phone said, and
+# a model name with a newline in it used to split the line in two.
+cfg_safe_value() {
+    local value="$1"
+    value="${value//$'\r'/}"
+    value="${value//$'\n'/ }"
+    value="${value//$'\t'/ }"
+    if [[ "$value" == *[[:cntrl:]]* ]]; then
+        # A colour code from a pasted table is ESC + "[31m"; dropping only the
+        # ESC would leave the "[31m" in the value, so the whole sequence goes.
+        value="$(printf '%s' "$value" | LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '[:cntrl:]')"
+    fi
+    printf '%s' "$value"
 }
 
 # cfg_quote VALUE -> a value config.env can be sourced from.
 # Plain words stay bare, as they are in the file today; anything a shell would
 # split on, or anything that was already quoted, gets double quotes.
+#
+# Everything the shell expands inside double quotes is escaped, `$` and the
+# backtick included: build.sh sources this file, so a saved value like
+# `$(reboot)` would otherwise run as a command on the next build.
 cfg_quote() {
     local value="$1" force="${2:-0}"
     case "$value" in
@@ -45,6 +71,8 @@ cfg_quote() {
     fi
     value="${value//\\/\\\\}"
     value="${value//\"/\\\"}"
+    value="${value//\$/\\\$}"
+    value="${value//\`/\\\`}"
     printf '"%s"' "$value"
 }
 
@@ -110,7 +138,10 @@ cfg_sections() {
 # Returns 0 when the file was written — also when the value was already right,
 # because the caller only cares that the key now holds it.
 cfg_set() {
-    local key="$1" value="$2" file tmp line rest quoted new done=0 wrote=0
+    local key="$1" value file tmp line rest quoted new done=0 wrote=0
+    # A pasted value can carry a newline; it would end the line early and turn
+    # the rest of it into a key of its own.
+    value="$(cfg_safe_value "$2")"
     file="$(cfg_file)"
     if [ -f "$file" ]; then
         tmp="$file.tmp.$$"

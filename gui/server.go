@@ -72,7 +72,11 @@ func (a *App) serve(port int) (net.Listener, string, *http.Server, error) {
 	mux.HandleFunc(base+"/api/open", a.guard("POST", a.handleOpen))
 	mux.HandleFunc(base+"/api/docs", a.guard("GET", a.handleDocs))
 	mux.HandleFunc(base+"/api/doc", a.guard("GET", a.handleDoc))
+	mux.HandleFunc(base+"/api/docs/search", a.guard("GET", a.handleDocsSearch))
 	mux.HandleFunc(base+"/api/update", a.guard("POST", a.handleUpdate))
+	// One device per config.env; a profile is a saved copy with a name.
+	mux.HandleFunc(base+"/api/profiles", a.guard("GET", a.handleProfiles))
+	mux.HandleFunc(base+"/api/profiles/act", a.guard("POST", a.handleProfilesAction))
 	mux.HandleFunc(base+"/api/config/apply", a.guard("POST", a.handleConfigApply))
 	mux.HandleFunc(base+"/api/addons", a.guard("GET", a.handleAddons))
 	mux.HandleFunc(base+"/api/addons/save", a.guard("POST", a.handleAddonsSave))
@@ -378,6 +382,12 @@ func (a *App) handleDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+}
+
+func (a *App) handleDocsSearch(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"hits": searchDocs(a.Root(), r.URL.Query().Get("q")),
+	})
 }
 
 // handleExtract pulls the files the docs tell the user to pull by hand. The

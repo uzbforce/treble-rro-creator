@@ -24,7 +24,7 @@ Two front ends run the same build off the same `config.env`:
 | **Desktop app** | `treble-rro-creator.cmd` | `./treble-rro-creator.sh` | not available |
 | **Terminal menu** | `build.cmd` | `./build.sh` | `./build.sh` |
 
-The app has tabs for Build, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
+The app has tabs for Build, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs, and a **Profiles** button for saved setups. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
 
 ## Quick start
 
@@ -92,6 +92,18 @@ Two things worth knowing before the first build:
 - **`src/framework/res/xml/power_profile.xml` must be yours.** Until you replace it, the empty template is detected and left out of the APK rather than overwriting the GSI's battery and CPU data. See [docs/device-extraction.md](docs/device-extraction.md#power-profile-power_profilexml--mandatory).
 - **No `config.env` yet?** The first run offers the filled-in Samsung A90 5G example (`config.env.example`) or writes a placeholder that says what to edit.
 
+## Profiles
+
+`config.env` holds **one phone**. A profile is a named copy of it, so a second device does not mean `config.env.a90` next to `config.env.zephyr` and a guess at which is which. Switch profiles and `config.env` becomes that device's answers — same file, same build.
+
+| Where | How |
+|---|---|
+| Desktop app | **Profiles** in the header → Use / Rename / Delete / New profile |
+| Terminal menu | `p` Profiles |
+| Command line | `./build.sh profiles` (list), `profiles new "Name"`, `profiles switch p2`, `profiles rename p2 "Name"`, `profiles delete p3` |
+
+The first look creates **Profile #1** from the current `config.env`; a new one starts as a copy of it. Deleting is refused for the profile in use, since `config.env` would then belong to nothing. The saved copies live in `stuff/profiles/` and are git-ignored, like `config.env` itself.
+
 ## Commands
 
 | Command | Does |
@@ -102,11 +114,14 @@ Two things worth knowing before the first build:
 | `./build.sh doctor` | Check the toolchain, change nothing (exit 0 = ready) |
 | `./build.sh check` | Validate `config.env`, build nothing |
 | `./build.sh --dry-run` | Print every resource the config emits, build nothing |
+| `./build.sh install` | Copy the newest zip to the phone, install it, reboot, verify it is live |
+| `./build.sh profiles` | Saved `config.env` setups: show, new, switch, rename, delete |
 | `./build.sh clean` | Remove `stuff/build/` and `out/` |
 | `./build.sh clean --all` | Start over for a different device (restores templates) |
 | `./build.sh menu` | Force the menu when there is no terminal |
+| `./build.sh --version` | Print the version (also `-V`; it is the single line in `stuff/VERSION`) |
 
-Flags: `-y` / `--yes`, `--with-vendor-hals`, `--xiaomi-fod`, `--allow-unknown-resources`, `--force` (with `setup`), `--help`. Same words on Windows with `build.cmd`.
+Flags: `-y` / `--yes`, `--with-vendor-hals`, `--xiaomi-fod`, `--allow-unknown-resources`, `--force` (with `setup`), `--no-su` (Termux: skip the up-front root question), `--help`. With `install`: `--device SERIAL`, `--zip PATH`, `--no-reboot`. Same words on Windows with `build.cmd`.
 
 `--dry-run` is the fast loop: it prints type, name, value and target APK for each resource without aapt2, signing or packaging.
 

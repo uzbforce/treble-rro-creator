@@ -243,6 +243,8 @@ button.link:hover { color: var(--ink); background: none; }
 }
 .chip.plain:hover { border-color: var(--rule); color: var(--muted); background: none; }
 .chip.plain:active { transform: none; }
+/* display:inline-flex above beats the UA rule for [hidden], so say it here too. */
+.chip[hidden] { display: none; }
 .chip .dot {
   width: 7px;
   height: 7px;
@@ -461,6 +463,41 @@ textarea#cfg {
 }
 .docs-nav button:hover { background: var(--panel-2); color: var(--ink); }
 .docs-nav button.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* Text matches from the docs search: a quiet block under the title list, one row
+   per line that mentions the term, with where it sits above what it says. */
+.docs-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+.docs-hits[hidden] { display: none; }
+.docs-nav button.docs-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-left: 2px solid transparent;
+}
+.docs-nav button.docs-hit:hover { border-left-color: var(--accent); }
+.docs-hit-where { font-size: 11px; color: var(--accent); font-weight: 600; }
+.docs-hit-text {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.docs-body mark.doc-mark {
+  background: var(--accent-soft);
+  color: inherit;
+  border-radius: 3px;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 .docs-body {
   flex: 1;
   min-width: 0;
@@ -1150,6 +1187,51 @@ button.ft-caret:hover:not(:disabled) { background: none; color: var(--accent); }
   word-break: break-word;
   tab-size: 4;
 }
+
+/* ----------------------------------------------------------------- profiles -- */
+/* A list, not a table: every row carries its own buttons, so aligned columns
+   would only put a gap between a name and the control for it. */
+.prof-list {
+  margin: 14px 0 0;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.prof-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--rule);
+}
+.prof-row:first-child { border-top: 0; }
+.prof-row.is-active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.prof-main { min-width: 0; flex: 1; }
+.prof-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prof-device { display: block; font-size: 11.5px; color: var(--muted); }
+.prof-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 20px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.prof-row button { font-size: 11.5px; padding: 4px 9px; }
+.prof-row input.rename { font-size: 12.5px; padding: 4px 8px; }
+.prof-new { display: flex; gap: 8px; margin-top: 14px; }
+.prof-new input { flex: 1; }
+.prof-empty { padding: 14px; color: var(--muted); font-size: 12.5px; }
 
 /* ------------------------------------------------------------------ dialog -- */
 dialog {

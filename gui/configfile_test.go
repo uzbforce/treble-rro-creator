@@ -191,6 +191,39 @@ func TestApplyConfigEditsKeepsQuoteStyle(t *testing.T) {
 	}
 }
 
+// TestApplyConfigEditsEscapesShellExpansion: config.env is sourced by the build,
+// so a saved value is shell code. `$(reboot)` used to be written into the file
+// unchanged and would have run on the next build; it has to come back out of the
+// form as what the user typed, too.
+func TestApplyConfigEditsEscapesShellExpansion(t *testing.T) {
+	doc, _ := parseConfig(sampleConfig)
+	cases := []struct {
+		value string
+		want  string
+	}{
+		{"$(reboot)", `DEVICE_MANUFACTURER="\$(reboot)"`},
+		{"`id`", "DEVICE_MANUFACTURER=\"\\`id\\`\""},
+		{`back\slash`, `DEVICE_MANUFACTURER="back\\slash"`},
+	}
+	for _, tc := range cases {
+		e := findKey(t, doc, "DEVICE_MANUFACTURER")
+		out, err := applyConfigEdits(sampleConfig, []ConfigEdit{
+			{Line: e.Line, Key: e.Key, Value: tc.value, Enabled: true},
+		})
+		if err != nil {
+			t.Fatalf("%q: %v", tc.value, err)
+		}
+		if !strings.Contains(out, "\n"+tc.want+"\n") {
+			t.Fatalf("%q was written as %q, not %q:\n%s", tc.value, tc.want, tc.want, out)
+		}
+		// The form shows what the user typed, not the escaping.
+		again, _ := parseConfig(out)
+		if got := findKey(t, again, "DEVICE_MANUFACTURER").Value; got != tc.value {
+			t.Fatalf("round trip: %q came back as %q", tc.value, got)
+		}
+	}
+}
+
 // TestApplyConfigEditsRefusesStalePage: the line number must still hold the same
 // key. Without this check a save from a window opened before an outside edit
 // would rewrite whatever slid into that line.

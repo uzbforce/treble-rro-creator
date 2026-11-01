@@ -31,11 +31,16 @@ type DetectDevice struct {
 	Serial   string `json:"serial"`
 	Model    string `json:"model"`
 	Codename string `json:"codename"`
-	ROM      string `json:"rom"`
-	IsGSI    bool   `json:"isGsi"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	Density  int    `json:"density"`
+	// CodenameProp is the property the codename came from, which is also the one
+	// a hardware-overlay submission has to match on: the repo compares that
+	// property with exact string equality, so naming another one ships an overlay
+	// that never activates.
+	CodenameProp string `json:"codenameProp"`
+	ROM          string `json:"rom"`
+	IsGSI        bool   `json:"isGsi"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Density      int    `json:"density"`
 }
 
 type DetectFact struct {

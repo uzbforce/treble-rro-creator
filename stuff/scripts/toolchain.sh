@@ -92,6 +92,90 @@ net_why() {
 }
 
 # ---------------------------------------------------------------------------
+# Checksums: a download is compared before it is unpacked
+# ---------------------------------------------------------------------------
+# A download cut short, and a mirror serving something else, both unpack into a
+# toolchain that breaks later inside aapt2 with a message that explains nothing.
+# Go, Google Maven and WinLibs each publish a SHA-256 next to the file, so the
+# bytes on disk are compared with the published hash first. Google publishes no
+# hash for the legacy platform-*-r*.zip archives; those are zips with a CRC per
+# entry, which unzip checks while extracting, so a damaged one still fails.
+#
+# RRO_NO_CHECKSUM=1 skips the comparison, for a mirror that publishes no hash.
+
+# hash_of FILE ALGO — sha1 or sha256 as hex, nothing when this machine has no
+# tool for it. sha256sum/shasum/openssl, whichever exists first.
+hash_of() {
+    local f="$1" algo="${2:-sha256}" bits
+    case "$algo" in
+        sha1)   bits=1 ;;
+        sha256) bits=256 ;;
+        *) return 1 ;;
+    esac
+    if command -v "${algo}sum" >/dev/null 2>&1; then
+        "${algo}sum" "$f" 2>/dev/null | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a "$bits" "$f" 2>/dev/null | awk '{ print $1 }'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -"$algo" "$f" 2>/dev/null | awk '{ print $NF }'
+    else
+        return 1
+    fi
+}
+
+# verify_hash FILE EXPECTED [LABEL] [ALGO] — 0 to keep the file, 1 to delete it.
+# EXPECTED may be empty or unparsable (a 404 page, a publisher with no hash);
+# that is not a mismatch, and the caller says so instead of failing the build.
+# The algorithm comes from ALGO, else from the hash length (40 sha1, 64 sha256).
+verify_hash() {
+    local f="$1" want got algo="${4:-}" label="${3:-$(basename "$1")}"
+    want="$(printf '%s' "${2:-}" | tr 'A-F' 'a-f' | tr -cd '0-9a-f')"
+    [ -n "$algo" ] || { [ ${#want} -eq 40 ] && algo=sha1 || algo=sha256; }
+
+    if [ "${RRO_NO_CHECKSUM:-}" = 1 ]; then
+        info "Skipped the checksum for ${label} (RRO_NO_CHECKSUM=1)"
+        return 0
+    fi
+    if [ -z "$want" ] || { [ "$algo" = sha1 ] && [ ${#want} -ne 40 ]; } || \
+       { [ "$algo" = sha256 ] && [ ${#want} -ne 64 ]; }; then
+        warn "No published checksum for ${label} — nothing to compare against"
+        return 0
+    fi
+    if ! got="$(hash_of "$f" "$algo")"; then
+        warn "This machine has no ${algo} tool — ${label} was not checked"
+        return 0
+    fi
+    if [ "$got" = "$want" ]; then
+        ok "Checksum matches for ${label}"
+        return 0
+    fi
+    err "Checksum mismatch for ${label} — the file on disk is not the one published"
+    echo "      expected ${want}" >&2
+    echo "      got      ${got}" >&2
+    return 1
+}
+
+# published_sha256 URL — the "<hash>  <name>" text Google Maven and WinLibs
+# serve as FILE.sha256, or nothing when the link has no such sibling.
+published_sha256() {
+    local url="$1" text
+    text="$(net_cat "${url}.sha256" 2>/dev/null || true)"
+    printf '%s' "$text" | awk '/^[0-9a-fA-F]{64}/ { print $1; exit }'
+}
+
+# build_tools_sha1 API — the SHA-1 Google lists for build-tools_r<API>_windows.zip
+# in repository2-3.xml. Pinned rather than fetched: the index is 400 KB, and an
+# outdated pin fails loudly instead of quietly trusting whatever arrived.
+build_tools_sha1() {
+    case "$1" in
+        36) echo f16ccffd34de8790dede813a6c7d8e2c11a27b50 ;;
+        35) echo af059bb67cf7786f45ee0db85e2d24985df1b4b6 ;;
+        34) echo 62cfde1b6fcc3ad12a4d2ba1b537e752768bfd47 ;;
+        *)  return 0 ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
 # Windows: Google build-tools zip
 # ---------------------------------------------------------------------------
 # Git for Windows ships bash and coreutils, but no aapt2/zipalign/apksigner.
@@ -133,6 +217,13 @@ install_windows_tools() {
         err "Could not download the Windows build-tools."
         info "Install Android SDK build-tools and add its folder to PATH, or copy"
         info "aapt2.exe and zipalign.exe into stuff/tools/ and re-run build.cmd."
+        rm -f "$tmp_zip"
+        return 1
+
+    fi
+
+    if ! verify_hash "$tmp_zip" "$(build_tools_sha1 "$api")" \
+        "build-tools r${api} for Windows"; then
         rm -f "$tmp_zip"
         return 1
     fi
@@ -274,8 +365,8 @@ acquire_framework_res() {
         download_platform_resources 33
         return $?
     fi
-
     echo ""
+
     info "One more piece: framework-res.apk (the resource dictionary)."
     echo "  aapt2 uses it to translate android:* resource IDs. Using the wrong"
     echo "  version causes 'resource not found' errors during the build."
@@ -521,6 +612,10 @@ download_manual_tools() {
             rm -f "$jar"
             return 1
         fi
+        if ! verify_hash "$jar" "$(published_sha256 "$url")" "aapt2 ${version}"; then
+            rm -f "$jar"
+            return 1
+        fi
 
         # The jar is a zip that also holds META-INF/ and NOTICE; extract only
         # the binary so stuff/tools/ stays clean. On Windows MSYS resolves the bare
@@ -715,8 +810,8 @@ run_doctor() {
         doctor_row "$UI_CROSS" "$UI_RED" "java" "not found" "apksigner will fail"
         problems=$((problems + 1))
     fi
-
     echo ""
+
     ui_heading "Do they actually run here?"
     local rbin
     for t in aapt2 zipalign apksigner; do
@@ -728,8 +823,8 @@ run_doctor() {
             apksigner) check_runs "$t" "ran apksigner --version" "$rbin" --version || problems=$((problems + 1)) ;;
         esac
     done
-
     echo ""
+
     ui_heading "Contamination check"
     local found_foreign=false f fkind
     for f in "$TOOLS_DIR"/*; do
@@ -753,8 +848,8 @@ run_doctor() {
     else
         problems=$((problems + 1))
     fi
-
     echo ""
+
     if [ "$problems" -eq 0 ]; then
         ok "Toolchain is correct for this platform — ./build.sh will work."
         echo ""
@@ -830,8 +925,8 @@ ensure_toolchain() {
         ok "Toolchain ready"
         return 0
     fi
-
     echo ""
+
     info "Toolchain incomplete — missing: ${missing}"
 
     if [ "$mode" = "auto" ]; then
@@ -923,8 +1018,8 @@ ensure_toolchain() {
         verify_toolchain
         return $?
     fi
-
     echo ""
+
     echo -e "  ${BOLD}How should the missing tools be installed?${NC}"
     echo -e "    ${BOLD}[1]${NC} Debian / Ubuntu / Mint        (apt)"
     echo -e "    ${BOLD}[2]${NC} Arch Linux / Manjaro         (pacman)"
@@ -976,8 +1071,8 @@ ensure_toolchain() {
             info "Nothing installed."
             ;;
     esac
-
     echo ""
+
     echo -e "  ${BOLD}Result${NC}"
     print_toolchain
     echo ""

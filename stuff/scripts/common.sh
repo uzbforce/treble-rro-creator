@@ -42,6 +42,18 @@ CONFIG_FILE="$ROOT/config.env"
 CONFIG_EXAMPLE="$ROOT/config.env.example"
 
 # ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+# One line in stuff/VERSION is the only place the tool's own version lives; the
+# shell and the desktop app (gui/version.go) both read this file. A checkout
+# without it still works, it just cannot say which version it is.
+TOOL_VERSION="unknown"
+if [ -f "$STUFF_DIR/VERSION" ]; then
+    v="$(tr -d ' \t\r\n' < "$STUFF_DIR/VERSION" 2>/dev/null)"
+    if [ -n "$v" ]; then TOOL_VERSION="$v"; fi
+fi
+
+# ---------------------------------------------------------------------------
 # Restoring a tracked file to what this release ships
 # ---------------------------------------------------------------------------
 # "Start over" must never hand back a copy that froze at some old commit. The
@@ -144,6 +156,51 @@ confirm() {
         [Yy]|[Yy][Ee][Ss]) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# Termux: ask for root once, before anything is drawn
+# ---------------------------------------------------------------------------
+# Reading /vendor/overlay, pulling a vendor prop file and installing the module
+# all need root, and on Termux the first `su` of a session is a prompt from the
+# manager (Magisk, KernelSU, APatch). Asked for in the middle of a build, that
+# prompt lands on top of the screen the tool is drawing; asked for here, it is
+# one question before the menu paints, and the manager remembers the grant for
+# the app, so the rest of the session runs quietly.
+#
+# Nothing is forced: `--no-su` (TREBLE_NO_SU=1) skips it, declining skips it, a
+# phone with no `su` skips it, and without a terminal it is skipped too so a
+# script or CI never waits for a tap that will not come. Sets TERMUX_ROOT=1 when
+# root is available, so callers can tell "granted" from "never asked".
+termux_root_handoff() {
+    TERMUX_ROOT=""
+    $IS_TERMUX || return 0
+    [ "${TREBLE_NO_SU:-0}" = 1 ] && return 0
+    [ "$(id -u 2>/dev/null)" = 0 ] && { TERMUX_ROOT=1; return 0; }
+
+    local su_bin
+    for su_bin in su tsu; do
+        command -v "$su_bin" >/dev/null 2>&1 && break
+        su_bin=""
+    done
+    [ -n "$su_bin" ] || return 0
+    [ -t 0 ] || return 0
+
+    printf '\n'
+    info "Termux: root is needed to read /vendor and to install the module."
+    info "Granting it now means no prompt lands on top of the build later."
+    if ! confirm "    Give root access now? [Y/n] " y; then
+        info "Skipped — the next step that needs root will ask by itself."
+        return 0
+    fi
+    printf '\n'
+    if [ "$("$su_bin" -c 'id -u' </dev/null 2>/dev/null | tr -d '\r' | tail -n1)" = 0 ]; then
+        TERMUX_ROOT=1
+        ok "Root granted — device reads and install work from here on."
+    else
+        warn "Root was not granted — reading /vendor and installing the module will fail."
+        info "Try again later, or run the tool from a root shell: su -c './build.sh'"
+    fi
 }
 
 # ---------------------------------------------------------------------------

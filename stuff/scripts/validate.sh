@@ -265,6 +265,16 @@ _validate_metadata() {
 # Overlay identity
 # ---------------------------------------------------------------------------
 _validate_overlay() {
+    # The hardware-overlay submission lives in a Brand/Codename folder and
+    # activates on one property by exact string. When the folder's codename and
+    # the match value disagree, the pull request looks fine and does nothing on
+    # the device — so say it here, where it is still cheap to fix.
+    local hwv="${HW_OVERLAY_MATCH_VALUE:-${DEVICE_CODENAME:-}}"
+    if [ -n "${DEVICE_CODENAME:-}" ] && [ -n "$hwv" ] && [[ "$DEVICE_CODENAME" != *"<"* ]] \
+       && [[ "$hwv" != *"<"* ]] && [ "$hwv" != "$DEVICE_CODENAME" ]; then
+        _v_warn "HW_OVERLAY_MATCH_VALUE=\"${hwv}\" is not DEVICE_CODENAME=\"${DEVICE_CODENAME}\" — the submission goes in Brand/${DEVICE_CODENAME} but only activates where ${HW_OVERLAY_MATCH_PROP:-ro.product.device} reads \"${hwv}\""
+    fi
+
     if [ -z "${DEVICE_PROP_NAME:-}" ]; then
         _v_note "DEVICE_PROP_NAME is empty — the overlay is not matched to a property (applies everywhere)"
     elif [ -z "${DEVICE_PROP_VALUE:-}" ]; then

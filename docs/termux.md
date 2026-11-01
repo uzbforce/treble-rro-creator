@@ -70,6 +70,21 @@ probes. Termux has no window, so this is the full interface on the phone:
      7  Match property     which property the submission should match on
      8  Files              what was built, and where it is
      9  Docs               the guides in docs/
+     p  Profiles           saved config.env sets, one per device
+```
+
+**Profiles** are for more than one phone. A profile is a name plus a saved
+`config.env`; exactly one is active, and it is the one `config.env` holds. On a
+fresh clone there is none, and `p → n` names the current `config.env` as
+`Profile #1`. Switch (`s`), rename (`r`) and delete (`d`) work the same way; you
+can also do it from the shell:
+
+```
+./build.sh profiles                    # what is saved, which one is active
+./build.sh profiles switch pixel       # by id or by name
+./build.sh profiles new "Pixel 8"      # copy the active set under a new name
+./build.sh profiles rename pixel "Pixel 8a"
+./build.sh profiles delete old
 ```
 
 `1 → 2` is the build. The first run checks the toolchain: if something is
@@ -144,7 +159,21 @@ Start the tool through `su` or `tsu`:
 tsu ./build.sh          # recommended: root for the whole session
 ```
 
-or just run `./build.sh` and let it ask. The first time you pick a probe in
+or just run `./build.sh`: it asks once, before the menu paints, and never again
+for the rest of the session.
+
+```
+  Termux: root is needed to read /vendor and to install the module.
+  Granting it now means no prompt lands on top of the build later.
+    Give root access now? [Y/n]
+```
+
+That one question is the same `su` permission the manager would ask for anyway.
+Asking for it first keeps the request off the top of a screen the tool is
+mid-way through drawing. `--no-su` skips it (or `TREBLE_NO_SU=1`); the run then
+escalates per command, exactly as it did before.
+
+The first time you pick a probe in
 Termux, the menu explains this once and offers to read the phone directly:
 
 ```
@@ -185,10 +214,27 @@ Two practical notes:
 ## 6. Install the module
 
 ```bash
+./build.sh install          # push, hand it to the root manager, reboot, verify
+./build.sh install --no-reboot   # install and leave the reboot to you
+```
+
+`install` picks the newest `out/*-ksu.zip` (or `--zip PATH`), copies it over,
+hands it to whatever manager is really installed — `ksud` for KernelSU / KSU
+Next, `magisk` for Magisk — reboots, waits for the phone to come back, and then
+says whether the module is enabled and the overlay package is actually listed.
+On Termux it installs on this phone directly and stops after the install,
+because rebooting the machine the script is running on cannot be followed by a
+check.
+
+The menu carries the same thing: **1 Build → 8 Install**.
+
+Or copy it yourself:
+
+```bash
 cp out/*-ksu.zip /sdcard/
 ```
 
-Or let the menu do it: **8 Files → 1 Copy** writes the zip and its APKs to
+Or let the menu do that: **8 Files → 1 Copy** writes the zip and its APKs to
 `/sdcard/treble-rro-creator` — with `cp` on the phone, or `adb push` when a PC
 ran the build. The terminal tells you how many files landed.
 

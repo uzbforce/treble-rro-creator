@@ -206,6 +206,34 @@ func TestGuardRejectsCrossSite(t *testing.T) {
 	}
 }
 
+// TestSearchDocs covers what the docs box has to do: find a line by its words,
+// say which heading it belongs to, keep the title match alive when a guide is
+// named after the term, and ignore a one-character query instead of returning
+// the whole manual.
+func TestSearchDocs(t *testing.T) {
+	root := t.TempDir()
+	docs := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := "# Submitting\n\n## What to send\n\nUse `pkg install curl` first.\n\n```\ntermux boot\n```\n"
+	if err := os.WriteFile(filepath.Join(docs, "submission.md"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hits := searchDocs(root, "termux boot")
+	if len(hits) != 1 {
+		t.Fatalf("got %d hits, want 1: %+v", len(hits), hits)
+	}
+	if hits[0].Heading != "What to send" || hits[0].Line != 8 || hits[0].Title != "Submitting" {
+		t.Fatalf("hit = %+v, want line 8 under 'What to send'", hits[0])
+	}
+
+	if got := searchDocs(root, "a"); len(got) != 0 {
+		t.Fatalf("a one-character query returned %d hits", len(got))
+	}
+}
+
 // TestDetectCodenames checks what the Device tab offers after "Detect from
 // device": the properties that answered, in priority order, with the GSI's own
 // name kept as an alternative rather than dropped and "unknown" ignored.
