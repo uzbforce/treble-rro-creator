@@ -42,7 +42,7 @@ if ($env:RRO_PICK_KIND -eq 'folder') {
 } else {
     $d = New-Object System.Windows.Forms.OpenFileDialog
     $d.Title = $env:RRO_PICK_TITLE
-    $d.Filter = 'Firmware images (*.img;*.bin;*.tar;*.md5;*.lz4)|*.img;*.bin;*.tar;*.md5;*.lz4|All files (*.*)|*.*'
+    $d.Filter = $env:RRO_PICK_FILTER
     $d.CheckFileExists = $true
     $d.CheckPathExists = $true
     $d.Multiselect = $false
@@ -80,6 +80,7 @@ func pickPath(ask pickAsk) (string, error) {
 		"-ExecutionPolicy", "Bypass", "-Command", pickScript)
 	cmd.Env = append(os.Environ(),
 		"RRO_PICK_KIND="+string(ask.Kind),
+		"RRO_PICK_FILTER="+ask.Kind.filter(),
 		"RRO_PICK_TITLE="+ask.Kind.title(),
 		"RRO_PICK_START="+ask.Start,
 		"RRO_PICK_OUT="+out,

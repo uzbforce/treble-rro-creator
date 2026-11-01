@@ -80,6 +80,14 @@ WebView2 on Windows, WebKitGTK on Linux.
 | **Doctor** | `build.sh doctor -y` | something is missing; find what |
 | **Setup** | `build.sh setup -y` | install or repair the Android build tools (asks for the sudo password when it needs it) |
 | **Clean** | `build.sh clean -y` | discard `out/` (tick `--all` to also drop config and device files) |
+| **Wrap** | `build.sh wrap --overlay … --systemui … -y` | pack APKs you already have into `out/wrap/`, compiling nothing |
+
+The **Wrap** tab takes an overlay APK and an optional SystemUI APK, each with a
+**Choose…** button (the dialog is filtered to `*.apk`, but a path can be typed on
+a machine with no dialog). **Create test module** packs them and switches to the
+Build console, where the log and the result are. The module id is optional; an
+empty one becomes `wrap-<apk name>`, and the package names for the on-phone check
+are read from the APKs rather than `config.env`.
 
 Flags appear only on the commands that accept them:
 

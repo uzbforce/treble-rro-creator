@@ -76,6 +76,7 @@ usage() {
     echo "    doctor             Check the toolchain, install nothing"
     echo "    check              Validate config.env, build nothing"
     echo "    install            Install out/<name>-ksu.zip on the phone, reboot, verify"
+    echo "    wrap               Pack an overlay APK you already have into a test module (out/wrap/)"
     echo "    fod-build          Rebuild the arm64 UDFPS helper from its Go source"
     echo "    clean              Remove build output"
     echo "    --dry-run          Print the resources config.env emits, build nothing"
@@ -87,6 +88,9 @@ usage() {
     echo "    --device SERIAL        With install: the phone to use, when more than one is attached"
     echo "    --zip PATH             With install: a module other than the newest build"
     echo "    --no-reboot            With install: hand it over, do not reboot or verify"
+    echo "    --overlay APK          With wrap: the overlay APK to pack (required)"
+    echo "    --systemui APK         With wrap: a SystemUI overlay APK to pack alongside it"
+    echo "    --name ID              With wrap: the module id (default wrap-<apk name>)"
     echo "    --all                  With clean: also remove config and device files"
     echo "    --force                With setup: re-pick the resource dictionary"
     echo "    --allow-unknown-resources  Build even if a resource is missing from the target"
@@ -104,6 +108,9 @@ INSTALL_EXTRA=()
 
 # Everything after `profiles` belongs to profiles.sh (switch p2, rename p2 "…").
 PROFILES_ARGS=()
+
+# Same for `wrap`: it has its own options (--overlay, --systemui, --name).
+WRAP_ARGS=()
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -124,6 +131,11 @@ while [ $# -gt 0 ]; do
             shift ;;
         --no-reboot|--no-verify)
             INSTALL_EXTRA+=("$arg") ;;
+        wrap|wrapper)
+            MODE="wrap"
+            WRAP_ARGS=("${@:2}")
+            break
+            ;;
         fod-build|--fod-build) MODE="fodbuild" ;;
         clean|--clean)  MODE="clean" ;;
         dry-run|--dry-run) MODE="dryrun" ;;
@@ -219,6 +231,12 @@ case "$MODE" in
         # A child, not a source: it parses its own options and can be run on its
         # own (bash stuff/scripts/install-module.sh --zip out/x-ksu.zip).
         bash "$ROOT/stuff/scripts/install-module.sh" ${INSTALL_EXTRA[@]+"${INSTALL_EXTRA[@]}"}
+        exit $?
+        ;;
+
+    wrap)
+        migrate_layout
+        bash "$ROOT/stuff/scripts/wrap.sh" ${WRAP_ARGS[@]+"${WRAP_ARGS[@]}"}
         exit $?
         ;;
 

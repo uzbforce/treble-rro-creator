@@ -228,6 +228,11 @@ check.
 
 The menu carries the same thing: **1 Build → 8 Install**.
 
+An overlay APK that already exists — built elsewhere, or signed by hand — can
+be packed without compiling anything: **1 Build → 9 Wrap APK**, or
+`./build.sh wrap --overlay overlay.apk [--systemui overlay-systemui.apk]`. The
+zip lands in `out/wrap/`, separately from the release builds.
+
 Or copy it yourself:
 
 ```bash

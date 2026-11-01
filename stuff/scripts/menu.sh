@@ -143,6 +143,7 @@ menu_build() {
         ui_item 6 'Clean --all' 'start over for a different device' 11
         ui_item 7 'Xiaomi FOD' "$fod_state · HBM + touch-panel FOD mode for Xiaomi UDFPS" 11
         ui_item 8 'Install' "copy out/<name>-ksu.zip to the phone, install it, reboot, check" 11
+        ui_item 9 'Wrap APK' 'pack overlay APKs you already have into a test module' 11
         ui_item 0 'Back' '' 11
         menu_read "  >" || return 0
         case "$MENU_ANSWER" in
@@ -177,10 +178,44 @@ menu_build() {
                 bash "$ROOT/stuff/scripts/install-module.sh"
                 pause_menu
                 ;;
+            9) menu_wrap; pause_menu ;;
             0|q|'') return 0 ;;
             *) warn "Not one of the numbers above." ;;
         esac
     done
+}
+
+# ---------------------------------------------------------------------------
+# Wrap: an overlay APK that already exists, packed as a test module
+# ---------------------------------------------------------------------------
+# The paths are asked here because the files are almost always somewhere the
+# menu cannot guess (a downloads folder, a repo zip that was unpacked). Enter on
+# the SystemUI prompt and on the name prompt skips them, which is the one-APK
+# case, and an empty overlay drops back to the menu rather than failing.
+menu_wrap() {
+    local overlay systemui name
+    local -a args
+
+    ui_heading 'Wrap APKs into a test module'
+    ui_mark note 'An overlay APK you already have, packed so it can be flashed and tested. Nothing is compiled.'
+    echo ""
+    ask '  Overlay APK (path): ' ''
+    overlay="$REPLY"
+    if [ -z "$overlay" ]; then
+        info 'No file given — nothing packed.'
+        return 0
+    fi
+    ask '  SystemUI APK (Enter to skip): ' ''
+    systemui="$REPLY"
+    ask '  Module id (Enter for wrap-<apk name>): ' ''
+    name="$REPLY"
+
+    args=(--overlay "$overlay")
+    [ -n "$systemui" ] && args+=(--systemui "$systemui")
+    [ -n "$name" ] && args+=(--name "$name")
+    echo ""
+    run_entry wrap "${args[@]}"
+    return 0
 }
 
 # ---------------------------------------------------------------------------

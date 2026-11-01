@@ -26,6 +26,9 @@ type pickerKind string
 const (
 	pickFile   pickerKind = "file"
 	pickFolder pickerKind = "folder"
+	// pickAPK is pickFile with an .apk filter: the wrap screen is the only
+	// caller, and a firmware filter in front of it would hide every APK.
+	pickAPK pickerKind = "apk"
 )
 
 // pickAsk is everything a dialog needs: which kind, and the folder to open at.
@@ -36,10 +39,22 @@ type pickAsk struct {
 }
 
 func (k pickerKind) title() string {
-	if k == pickFolder {
+	switch k {
+	case pickFolder:
 		return "Choose the ROM folder or an unpacked tree"
+	case pickAPK:
+		return "Choose an overlay APK"
 	}
 	return "Choose a super.img, a Samsung AP file, or a partition image"
+}
+
+// filter is the WinForms filter string for this kind of file. It stays next to
+// title() so the two descriptions of "what this dialog is for" cannot drift.
+func (k pickerKind) filter() string {
+	if k == pickAPK {
+		return "Overlay APKs (*.apk)|*.apk|All files (*.*)|*.*"
+	}
+	return "Firmware images (*.img;*.bin;*.tar;*.md5;*.lz4)|*.img;*.bin;*.tar;*.md5;*.lz4|All files (*.*)|*.*"
 }
 
 // startDir turns what is already in the field into a folder a dialog can open
@@ -75,8 +90,8 @@ func (a *App) handlePick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := pickerKind(strings.TrimSpace(body.Kind))
-	if kind != pickFile && kind != pickFolder {
-		writeError(w, http.StatusBadRequest, `kind has to be "file" or "folder"`)
+	if kind != pickFile && kind != pickFolder && kind != pickAPK {
+		writeError(w, http.StatusBadRequest, `kind has to be "file", "apk" or "folder"`)
 		return
 	}
 	if len(body.Start) > 4096 {
