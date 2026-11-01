@@ -24,7 +24,7 @@ Two front ends run the same build off the same `config.env`:
 | **Desktop app** | `treble-rro-creator.cmd` | `./treble-rro-creator.sh` | not available |
 | **Terminal menu** | `build.cmd` | `./build.sh` | `./build.sh` |
 
-The app has tabs for Build, **Wrap**, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs, and a **Profiles** button for saved setups. The menu offers the same jobs as numbered choices, and it is the whole interface on Termux or over ssh.
+The app has tabs for Build, **Wrap**, config.env, Addons, Device (adb console), Auto Detect, UDFPS, Files and Docs, and a **Profiles** button for saved setups. The menu offers the same jobs as numbered choices, plus **`w` Web app** to open it on Windows or Linux; on Termux or over ssh the menu is the whole interface.
 
 ## Quick start
 

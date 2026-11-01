@@ -23,6 +23,9 @@ treble-rro-creator.cmd    # Windows (double-click it too)
 The launchers used to be called `gui.sh` and `gui.cmd`; a shortcut or note from
 before the rename needs pointing at the new file. Nothing else changed.
 
+Already in the terminal menu? **`w` Web app** opens this same launcher on Windows
+and Linux, with no path or command to remember.
+
 The first launch builds the app, and what the build needs it installs or
 downloads itself. Go is fetched from go.dev into `stuff/tools/_go/` when the
 machine has none (a distro's package is skipped when it is older than `go.mod`

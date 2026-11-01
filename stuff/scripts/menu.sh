@@ -104,6 +104,11 @@ menu_items() {
     ui_item 7 'Match property' 'which property the submission should match on' "$MENU_LW"
     ui_item 8 'Files'          'what was built, and where it is' "$MENU_LW"
     ui_item 9 'Docs'           'the guides in docs/' "$MENU_LW"
+    # The desktop window is Windows/Linux only. Termux has no WebKitGTK, and
+    # the menu itself is already the full interface there.
+    if ! $IS_TERMUX; then
+        ui_item w 'Web app'     'open the point-and-click interface in a window' "$MENU_LW"
+    fi
     ui_item p 'Profiles'       'saved config.env setups: switch, rename, delete' "$MENU_LW"
     ui_item q 'Quit' '' "$MENU_LW"
 }
@@ -382,6 +387,41 @@ menu_docs() {
     else
         cat "$pick"
     fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Web app
+# ---------------------------------------------------------------------------
+# The app is a separate launcher, not a build.sh verb: it builds itself (and
+# the window toolkit) on the first run, then opens its own window. On Windows
+# its launcher hands the window to the background and returns; on Linux it
+# stays in the foreground until the window is closed, which is why the pause
+# below is the way back to this menu.
+menu_webapp() {
+    local rc=0
+    ui_heading 'Web app'
+    if $IS_TERMUX; then
+        info 'The window needs a Windows or Linux desktop. On Termux this menu is the full interface.'
+        pause_menu
+        return 0
+    fi
+    ui_mark note 'The same build, config and phone tools as the menu, in a window with tabs.'
+    echo ""
+    if [ ! -f "$ROOT/treble-rro-creator.sh" ]; then
+        err "The app launcher is missing: treble-rro-creator.sh"
+        pause_menu
+        return 0
+    fi
+    info "The first launch builds the app and downloads what it needs; later launches open straight away."
+    echo ""
+    ( cd "$ROOT" && bash "$ROOT/treble-rro-creator.sh" ) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        err "The web app did not start (exit $rc). The message above says why."
+    else
+        info "Back in the terminal menu."
+    fi
+    pause_menu
     return 0
 }
 
@@ -982,6 +1022,7 @@ menu_main() {
             7) menu_match ;;
             8) menu_files ;;
             9) menu_docs ;;
+            w|W) menu_webapp ;;
             p|P) menu_profiles ;;
             q|Q|quit|exit) return 0 ;;
             '') return 0 ;;
