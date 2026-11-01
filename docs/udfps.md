@@ -311,7 +311,11 @@ under Build in the app and the terminal menu — because it is dead weight on a
 phone with no Xiaomi touch panel. On a Xiaomi phone it adds high-brightness mode
 around the capture and puts the panel into the HAL's FOD touch mode. `service.sh`
 starts it when `/dev/xiaomi-touch` exists and `ro.hardware.fp.fod=true`, so an
-arm64 Xiaomi UDFPS build is the only one that needs the flag. The daemon copies the state machine the stock touch
+arm64 Xiaomi UDFPS build is the only one that needs the flag. The binary ships
+prebuilt from `src/module/fod/main.go`; `./build.sh fod-build` rebuilds it, and
+`stuff/tests/run.sh` compiles it for android/arm64 on every push, so the binary
+cannot drift from its source unnoticed. The daemon copies the state machine the stock touch
+
 driver logs: mode 10 is armed with value 3 (FOD plus the AOD wake bit) when the
 screen turns off, stays armed while the keyguard is showing (lock screen and
 AOD) or a fingerprint client is running (settings enrollment, in-app prompts),

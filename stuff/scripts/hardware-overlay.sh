@@ -422,6 +422,15 @@ adb shell getprop ${prop}
   \`ro.vendor.build.fingerprint\` also works, but breaks on every OTA.
 - Set \`HW_OVERLAY_MATCH_PROP=""\` to submit an overlay that is always active.
 
+One thing to keep straight: the folder name and this value are two halves of
+the same claim. The tree ships for \`${brand}/${model}\`, and the APK inside it
+only turns on where \`${prop}\` reads \`${value}\`. They come from
+\`DEVICE_MANUFACTURER\`, \`DEVICE_CODENAME\` and \`HW_OVERLAY_MATCH_VALUE\` in
+\`config.env\` — if the codename and the match value differ, the submission is
+filed under one device and activates on another, which the repo's tests cannot
+catch and the device will not report. Set both, rebuild, and check the zips in
+\`out/\` are for this phone.
+
 ## Priority
 
 The framework overlay uses \`android:priority="${priority}"\`, which no overlay
@@ -563,6 +572,13 @@ print_hardware_overlay_plan() {
     printf '\n'
     ui_kv match "$(hw_match_prop) == \"$(hw_match_value)\"" 9
     ui_kv priority "$(hw_priority)" 9
+    # The folder is DEVICE_CODENAME and the APK only turns on where the match
+    # value is exact. A mismatch is invisible until the merged overlay does
+    # nothing on the phone, so it is called out with the plan.
+    if [ -n "$(hw_match_value)" ] && [ "$(hw_match_value)" != "${DEVICE_CODENAME:-}" ]; then
+        printf '\n'
+        ui_mark warn "The folder is ${DEVICE_MANUFACTURER}/${DEVICE_CODENAME} but the overlay activates on $(hw_match_prop) = \"$(hw_match_value)\".\nSet DEVICE_CODENAME and HW_OVERLAY_MATCH_VALUE to the same value in config.env, or the submission never turns on."
+    fi
     printf '\n'
 }
 

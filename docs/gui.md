@@ -351,6 +351,19 @@ an error. If the update touches `gui/`, the dialog tells you to close the window
 and start it again (`treble-rro-creator.sh` / `treble-rro-creator.cmd` rebuild it) — the build scripts are
 already the new ones, because they are read from disk on every run.
 
+## Profiles
+
+The **Profiles** button next to **Check for updates** is for more than one phone.
+A profile is a name plus a saved `config.env`; exactly one is active, and the
+active one is what the Config tab and every build use. On a fresh clone the list
+is empty — **New profile** saves the current `config.env` as `Profile #1`, which
+you can then rename. Switch, rename and delete are in the same dialog, and each
+row shows the codename and model so you can tell them apart. The first launch
+names and opens one for you, so nothing has to be set up first.
+
+The phone keeps the same list, so `./build.sh profiles` (or `p` in the menu)
+shows and edits the same profiles from Termux.
+
 ## Where it keeps settings
 
 Two paths only — the clone, and the `bash` binary:

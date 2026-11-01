@@ -244,6 +244,61 @@ fetch_url() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Checksums: compare a download with the hash its publisher lists
+# ---------------------------------------------------------------------------
+# Go and WinLibs both publish a SHA-256 next to the file. A download that was
+# cut short unpacks into a Go or gcc that fails much later and confusingly, so
+# the bytes are compared before anything is unpacked. RRO_NO_CHECKSUM=1 skips
+# the comparison, for a mirror that publishes none.
+sha256_of() {
+    local f="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$f" 2>/dev/null | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$f" 2>/dev/null | awk '{ print $1 }'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$f" 2>/dev/null | awk '{ print $NF }'
+    else
+        return 1
+    fi
+}
+
+# verify_sha256 FILE EXPECTED LABEL — 0 to keep the file, 1 to delete it. An
+# empty or unparsable EXPECTED is not a mismatch: it is reported and let go.
+verify_sha256() {
+    local f="$1" want got label="$3"
+    want="$(printf '%s' "${2:-}" | tr 'A-F' 'a-f' | tr -cd '0-9a-f')"
+
+    if [ "${RRO_NO_CHECKSUM:-}" = 1 ]; then
+        echo "  checksum check skipped for ${label} (RRO_NO_CHECKSUM=1)"
+        return 0
+    fi
+    if [ ${#want} -ne 64 ]; then
+        echo "  no published SHA-256 for ${label} — nothing to compare against" >&2
+        return 0
+    fi
+    if ! got="$(sha256_of "$f")"; then
+        echo "  no sha256sum, shasum or openssl here — ${label} was not checked" >&2
+        return 0
+    fi
+    if [ "$got" = "$want" ]; then
+        return 0
+    fi
+    echo "  SHA-256 mismatch for ${label}:" >&2
+    echo "    expected ${want}" >&2
+    echo "    got      ${got}" >&2
+    return 1
+}
+
+# go_published_sha256 FILE — the hash go.dev lists for that exact filename.
+go_published_sha256() {
+    fetch_url "https://go.dev/dl/?mode=json&include=all" 2>/dev/null |
+        awk -v want="\"$1\"" '
+            index($0, "\"filename\": " want) { hit = 1; next }
+            hit && /"sha256":/ { gsub(/[",]/, "", $2); print $2; exit }'
+}
+
 # The os-arch half of the download name, empty when there is no official
 # build for this machine.
 go_platform() {
@@ -311,6 +366,11 @@ install_go() {
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/go-download.XXXXXX")" || return 1
     if ! fetch_url "$url" "$tmp/$file"; then
         echo "  The download failed: $url" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! verify_sha256 "$tmp/$file" "$(go_published_sha256 "$file")" "$file"; then
+        echo "  Deleted the bad download. Re-run, or install Go from https://go.dev/dl/" >&2
         rm -rf "$tmp"
         return 1
     fi
@@ -416,6 +476,12 @@ install_mingw() {
     if ! fetch_url "$url" "$tmp/$file"; then
         echo "  The download failed:" >&2
         echo "  $url" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! verify_sha256 "$tmp/$file" \
+        "$(fetch_url "${url}.sha256" 2>/dev/null | awk 'NR == 1 { print $1 }')" "$file"; then
+        echo "  Deleted the bad download. Run this again to fetch it fresh." >&2
         rm -rf "$tmp"
         return 1
     fi

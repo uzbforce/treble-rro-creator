@@ -13,10 +13,13 @@
 #   ./build.sh doctor          check the toolchain (read-only)
 #   ./build.sh check           validate config.env without building
 #   ./build.sh --dry-run       print the resources config.env emits, build nothing
+#   ./build.sh fod-build       rebuild the arm64 UDFPS helper (maintainers)
+#   ./build.sh profiles        saved config.env setups, one per device
 #   ./build.sh clean           remove build output
 #   ./build.sh clean --all     start over for a different device
 #
 #   -y, --yes                  no questions (also: --with-vendor-hals)
+#   -V, --version              print the version
 #   -h, --help                 this help
 #
 # On Windows use build.cmd (cmd, PowerShell or a double-click). It finds Git
@@ -24,7 +27,10 @@
 # drive — see docs/windows.md.
 # =============================================================================
 
-set -e
+# pipefail matters here: most build steps run a tool and parse its output in a
+# pipeline (`aapt2 dump ... | sed | awk`). Without it a failed tool still exits
+# 0 through the pipeline and the build carries on with empty input.
+set -eo pipefail
 
 # ---------------------------------------------------------------------------
 # Project root
@@ -65,9 +71,12 @@ usage() {
     echo "    (none)             The menu (on a terminal), otherwise a build"
     echo "    menu               The menu: build, config.env, addons, device probes"
     echo "    build              Build the overlay module (installs tools if needed)"
+    echo "    profiles           Saved config.env setups: show, new, switch, rename, delete"
     echo "    setup              Install or repair the build tools"
     echo "    doctor             Check the toolchain, install nothing"
     echo "    check              Validate config.env, build nothing"
+    echo "    install            Install out/<name>-ksu.zip on the phone, reboot, verify"
+    echo "    fod-build          Rebuild the arm64 UDFPS helper from its Go source"
     echo "    clean              Remove build output"
     echo "    --dry-run          Print the resources config.env emits, build nothing"
     echo ""
@@ -75,22 +84,47 @@ usage() {
     echo "    -y, --yes              Accept defaults, skip prompts"
     echo "    --with-vendor-hals     With --yes: include src/vendor/ in the module"
     echo "    --xiaomi-fod           Include the Xiaomi FOD helper (HBM + HIDL touch mode) in the module"
+    echo "    --device SERIAL        With install: the phone to use, when more than one is attached"
+    echo "    --zip PATH             With install: a module other than the newest build"
+    echo "    --no-reboot            With install: hand it over, do not reboot or verify"
     echo "    --all                  With clean: also remove config and device files"
     echo "    --force                With setup: re-pick the resource dictionary"
     echo "    --allow-unknown-resources  Build even if a resource is missing from the target"
+    echo "    --no-su                Termux: do not ask for root up front"
+    echo "    -V, --version          Print the version"
     echo "    -h, --help             Show this help"
     echo ""
     echo -e "  ${BOLD}Windows:${NC} build.cmd [command] [options]"
     echo ""
 }
 
-for arg in "$@"; do
+# Options that only `install` understands are collected here and handed to
+# install-module.sh, so the entry point keeps one parser.
+INSTALL_EXTRA=()
+
+# Everything after `profiles` belongs to profiles.sh (switch p2, rename p2 "…").
+PROFILES_ARGS=()
+
+while [ $# -gt 0 ]; do
+    arg="$1"
     case "$arg" in
         build)          MODE="build" ;;
         menu|--menu)    MODE="menu" ;;
         setup|--setup)  MODE="setup" ;;
         doctor|--doctor) MODE="doctor" ;;
         check|--check)  MODE="check" ;;
+        install)        MODE="install" ;;
+        profiles)
+            MODE="profiles"
+            PROFILES_ARGS=("${@:2}")
+            break
+            ;;
+        --device|--adb|--zip)
+            INSTALL_EXTRA+=("$arg" "${2:-}")
+            shift ;;
+        --no-reboot|--no-verify)
+            INSTALL_EXTRA+=("$arg") ;;
+        fod-build|--fod-build) MODE="fodbuild" ;;
         clean|--clean)  MODE="clean" ;;
         dry-run|--dry-run) MODE="dryrun" ;;
         -y|--yes)       ASSUME_YES=true ;;
@@ -99,6 +133,9 @@ for arg in "$@"; do
         --all)          CLEAN_ALL=true ;;
         --force)        FORCE_RES="force" ;;
         --allow-unknown-resources) ALLOW_UNKNOWN_RESOURCES=true ;;
+        # Exported, so a menu that shells out for a build does not ask again.
+        --no-su)        export TREBLE_NO_SU=1 ;;
+        -V|--version)   echo "Treble RRO Creator ${TOOL_VERSION}"; exit 0 ;;
         -h|--help)      usage; exit 0 ;;
         *)
             err "            Unknown option: ${arg}"
@@ -107,6 +144,7 @@ for arg in "$@"; do
             exit 2
             ;;
     esac
+    shift
 done
 
 # No arguments and a terminal to talk on: the menu. Everything scripted passes
@@ -115,8 +153,20 @@ if [ "$REQUESTED" -eq 0 ] && [ "${TREBLE_MENU:-1}" != "0" ] && [ -t 0 ] && [ -t 
     MODE="menu"
 fi
 
+# --device, --zip and --no-reboot belong to install; taking them with another
+# verb and quietly ignoring them would look like they had been used.
+if [ "${#INSTALL_EXTRA[@]}" -gt 0 ] && [ "$MODE" != "install" ]; then
+    err "            ${INSTALL_EXTRA[0]} only applies to 'install'"
+    usage
+    exit 2
+fi
+
 # A checkout on a Windows drive cannot be built from WSL (shared stuff/tools/).
 wsl_guard
+
+# Termux: the one root prompt of the session, asked before any screen is drawn.
+# -y means "unattended", and an unattended run must not stop for a tap.
+[ "$ASSUME_YES" = true ] || termux_root_handoff
 
 # ---------------------------------------------------------------------------
 # Dispatch
@@ -155,6 +205,28 @@ case "$MODE" in
         # Config validation only: no tools, no output.
         CHECK_MODE=true
         source "$ROOT/stuff/scripts/build.sh"
+        ;;
+
+    fodbuild)
+        # Maintainers only: the shipped helper is prebuilt on purpose, so no
+        # user path reaches Go for it.
+        bash "$ROOT/stuff/scripts/fod-build.sh"
+        exit $?
+        ;;
+
+    install)
+        migrate_layout
+        # A child, not a source: it parses its own options and can be run on its
+        # own (bash stuff/scripts/install-module.sh --zip out/x-ksu.zip).
+        bash "$ROOT/stuff/scripts/install-module.sh" ${INSTALL_EXTRA[@]+"${INSTALL_EXTRA[@]}"}
+        exit $?
+        ;;
+
+    profiles)
+        migrate_layout
+        . "$ROOT/stuff/scripts/profiles.sh"
+        profiles_cli ${PROFILES_ARGS[@]+"${PROFILES_ARGS[@]}"}
+        exit $?
         ;;
 
     clean)

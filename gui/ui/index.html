@@ -20,6 +20,9 @@
     </div>
   </div>
   <div class="chips">
+    <button class="chip" id="chip-profiles" type="button" title="Saved config.env setups — one per device">
+      <span class="dot" aria-hidden="true"></span><span class="label">Profiles</span>
+    </button>
     <button class="chip" id="chip-update" type="button" title="Check for updates">
       <span class="dot" aria-hidden="true"></span><span class="label">Check for updates</span>
     </button>
@@ -27,6 +30,7 @@
       <span class="dot" aria-hidden="true"></span><span class="label">Path</span>
     </button>
     <span class="chip plain" id="chip-branch">—</span>
+    <span class="chip plain" id="chip-version" hidden>—</span>
   </div>
 </header>
 
@@ -567,6 +571,31 @@
     <menu>
       <button type="button" id="sudo-cancel">Cancel</button>
       <button type="submit" class="primary">Install</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="profiles">
+  <form method="dialog" id="profiles-form">
+    <h2>Device profiles</h2>
+    <p class="muted" id="prof-note">
+      config.env holds one phone at a time. A profile is a saved copy of it, so a
+      second device does not mean a second config.env to keep track of.
+    </p>
+
+    <div class="prof-list" id="prof-list"></div>
+
+    <p class="error" id="prof-error" hidden></p>
+
+    <div class="prof-new">
+      <input id="prof-new-name" type="text" maxlength="40" spellcheck="false"
+             placeholder="name for the new profile">
+      <button type="button" id="prof-new">New profile</button>
+    </div>
+    <p class="hint" id="prof-new-hint">Starts as a copy of the current config.env — change the device, keep the rest.</p>
+
+    <menu>
+      <button type="button" id="prof-close">Done</button>
     </menu>
   </form>
 </dialog>

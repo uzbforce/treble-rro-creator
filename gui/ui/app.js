@@ -152,6 +152,18 @@ function renderHeader() {
     branch.dataset.tone = 'warn';
   }
 
+  // The version comes from stuff/VERSION through the server. Hidden rather than
+  // empty when the file is missing, so a click on "Check for updates" that names
+  // a version still has something to name.
+  const ver = $('chip-version');
+  if (state.version) {
+    ver.hidden = false;
+    ver.textContent = 'v' + state.version;
+    ver.title = `Treble RRO Creator ${state.version}`;
+  } else {
+    ver.hidden = true;
+  }
+
   // The button always says what it does; the dot carries the answer. Green
   // means there is something to pull, which is the one case worth a colour.
   const chip = $('chip-update');
@@ -2282,49 +2294,146 @@ function bindFiles() {
 }
 
 // -------------------------------------------------------------------- docs --
+// The term the current guide was opened with, so the matches stay highlighted.
+let docsTerm = '';
+let docsSearchTimer = null;
+let docsSearchSeq = 0;
+
 function renderDocsNav() {
   const nav = $('docs-nav');
   nav.textContent = '';
 
-  // Search/filter input for docs
+  // One box for both: titles filter as you type, and the same query is sent to
+  // the server, which reads the guides and returns the lines that mention it.
   const searchInput = el('input', 'filter-input');
   searchInput.type = 'text';
   searchInput.placeholder = 'Search docs…';
-  const noMatch = el('p', 'filter-empty', 'No docs match your search.');
+  searchInput.value = docsTerm;
+  const hits = el('div', 'docs-hits');
+  const noMatch = el('p', 'filter-empty', 'Nothing in the guides matches your search.');
   noMatch.hidden = true;
-  searchInput.addEventListener('input', () => {
-    const term = searchInput.value.trim().toLowerCase();
-    const buttons = nav.querySelectorAll('button');
+
+  const apply = () => {
+    const term = searchInput.value.trim();
+    const lower = term.toLowerCase();
+    docsTerm = term;
+    const buttons = nav.querySelectorAll('.docs-title');
     for (const b of buttons) {
       const text = b.textContent.toLowerCase();
-      b.style.display = !term || text.includes(term) ? '' : 'none';
+      b.style.display = !lower || text.includes(lower) ? '' : 'none';
     }
     // The message is a sibling: rewriting nav.textContent here would remove the
     // input too, leaving no way to clear a search that matched nothing.
-    noMatch.hidden = [...buttons].some((b) => b.style.display !== 'none');
+    queueDocsSearch(term, hits, noMatch, buttons);
+  };
+  searchInput.addEventListener('input', () => {
+    if (docsSearchTimer) clearTimeout(docsSearchTimer);
+    apply();
   });
-  nav.append(searchInput, noMatch);
+  nav.append(searchInput, hits, noMatch);
 
   for (const doc of state.docs || []) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = doc.title;
-    b.className = doc.name === currentDoc ? 'is-active' : '';
+    b.className = 'docs-title' + (doc.name === currentDoc ? ' is-active' : '');
     b.addEventListener('click', () => openDoc(doc.name));
     nav.appendChild(b);
   }
 }
 
-async function openDoc(name) {
+// queueDocsSearch asks the server for the lines that mention TERM and paints
+// them under the title list. A short pause keeps one request per word instead of
+// one per keystroke, and the sequence number drops an answer that arrives after
+// a newer one.
+function queueDocsSearch(term, hits, noMatch, titles) {
+  hits.textContent = '';
+  if (docsSearchTimer) clearTimeout(docsSearchTimer);
+  const seq = ++docsSearchSeq;
+  if (term.length < 2) {
+    hits.hidden = true;
+    noMatch.hidden = ![...titles].some((b) => b.style.display !== 'none');
+    return;
+  }
+  docsSearchTimer = setTimeout(async () => {
+    let found = [];
+    try {
+      const data = await api('api/docs/search?q=' + encodeURIComponent(term));
+      found = data.hits || [];
+    } catch (_) {
+      found = [];
+    }
+    if (seq !== docsSearchSeq) return;
+    for (const hit of found) {
+      const b = el('button', 'docs-hit');
+      b.type = 'button';
+      b.append(
+        el('span', 'docs-hit-where', hit.heading ? hit.title + ' › ' + hit.heading : hit.title),
+        el('span', 'docs-hit-text', hit.text),
+      );
+      b.addEventListener('click', () => openDoc(hit.name, term));
+      hits.appendChild(b);
+    }
+    hits.hidden = found.length === 0;
+    const titleMatch = [...titles].some((b) => b.style.display !== 'none');
+    noMatch.hidden = titleMatch || found.length > 0;
+    if (!titleMatch && found.length > 0) {
+      noMatch.textContent = 'No guide titles match — the text matches are below.';
+      noMatch.hidden = false;
+    } else {
+      noMatch.textContent = 'Nothing in the guides matches your search.';
+    }
+  }, 180);
+}
+
+async function openDoc(name, term = docsTerm) {
   try {
     const data = await api('api/doc?name=' + encodeURIComponent(name));
     currentDoc = name;
+    docsTerm = term || '';
     renderDocsNav();
-    $('docs-body').innerHTML = mdToHtml(data.text);
-    $('docs-body').scrollTop = 0;
+    const body = $('docs-body');
+    body.innerHTML = mdToHtml(data.text);
+    const mark = docsTerm ? highlightDocBody(body, docsTerm) : null;
+    // Land on the first match rather than the top of the guide, so a hit in the
+    // middle of a long page opens where it was found. A rect difference keeps
+    // this right whether or not .docs-body is itself positioned.
+    body.scrollTop = mark
+      ? Math.max(0, mark.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - 40)
+      : 0;
   } catch (err) {
     $('docs-body').textContent = 'could not read ' + name + ': ' + err.message;
   }
+}
+
+// highlightDocBody wraps every occurrence of TERM in the rendered guide with
+// <mark>, walking text nodes so tags, links and code stay untouched. It returns
+// the first mark so the caller can scroll to it.
+function highlightDocBody(body, term) {
+  const needle = term.toLowerCase();
+  const texts = [];
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) texts.push(walker.currentNode);
+  let first = null;
+  for (const node of texts) {
+    const text = node.nodeValue;
+    const lower = text.toLowerCase();
+    let at = lower.indexOf(needle);
+    if (at < 0) continue;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    while (at >= 0) {
+      frag.append(text.slice(last, at));
+      const mark = el('mark', 'doc-mark', text.slice(at, at + needle.length));
+      if (!first) first = mark;
+      frag.append(mark);
+      last = at + needle.length;
+      at = lower.indexOf(needle, last);
+    }
+    frag.append(text.slice(last));
+    node.parentNode.replaceChild(frag, node);
+  }
+  return first;
 }
 
 // ------------------------------------------------------------------ device --
@@ -2925,6 +3034,158 @@ async function runUpdate() {
   }
 }
 
+// ----------------------------------------------------------------- profiles --
+// config.env holds one phone. A profile is a named copy of it; stuff/scripts/
+// profiles.sh owns the files, this only lists them and sends the four verbs.
+// Switching rewrites config.env, so the config tab is reloaded from the text
+// the server sends back rather than polled again.
+let profList = [];
+let profBusy = false;
+
+async function openProfiles() {
+  $('prof-error').hidden = true;
+  $('prof-new-name').value = '';
+  profList = [];
+  renderProfiles();
+  openDialog($('profiles'));
+  try {
+    const res = await api('api/profiles');
+    profList = res.profiles || [];
+  } catch (err) {
+    profShowError(err.message);
+  }
+  renderProfiles();
+}
+
+function profShowError(message) {
+  $('prof-error').hidden = false;
+  $('prof-error').textContent = message;
+}
+
+function renderProfiles() {
+  const box = $('prof-list');
+  box.textContent = '';
+  if (!profList.length) {
+    box.appendChild(el('p', 'prof-empty', 'No profiles yet — the first one is made for you.'));
+    return;
+  }
+  for (const p of profList) box.appendChild(profRow(p));
+}
+
+function profRow(p) {
+  const row = el('div', 'prof-row' + (p.active ? ' is-active' : ''));
+  row.dataset.id = p.id;
+
+  const main = el('div', 'prof-main');
+  main.appendChild(el('span', 'prof-name', p.name));
+  main.appendChild(el('span', 'prof-device', p.device));
+  row.appendChild(main);
+
+  if (p.active) {
+    row.appendChild(el('span', 'prof-badge', 'in use'));
+  } else {
+    const use = el('button', '', 'Use');
+    use.type = 'button';
+    use.title = 'Load this profile into config.env';
+    use.addEventListener('click', () => profAct('switch', p.id));
+    row.appendChild(use);
+  }
+
+  const ren = el('button', '', 'Rename');
+  ren.type = 'button';
+  ren.addEventListener('click', () => profStartRename(row, p));
+  row.appendChild(ren);
+
+  if (!p.active && profList.length > 1) {
+    // Two clicks: the first asks, the second does it. A deleted profile takes
+    // its config.env with it, and nothing on this side can bring it back.
+    const del = el('button', '', 'Delete');
+    del.type = 'button';
+    let armed = false;
+    del.addEventListener('click', () => {
+      if (!armed) {
+        armed = true;
+        del.textContent = 'Delete?';
+        del.classList.add('danger');
+        setTimeout(() => {
+          armed = false;
+          del.textContent = 'Delete';
+          del.classList.remove('danger');
+        }, 4000);
+        return;
+      }
+      profAct('delete', p.id);
+    });
+    row.appendChild(del);
+  }
+  return row;
+}
+
+// Rename in place: the name is the only field, so a second dialog for it would
+// be a dialog with one input and two buttons.
+function profStartRename(row, p) {
+  const name = row.querySelector('.prof-name');
+  if (!name) return;
+  const input = el('input', 'rename');
+  input.type = 'text';
+  input.maxLength = 40;
+  input.value = p.name;
+  input.spellcheck = false;
+  name.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const commit = async (save) => {
+    if (done) return;
+    done = true;
+    const value = input.value.trim();
+    if (!save || !value || value === p.name) {
+      input.replaceWith(el('span', 'prof-name', p.name));
+      return;
+    }
+    await profAct('rename', p.id, value);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+    if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener('blur', () => commit(true));
+}
+
+// profAct sends one verb and redraws from the answer, so the list can never
+// disagree with the files on disk.
+async function profAct(action, id, name) {
+  if (profBusy) return;
+  // Switching replaces config.env, so anything typed into the form and not yet
+  // saved would be thrown away by it.
+  if ((action === 'switch' || action === 'new') && (cfgEdits.size > 0 || (cfgRaw && cfgRawDirty))) {
+    profShowError('You have unsaved config.env changes — save them first, then switch.');
+    return;
+  }
+  profBusy = true;
+  $('prof-error').hidden = true;
+  try {
+    const res = await api('api/profiles/act', { method: 'POST', body: { action, id, name } });
+    profList = res.profiles || [];
+    if (typeof res.configText === 'string') {
+      state.configText = res.configText;
+      state.config = res.config;
+      cfgEdits.clear();
+      cfgRawDirty = false;
+      renderConfig(true);
+      updateCfgStatus();
+    }
+    renderProfiles();
+    const active = profList.find((p) => p.active);
+    if (active) status(`using “${active.name}”`, 3000);
+    if (action === 'new') $('prof-new-name').value = '';
+  } catch (err) {
+    profShowError(err.message);
+  } finally {
+    profBusy = false;
+  }
+}
+
 // ------------------------------------------------------------------- udfps --
 // The probe is a script (stuff/scripts/udfps-probe.sh) that answers in JSON;
 // this side only draws the answers and writes the one the user picks. Every row
@@ -3267,6 +3528,22 @@ function renderDetect(log) {
   for (const w of r.warnings || []) warnings.appendChild(el('p', 'warn', w));
   const notes = $('detect-notes');
   for (const n of r.notes || []) notes.appendChild(el('p', 'muted small', n));
+
+  // The hardware-overlay submission activates on one property, compared with
+  // exact string equality, inside a folder named after the codename. This is
+  // the pair the detector just proved, so both halves are named here — a
+  // submission whose match value is off installs and does nothing.
+  if (r.device && r.device.codename && r.device.codenameProp) {
+    const hw = el('p', 'muted small');
+    hw.appendChild(document.createTextNode('Hardware overlay submission: '));
+    hw.appendChild(el('code', null, `HW_OVERLAY_MATCH_PROP="${r.device.codenameProp}"`));
+    hw.appendChild(document.createTextNode(' '));
+    hw.appendChild(el('code', null, `HW_OVERLAY_MATCH_VALUE="${r.device.codename}"`));
+    hw.appendChild(document.createTextNode(
+      ` — and DEVICE_CODENAME has to stay \"${r.device.codename}\", because the folder is Brand/DEVICE_CODENAME. `
+      + 'If the two disagree the overlay never activates.'));
+    notes.appendChild(hw);
+  }
 
   if ((r.files || []).length) {
     const list = $('detect-files');
@@ -3840,6 +4117,21 @@ function bind() {
   $('set-save').addEventListener('click', saveSettings);
 
   $('chip-update').addEventListener('click', openUpdate);
+
+  $('chip-profiles').addEventListener('click', openProfiles);
+  $('prof-close').addEventListener('click', () => closeDialog($('profiles')));
+  const createProfile = () => {
+    const name = $('prof-new-name').value.trim();
+    profAct('new', '', name);
+  };
+  $('prof-new').addEventListener('click', createProfile);
+  // The form's method is `dialog`, so Enter in the name field would close the
+  // dialog instead of making a profile.
+  $('prof-new-name').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    createProfile();
+  });
 
   // Esc goes through the animated close as well. The dialogs that give a
   // cancel its own meaning (the delete question, the sudo prompt) keep their

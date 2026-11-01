@@ -234,6 +234,16 @@ MIUI's own path has neither spaces nor a unit suffix
 (`M 0,0 H -29 V 118 H 29 V 0 H 0 Z`) and is written exactly as the framework
 stores it; the path is centred by `DisplayCutout`, so the negative X is correct.
 
+## Hardware-overlay match
+
+The report also names the property the codename came from, as
+`ro.product.odm.device = "zephyr"`. Those are the two values a submission to
+[Doze-off/vendor_hardware_overlay](https://github.com/Doze-off/vendor_hardware_overlay)
+needs: `HW_OVERLAY_MATCH_PROP` and `HW_OVERLAY_MATCH_VALUE`. The tree goes into a
+`DEVICE_MANUFACTURER/DEVICE_CODENAME` folder, so `DEVICE_CODENAME` has to be the
+same codename. A submission where the folder and the match value disagree is
+merged, installs, and never activates — the repo's tests cannot see it.
+
 ## Adding another setting
 
 The script is deliberately plain: a setting is one `add_fact` call with its key,

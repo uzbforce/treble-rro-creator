@@ -83,11 +83,20 @@ run_or_die() {
 # is checked against the framework dictionary here.
 framework_resource_index() {
     local cache="$BUILD_REL/framework-resources.txt"
+    local dump="${TMPDIR:-/tmp}/treble-fw-res.$$.txt"
     if [ ! -s "$cache" ] || [ "$PLATFORM_JAR" -nt "$cache" ]; then
-        aapt2 dump resources "$PLATFORM_JAR" 2>/dev/null \
-            | sed -n 's/^[[:space:]]*resource 0x[0-9a-fA-F]* //p' \
-            | awk '{ print $1 }' \
-            | sort -u > "$cache"
+        # Dumped to a file, not straight into the pipeline: with pipefail a failing
+        # aapt2 would abort the build with the generic ERR trap instead of the
+        # caller's "could not read the resource table" message, and without it the
+        # failure would be hidden behind an empty index.
+        if aapt2 dump resources "$PLATFORM_JAR" >"$dump" 2>/dev/null; then
+            sed -n 's/^[[:space:]]*resource 0x[0-9a-fA-F]* //p' "$dump" \
+                | awk '{ print $1 }' \
+                | sort -u > "$cache"
+        else
+            : > "$cache"
+        fi
+        rm -f "$dump"
     fi
     printf '%s' "$cache"
 }
@@ -1155,3 +1164,16 @@ echo ""
 echo -e "  ${BOLD}Resource audit:${NC}"
 echo "    out/${OVERLAY_NAME}-overrides.txt  (APPLIES / IGNORED per resource)"
 echo ""
+
+# ---------------------------------------------------------------------------
+# Offer to finish the job
+# ---------------------------------------------------------------------------
+# The summary above ends with instructions. With a terminal, ask instead: copy
+# the zip, install it with the manager that is on the phone, reboot and check.
+# -y and a piped build are left alone, so nothing waits for an answer that will
+# not come.
+if [ "${ASSUME_YES:-false}" != true ] && [ -t 0 ] && [ -t 1 ]; then
+    if confirm "  Install it on the phone now? [y/N] " n; then
+        bash "$ROOT/stuff/scripts/install-module.sh" || warn "the install did not finish — the zip is in out/"
+    fi
+fi

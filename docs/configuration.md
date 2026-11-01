@@ -29,6 +29,11 @@ navigation-bar padding, the status-bar background and the masked-out notch are
 `src/module/addons.conf` and the app's **Addons** tab — see
 [addons.md](addons.md).
 
+**Building for more than one phone:** this file holds one device. Saved copies
+are profiles — `./build.sh profiles`, `p` in the terminal menu, or **Profiles**
+in the app header. Switching one copies it over `config.env`; nothing else
+changes.
+
 ---
 
 ## Checking values before a build

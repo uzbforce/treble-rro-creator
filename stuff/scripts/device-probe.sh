@@ -121,7 +121,7 @@ files=()
 f_key=(); f_label=(); f_unit=(); f_value=(); f_src=()
 f_conf=(); f_kind=(); f_detail=()
 
-W=""; H=""; DENS=""; DENS_PHYS=""; MODEL=""; CODENAME=""; rom=""; IS_GSI=0
+W=""; H=""; DENS=""; DENS_PHYS=""; MODEL=""; CODENAME=""; CODENAME_PROP=""; rom=""; IS_GSI=0
 
 # ---------------------------------------------------------------------------
 # Bookkeeping
@@ -360,9 +360,21 @@ probe_device() {
     }
     MODEL="$(pick_prop ro.product.odm.model ro.product.vendor.model ro.product.model || true)"
     [ -n "$MODEL" ] || MODEL="$(prop ro.product.model)"
-    CODENAME="$(pick_prop ro.product.odm.device ro.product.vendor.device ro.product.bootimage.device ro.product.device || true)"
-    [ -n "$CODENAME" ] || CODENAME="$(prop ro.product.device)"
-    [ -n "$CODENAME" ] || CODENAME="$(prop ro.build.product)"
+    # The answer, and the property that answered: the hardware overlay repo
+    # matches on that one property by exact string, so a submission that names a
+    # different one silently never activates. Written out here rather than
+    # picking again later, because that would ask the phone twice.
+    CODENAME=""
+    CODENAME_PROP=""
+    for p in ro.product.odm.device ro.product.vendor.device ro.product.bootimage.device \
+             ro.product.device ro.build.product; do
+        v="$(prop "$p")"
+        [ -n "$v" ] || continue
+        generic_name "$v" && continue
+        CODENAME="$v"
+        CODENAME_PROP="$p"
+        break
+    done
 
     local flavor
     flavor="$(prop ro.build.flavor)"
@@ -1022,9 +1034,10 @@ emit_json() {
     printf '{'
     printf '"mode":"%s",' "$mode"
     if [ "$mode" = "device" ]; then
-        printf '"device":{"serial":"%s","model":"%s","codename":"%s","rom":"%s","isGsi":%s,"width":%s,"height":%s,"density":%s},' \
+        printf '"device":{"serial":"%s","model":"%s","codename":"%s","codenameProp":"%s","rom":"%s","isGsi":%s,"width":%s,"height":%s,"density":%s},' \
             "$(json_escape "${serial:-}")" "$(json_escape "${MODEL:-}")" \
-            "$(json_escape "${CODENAME:-}")" "$(json_escape "${rom:-}")" \
+            "$(json_escape "${CODENAME:-}")" "$(json_escape "${CODENAME_PROP:-}")" \
+            "$(json_escape "${rom:-}")" \
             "$([ "${IS_GSI:-0}" -eq 1 ] && echo true || echo false)" "${W:-0}" "${H:-0}" "${DENS:-0}"
     else
         printf '"firmware":"%s",' "$(json_escape "$fwdir")"
@@ -1129,6 +1142,17 @@ emit_human() {
         esac
     done
 
+    # The submission matches on one property by exact string, and the folder it
+    # goes in is Brand/Codename. Both come from config.env, so the two lines the
+    # detector just proved are the two lines to copy there.
+    if [ "$mode" = "device" ] && [ -n "$CODENAME" ] && [ -n "$CODENAME_PROP" ]; then
+        ui_heading "Hardware overlay submission"
+        ui_kv "match" "${CODENAME_PROP} = \"${CODENAME}\"" 6
+        printf '  %s%s%s\n' "$UI_DIM" "HW_OVERLAY_MATCH_PROP=\"${CODENAME_PROP}\"" "$UI_OFF"
+        printf '  %s%s%s\n' "$UI_DIM" "HW_OVERLAY_MATCH_VALUE=\"${CODENAME}\"" "$UI_OFF"
+        ui_mark note "The submission folder is DEVICE_MANUFACTURER/DEVICE_CODENAME, so those two lines have to be this phone's brand and codename too. A submission whose match value is not exactly what the phone reports installs and never activates."
+    fi
+
     if [ "${#notes[@]}" -gt 0 ] || [ "${#warnings[@]}" -gt 0 ]; then
         ui_heading "Worth knowing"
         for i in "${notes[@]+"${notes[@]}"}"; do
@@ -1145,8 +1169,41 @@ emit_human() {
 # ---------------------------------------------------------------------------
 # Writing config.env
 # ---------------------------------------------------------------------------
+# A value read off a device ends up in config.env, which build.sh sources. Two
+# things matter: it has to stay on one line, and the shell must not expand it
+# later. This probe ships standalone (no config-edit.sh), so it carries its own
+# copy of the two rules.
+probe_safe_value() {
+    local v="$1"
+    v="${v//$'\r'/}"
+    v="${v//$'\n'/ }"
+    v="${v//$'\t'/ }"
+    if [[ "$v" == *[[:cntrl:]]* ]]; then
+        # Whole colour codes, not just the ESC: `getprop` output piped through
+        # a colouring wrapper would otherwise leave "[31m" inside the value.
+        v="$(printf '%s' "$v" | LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '[:cntrl:]')"
+    fi
+    printf '%s' "$v"
+}
+
+# Bare when a bare value is safe — the shape nearly every key in the file has —
+# double-quoted and escaped otherwise.
+probe_quote() {
+    local v="$1"
+    case "$v" in
+        ""|*[!A-Za-z0-9._:/@+,-]*) ;;
+        *) printf '%s' "$v"; return 0 ;;
+    esac
+    v="${v//\\/\\\\}"
+    v="${v//\"/\\\"}"
+    v="${v//\$/\\\$}"
+    v="${v//\`/\\\`}"
+    printf '"%s"' "$v"
+}
+
 set_config_key() {
-    local key="$1" value="$2" file="$ROOT/config.env" tmp
+    local key="$1" file="$ROOT/config.env" tmp value
+    value="$(probe_quote "$(probe_safe_value "$2")")"
     [ -f "$file" ] || die "no config.env in $ROOT"
     tmp="$tmpdir/config.env"
     awk -v k="$key" -v v="$value" '
@@ -1181,11 +1238,9 @@ write_config() {
         [ -n "$earlier" ] && continue
 
         value="${f_value[$i]}"
-        case "$key" in
-            # String settings keep the quotes every line of config.env uses.
-            DISPLAY_CUTOUT|LIGHT_SENSOR_TYPE) set_config_key "$key" "\"$value\"" ;;
-            *) set_config_key "$key" "$value" ;;
-        esac
+        # The writer decides the quoting, so a value with spaces or a `$` is
+        # escaped instead of being pasted in raw.
+        set_config_key "$key" "$value"
     done
 }
 
