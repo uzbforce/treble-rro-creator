@@ -81,6 +81,11 @@ _validate_placeholders() {
                ROUNDED_CORNER_RADIUS STATUS_BAR_HEIGHT UDFPS_X UDFPS_Y UDFPS_RADIUS \
                DEFAULT_REFRESH_RATE PEAK_REFRESH_RATE; do
         value="${!key:-}"
+        # Coordinates only matter when the device claims a sensor, so a template
+        # with HAS_UDFPS=false stays quiet about them.
+        case "$key" in
+            UDFPS_*) [ "${HAS_UDFPS:-false}" = "true" ] || continue ;;
+        esac
         if [ -z "$value" ]; then
             _v_warn "${key} is empty"
         elif is_set "$value"; then
@@ -88,7 +93,7 @@ _validate_placeholders() {
         else
             case "$key" in
                 ROUNDED_CORNER_RADIUS|STATUS_BAR_HEIGHT|UDFPS_X|UDFPS_Y|UDFPS_RADIUS|DEFAULT_REFRESH_RATE|PEAK_REFRESH_RATE)
-                    _v_warn "${key}=\"${value}\" is still the placeholder — the build will use 0"
+                    _v_warn "${key}=\"${value}\" is still the placeholder — skipped, the ROM's own value stays"
                     ;;
                 *)
                     _v_warn "${key}=\"${value}\" is still the placeholder"
@@ -96,6 +101,12 @@ _validate_placeholders() {
             esac
         fi
     done
+
+    # derive_overlay_identity() falls back to "generic" for these, which builds a
+    # valid but meaningless overlay — say so instead of letting it through.
+    if [ -n "${IDENTITY_PLACEHOLDER:-}" ]; then
+        _v_warn "the template identity is still in place (${IDENTITY_PLACEHOLDER# }) — the build would use \"generic\""
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -233,7 +244,7 @@ _validate_brightness() {
     if [ -n "$rr_peak" ] && [ -n "$rr" ] && [ "$rr_peak" -lt "$rr" ]; then
         _v_warn "PEAK_REFRESH_RATE=${rr_peak} is lower than DEFAULT_REFRESH_RATE=${rr}"
     fi
-    if [ -n "${PEAK_REFRESH_RATE:-}" ] && [ -z "$rr" ]; then
+    if [ -n "${PEAK_REFRESH_RATE:-}" ] && [ -z "$rr" ] && [[ "${PEAK_REFRESH_RATE}" != *"<"* ]]; then
         _v_warn "PEAK_REFRESH_RATE is set without DEFAULT_REFRESH_RATE — neither is emitted"
     fi
 }

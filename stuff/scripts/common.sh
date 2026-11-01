@@ -422,6 +422,13 @@ toolchain_missing() {
 # Users only need to set DEVICE_CODENAME and DEVICE_MANUFACTURER; everything
 # else is derived. A value containing "<" is a template placeholder.
 derive_overlay_identity() {
+    # Remember which identity keys were still the template before they are
+    # replaced, so check/build can warn instead of silently building "generic".
+    IDENTITY_PLACEHOLDER=""
+    [ -n "${DEVICE_MANUFACTURER:-}" ] && [[ "$DEVICE_MANUFACTURER" != *"<"* ]] || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_MANUFACTURER"
+    [ -n "${DEVICE_MODEL:-}" ] && [[ "$DEVICE_MODEL" != *"<"* ]]            || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_MODEL"
+    [ -n "${DEVICE_CODENAME:-}" ] && [[ "$DEVICE_CODENAME" != *"<"* ]]      || IDENTITY_PLACEHOLDER="$IDENTITY_PLACEHOLDER DEVICE_CODENAME"
+
     [ -z "${DEVICE_MANUFACTURER:-}" ] || [[ "$DEVICE_MANUFACTURER" == *"<"* ]] && DEVICE_MANUFACTURER="generic"
     [ -z "${DEVICE_CODENAME:-}" ]     || [[ "$DEVICE_CODENAME" == *"<"* ]]     && DEVICE_CODENAME="generic"
 
@@ -442,6 +449,11 @@ derive_overlay_identity() {
     [ -z "${OVERLAY_PACKAGE:-}" ]     || [[ "$OVERLAY_PACKAGE" == *"<"* ]]     && OVERLAY_PACKAGE="me.phh.treble.overlay.${SAFE_MANUFACTURER}.${PACKAGE_SEGMENT}"
     [ -z "${OVERLAY_PACKAGE_SYSTEMUI:-}" ] || [[ "$OVERLAY_PACKAGE_SYSTEMUI" == *"<"* ]] && OVERLAY_PACKAGE_SYSTEMUI="${OVERLAY_PACKAGE}.systemui"
     [[ "${DEVICE_PROP_VALUE:-}" == *"<"* ]] && DEVICE_PROP_VALUE="${DEVICE_CODENAME}"
+    # The template spells the property as persist.sys.overlay.<codename>, so the
+    # token expands to whatever DEVICE_CODENAME resolved to.
+    if [[ "${DEVICE_PROP_NAME:-}" == *"<codename>"* ]]; then
+        DEVICE_PROP_NAME="${DEVICE_PROP_NAME//<codename>/$DEVICE_CODENAME}"
+    fi
     # Only placeholders are replaced. An EMPTY DEVICE_PROP_NAME is meaningful: it
     # builds an overlay with no match condition (always active), which is the safe
     # default for framework overlays — see the Overlay Activation section of

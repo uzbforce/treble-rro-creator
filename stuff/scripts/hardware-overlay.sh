@@ -123,9 +123,13 @@ hw_match_prop() {
 }
 
 # Exact value — no globs, because the framework compares with String.equals().
+# A value still in <placeholder> form was never filled in, so it counts as unset
+# and falls back to the codename (an explicit empty value stays empty).
 hw_match_value() {
-    if [ -n "${HW_OVERLAY_MATCH_VALUE+set}" ]; then
-        printf '%s' "${HW_OVERLAY_MATCH_VALUE}"
+    local value="${HW_OVERLAY_MATCH_VALUE:-}"
+    [[ "$value" == *"<"* ]] && value=""
+    if [ -n "${HW_OVERLAY_MATCH_VALUE+set}" ] && [ -n "$value" ]; then
+        printf '%s' "$value"
     else
         printf '%s' "${DEVICE_CODENAME}"
     fi
