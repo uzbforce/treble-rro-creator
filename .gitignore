@@ -24,6 +24,13 @@ src/systemui/res/values-*-v4/generated.xml
 # Backups (config.env, module scripts, extracted vendor files)
 stuff/backups/
 
+# config.env is the user's device settings, not source: it is not tracked, so a
+# pull or a re-clone never touches it. The copy in stuff/backups/ is what puts it
+# back when the root has none (ensure_config in stuff/scripts/common.sh), and
+# stuff/templates/recoveries/config.env is the shipped default. config.env.example
+# is tracked: it is the filled-in reference.
+config.env
+
 # Saved profiles: each one is a copy of config.env, so it is device data like
 # config.env itself. The script that makes them is tracked; the folders are not.
 stuff/profiles/

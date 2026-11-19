@@ -231,6 +231,10 @@ do_backup() {
 # ---------------------------------------------------------------------------
 # Load or create config
 # ---------------------------------------------------------------------------
+# config.env is not tracked (it is device data), so a re-clone or `git clean
+# -xdf` can leave the root without one. stuff/backups/ holds the user's copy;
+# when there is none either, the prompt below starts a new one.
+ensure_config || true
 if [ ! -f "$CONFIG_FILE" ]; then
     echo -e "\n${YELLOW}No config.env found.${NC}\n"
 
@@ -252,18 +256,24 @@ if [ ! -f "$CONFIG_FILE" ]; then
     if [ "$USE_EXAMPLE" != "true" ]; then
         echo -e "  ${YELLOW}Generating placeholder config.env — edit it for YOUR device, then re-run.${NC}\n"
 
-        # The starter is the committed config.env (see restore_from_release):
-        # stuff/templates/recoveries/ is only the fallback for a checkout without .git.
-        if ! restore_from_release "config.env" "$RECOVERIES_DIR/config.env"; then
-            err "Template config missing: neither git HEAD nor stuff/templates/recoveries/config.env has it"
+        # config.env is device data, so it is not tracked: this is a copy of the
+        # default in stuff/templates/recoveries/, not a git restore.
+        if [ ! -f "$RECOVERIES_DIR/config.env" ]; then
+            err "Default config missing: stuff/templates/recoveries/config.env is not in this checkout"
             exit 1
         fi
+        cp "$RECOVERIES_DIR/config.env" "$CONFIG_FILE"
+        ensure_config || true
 
         echo -e "  ${YELLOW}→${NC} Created ${BOLD}$CONFIG_FILE${NC} with placeholder values."
         echo -e "  ${YELLOW}→${NC} Edit it for your device, then re-run: ${BOLD}./build.sh${NC}"
         exit 0
     fi
 fi
+
+# A config that was just created belongs in stuff/backups/ too, so it survives
+# the next re-clone.
+ensure_config || true
 
 source "$CONFIG_FILE"
 
