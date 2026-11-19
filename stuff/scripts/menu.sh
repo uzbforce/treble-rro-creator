@@ -1006,6 +1006,12 @@ menu_profiles() {
 # Main loop
 # ---------------------------------------------------------------------------
 menu_main() {
+    # The header counts the rows in config.env and the Config screen edits them,
+    # so a clone that has never been built needs the file before the first
+    # paint: without it the screen reads as "0 set" and a first edit would save
+    # a one-key file over the default.
+    seed_config || true
+
     while :; do
         menu_header
         echo ""

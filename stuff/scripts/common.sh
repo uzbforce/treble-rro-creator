@@ -92,8 +92,13 @@ restore_from_release() {
 #
 #   ensure_config   restores config.env when the root has none, and keeps the
 #                   backup copy current while one is in use.
+#   seed_config     the same, and starts from the shipped default when there is
+#                   no backup either. For the screens that read the file as
+#                   soon as they open (the menu, the app), where "no config.env"
+#                   is not a state they can show. build.sh does not call it:
+#                   there a missing file is a question ("use the example?").
 #
-# Returns 0 when a config.env is in place afterwards.
+# Both return 0 when a config.env is in place afterwards.
 ensure_config() {
     if [ -f "$CONFIG_FILE" ]; then
         mkdir -p "$BACKUP_DIR" 2>/dev/null
@@ -114,6 +119,24 @@ ensure_config() {
         fi
     fi
     return 1
+}
+
+seed_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        ensure_config
+        return 0
+    fi
+    if ensure_config; then
+        return 0
+    fi
+    if [ ! -f "$RECOVERIES_DIR/config.env" ]; then
+        return 1
+    fi
+    if ! cp "$RECOVERIES_DIR/config.env" "$CONFIG_FILE" 2>/dev/null; then
+        return 1
+    fi
+    info "Created config.env from the default in stuff/templates/recoveries/ — edit it for your device"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
