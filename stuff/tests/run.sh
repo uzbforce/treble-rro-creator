@@ -37,10 +37,26 @@ for f in src/webui/apply.sh src/webui/addons.sh src/module/*.sh stuff/templates/
 done
 [ "$status" -eq 0 ] && echo "all scripts parse"
 
-# The bug this guards: `clean --all` copied config.env from a frozen file, so a
-# full clean handed back a version from an older commit. The copies below are
-# now only the no-.git fallback, so they must equal the committed blob — not the
-# working file, because local edits to config.env are normal.
+# config.env is the user's device data, so it must stay out of the repository: a
+# tracked one puts `git checkout` in the way of their own values, and a pull
+# overwrites them. The shipped default is stuff/templates/recoveries/config.env,
+# which build.sh copies into place when the root has none.
+step "config.env is not tracked"
+if [ ! -f stuff/templates/recoveries/config.env ]; then
+    echo "missing default config: stuff/templates/recoveries/config.env"
+    status=1
+fi
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    if git ls-files --error-unmatch config.env >/dev/null 2>&1; then
+        echo "config.env is tracked — run: git rm --cached config.env (it is in .gitignore)"
+        status=1
+    fi
+fi
+
+# The bug this guards: `clean --all` copied sepolicy.rule from a frozen file, so
+# a full clean handed back a version from an older commit. The copy below is
+# only the no-.git fallback, so it must equal the committed blob — not the
+# working file, because local edits to it are normal.
 step "template fallbacks match the release"
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
     copy_status=0
@@ -54,7 +70,6 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
             copy_status=1
         fi
     }
-    check_copy config.env stuff/templates/recoveries/config.env
     check_copy src/module/sepolicy.rule stuff/templates/recoveries/sepolicy.rule
     if [ "$copy_status" -eq 0 ]; then echo "fallbacks match"; else status=1; fi
 else

@@ -33,13 +33,16 @@ func main() {
 		unpack   = flag.String("unpack", "", "unpack a super.img, a Samsung AP tar.md5 or a ROM folder into a readable tree, then exit")
 		unpackTo = flag.String("out", "", "where -unpack writes (default: a folder under the system temp dir)")
 		unpackJS = flag.Bool("json", false, "with -unpack, print the result as JSON")
+		// The destination is emptied before extraction, so replacing one this
+		// tool did not write needs to be asked for by name.
+		unpackForce = flag.Bool("force", false, "with -unpack, empty an -out folder that holds files this tool did not write")
 	)
 	flag.Parse()
 
 	// -unpack is the Detect tab's unpacking without the window: same code, so a
 	// script and the button cannot disagree about what ends up on disk.
 	if *unpack != "" {
-		os.Exit(unpackCLI(*unpack, *unpackTo, *unpackJS))
+		os.Exit(unpackCLI(*unpack, *unpackTo, *unpackJS, *unpackForce))
 	}
 
 	if !windowReady {

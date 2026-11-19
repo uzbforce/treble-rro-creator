@@ -8,859 +8,609 @@
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121310">
 <title>Overlay — Treble RRO</title>
 <style>
-  /* ---------------------------------------------------------------------
-     Tokens — warm paper + signal orange, ink hairlines, mono annotations.
-     Two themes only; both are tuned by hand, not generated from a seed.
-     --------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   The deskop window's palette and components, sized for a phone screen. Same
+   paper and ink, same header, tabs, cards and rows; the only differences are
+   the ones a webview forces (no window chrome, a fixed action bar at the
+   bottom, touch-sized controls).
+   --------------------------------------------------------------------------- */
+:root {
+  --paper: #f2eee3;
+  --panel: #f7f3e8;
+  --panel-2: #efeade;
+  --ink: #17180f;
+  --muted: #5f5f51;
+  --rule: #cfc8b7;
+  --rule-strong: #a9a18d;
+  --accent: #b93d0e;
+  --accent-press: #9d3109;
+  --on-accent: #fff7ef;
+  --accent-soft: rgba(185, 61, 14, .10);
+  --ok: #23624a;
+  --warn: #8a5a00;
+  --bad: #a3251b;
+  --bad-soft: rgba(163, 37, 27, .07);
+  --console: #1a1b13;
+  --console-ink: #d6d3bf;
+  --console-rule: #34362a;
+  --faint: #66655a;
+  --track-base: #e3ddcd;
+  --tick: rgba(23, 24, 15, .18);
+  --sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "Roboto Mono", "Droid Sans Mono", monospace;
+  --ease: cubic-bezier(.2, .7, 0, 1);
+  --shadow: 0 20px 44px -32px rgba(23, 24, 15, .55);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light;
-
-    --paper: #f2eee3;
-    --panel: #f7f3e8;
-    --panel-2: #efeade;
-    --ink: #17180f;
-    --muted: #5f5f51;
-    --faint: #66655a;
-    --rule: #cfc8b7;
-    --rule-strong: #a9a18d;
-
-    --accent: #b93d0e;
-    --accent-press: #9d3109;
-    --accent-text: #9c340c;
-    --on-accent: #fff7ef;
-    --accent-soft: rgba(185, 61, 14, .10);
-    --bad-soft: rgba(163, 37, 27, .07);
-
-    --ok: #23624a;
-    --warn: #8a5a00;
-    --bad: #a3251b;
-
-    --track-base: #e3ddcd;
-    --tick: rgba(23, 24, 15, .18);
-
-    --console: #1a1b13;
-    --console-ink: #d6d3bf;
-    --console-rule: #34362a;
-
-    --shadow: 0 20px 44px -32px rgba(23, 24, 15, .55);
-    --panel-shadow: 0 1px 0 rgba(255, 255, 255, .55) inset;
-
-    --sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
-    --mono: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Cascadia Mono", monospace;
-    --ease: cubic-bezier(.2, .7, 0, 1);
-    /* The window's geometry: 10px panels, 8px controls. Same values as
-       gui/ui/app.css, so a card and a button look like the same product. */
-    --radius: 10px;
-    --radius-sm: 8px;
-
-    /* WebUI hosts inject --safe-area-* when they draw edge-to-edge. Without
-       it the manager already pads the WebView (safeDrawing), so 0 is right. */
-    --safe-top: var(--safe-area-inset-top, 0px);
-    --safe-bottom: var(--safe-area-inset-bottom, 0px);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-
-      --paper: #121310;
-      --panel: #191b16;
-      --panel-2: #1f211a;
-      --ink: #e8e5d5;
-      --muted: #a2a08f;
-      --faint: #7f7d6e;
-      --rule: #2f3229;
-      --rule-strong: #474b3d;
-
-      --accent: #e2683a;
-      --accent-press: #c9532a;
-      --accent-text: #ef7d50;
-      --on-accent: #1a1209;
-      --accent-soft: rgba(226, 104, 58, .14);
-      --bad-soft: rgba(224, 131, 119, .12);
-
-      --ok: #6fbf95;
-      --warn: #d4a044;
-      --bad: #e08377;
-
-      --track-base: #33362c;
-      --tick: rgba(236, 231, 216, .18);
-
-      --console: #0b0c08;
-      --console-ink: #c9cdb8;
-      --console-rule: #2a2c21;
-
-      --shadow: 0 24px 48px -30px rgba(0, 0, 0, .9);
-      --panel-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset;
-    }
-  }
-
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
-  /* Flat paper, like the window: the texture was the one thing that made the
-     two screens read as different products. */
-  html {
-    -webkit-text-size-adjust: 100%;
-    background-color: var(--paper);
-  }
-
-  body {
-    margin: 0 auto;
-    max-width: 640px;
-    padding: 0 18px calc(122px + var(--safe-bottom));
-    color: var(--ink);
-    font: 400 14.5px/1.45 var(--sans);
-    background: transparent;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-
-  ::selection { background: var(--accent); color: var(--on-accent); }
-
-  /* ---------------------------------------------------------------------
-     Masthead
-     --------------------------------------------------------------------- */
-  .masthead { padding-top: calc(24px + var(--safe-top)); }
-
-  .masthead-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  }
-
-  .kicker {
-    margin: 0; min-width: 0;
-    display: flex; align-items: center; gap: 9px;
-    font: 500 10.5px/1 var(--mono);
-    letter-spacing: .15em; text-transform: uppercase;
-    color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  /* The same TR mark the window wears, shrunk to fit the kicker. */
-  .kicker-mark {
-    width: 22px; height: 22px; flex: none;
-    display: grid; place-items: center;
-    border-radius: 6px;
-    background: var(--accent); color: var(--on-accent);
-    font: 700 9px/1 var(--sans); letter-spacing: .02em;
-  }
-  .kicker-mark::after { content: "TR"; }
-
-  .icon-button {
-    -webkit-appearance: none; appearance: none;
-    width: 44px; height: 44px; flex: none;
-    display: grid; place-items: center;
-    border: 1px solid var(--rule-strong); border-radius: var(--radius-sm);
-    background: var(--panel); color: var(--ink);
-    box-shadow: 0 1px 2px rgba(23, 24, 15, .08);
-    transition: background .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease);
-  }
-  .icon-button:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-  .icon-button svg { width: 18px; height: 18px; }
-  .icon-button.spin svg { animation: spin .9s linear infinite; }
-
-  .title {
-    margin: 18px 0 0;
-    display: flex; align-items: flex-start; gap: 12px;
-    font-size: clamp(46px, 14vw, 66px);
-    line-height: .88; font-weight: 700;
-    letter-spacing: -.04em;
-  }
-  .title-tag {
-    margin-top: .45em;
-    padding: 4px 6px 3px;
-    border: 1px solid var(--rule-strong); border-radius: 6px;
-    background: var(--panel);
-    font: 500 9.5px/1 var(--mono);
-    letter-spacing: .13em; text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  .device {
-    margin: 12px 0 0;
-    font: 400 12px/1.4 var(--mono);
-    letter-spacing: .01em;
-    color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-
-  /* Status chips — the plain variant of the window's chips: information, not
-     an action, so no raised face and no hover. */
-  .chips {
-    margin: 18px 0 0;
-    display: flex; flex-wrap: wrap; gap: 8px;
-  }
-
-  .chip {
-    display: inline-flex; align-items: center; gap: 7px;
-    min-width: 0; padding: 7px 11px;
-    border: 1px solid var(--rule); border-radius: var(--radius-sm);
-    font: 500 11.5px/1 var(--sans);
-    color: var(--muted);
-  }
-
-  .chip .dot {
-    width: 7px; height: 7px; flex: none; border-radius: 50%;
-    background: var(--rule-strong);
-    transition: background .2s var(--ease), box-shadow .2s var(--ease);
-  }
-  .chip[data-tone="ok"] .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(35, 98, 74, .12); }
-  .chip[data-tone="warn"] .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(138, 90, 0, .12); }
-  .chip[data-tone="bad"] .dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(163, 37, 27, .12); }
-  .chip[data-tone="ok"], .chip[data-tone="warn"], .chip[data-tone="bad"] { color: var(--ink); }
-
-  .chip .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* Bridge warning */
-  .banner {
-    margin-top: 14px; padding: 14px 15px;
-    border: 1px solid var(--bad); border-left-width: 3px; border-radius: var(--radius-sm);
-    background: var(--bad-soft);
-    font-size: 12.5px; color: var(--ink);
-  }
-  .banner strong {
-    display: block; margin-bottom: 4px;
-    font: 600 12px/1.3 var(--mono);
-    letter-spacing: .06em; text-transform: uppercase;
-    color: var(--bad);
-  }
-  .banner code {
-    display: block; margin-top: 10px; padding: 9px 10px;
-    border-radius: 6px; background: var(--console); color: var(--console-ink);
-    font: 11px/1.55 var(--mono);
-    white-space: pre-wrap; word-break: break-word;
-  }
-
-  /* ---------------------------------------------------------------------
-     Readout — the corner radius
-     --------------------------------------------------------------------- */
-  .readout {
-    position: relative;
-    margin-top: 22px; padding: 16px 16px 14px;
-    border: 1px solid var(--rule); border-radius: var(--radius);
-    background: var(--panel);
-    box-shadow: var(--shadow), var(--panel-shadow);
-    overflow: hidden;
-  }
-
-  .readout-grid {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    gap: 14px; align-items: center;
-  }
-
-  .eyebrow {
-    margin: 0;
-    display: flex; align-items: baseline; gap: 9px;
-    font: 500 10.5px/1 var(--mono);
-    letter-spacing: .13em; text-transform: uppercase;
-    color: var(--muted);
-  }
-  .eyebrow .idx { color: var(--accent-text); letter-spacing: .04em; }
-
-  .hero-value {
-    margin: 9px 0 0;
-    display: flex; align-items: baseline; gap: 7px;
-    font: 700 clamp(52px, 15vw, 68px)/.86 var(--sans);
-    letter-spacing: -.045em;
-    font-variant-numeric: tabular-nums lining-nums;
-  }
-  .hero-value .unit {
-    font: 500 11px/1 var(--mono);
-    letter-spacing: .1em; text-transform: uppercase;
-    color: var(--accent-text);
-  }
-
-  .hero-note {
-    margin: 9px 0 0;
-    font-size: 11.5px; line-height: 1.4;
-    color: var(--muted);
-  }
-
-  /* Device preview */
-  .preview { display: grid; place-items: center; }
-
-  .phone {
-    --device-radius: 26px;
-    --bar-height: 14px;
-    --bar-inset: 8px;
-    --content-inset: 6px;
-    position: relative;
-    width: 90px; height: 158px;
-    display: flex; flex-direction: column;
-    border: 1px solid var(--rule-strong);
-    border-radius: var(--device-radius);
-    background: var(--paper);
-    box-shadow: 0 16px 26px -20px rgba(0, 0, 0, .55);
-    overflow: hidden;
-    transition: border-radius .22s var(--ease);
-  }
-  .phone::after {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 34%;
-    background: linear-gradient(180deg, transparent,
-      var(--accent-soft), transparent);
-    opacity: .7; pointer-events: none;
-  }
-
-  .device-bar {
-    height: var(--bar-height); flex: none;
-    margin: 0 var(--bar-inset);
-    display: flex; align-items: center; gap: 3px;
-    transition: height .22s var(--ease), margin .22s var(--ease);
-  }
-  .device-bar .pill {
-    height: 3px; flex: 1; margin-top: calc(var(--bar-height) * .34);
-    background: var(--rule-strong);
-  }
-  .device-bar .dot {
-    width: 3px; height: 3px; flex: none;
-    margin-top: calc(var(--bar-height) * .34);
-    background: var(--faint);
-  }
-
-  .device-body {
-    flex: 1; display: flex; flex-direction: column; gap: 5px;
-    padding: var(--content-inset); padding-top: 2px;
-    transition: padding .22s var(--ease);
-  }
-  .device-body i {
-    display: block; height: 4px; background: var(--rule);
-  }
-  .device-body i.strong {
-    width: 72%;
-    background: var(--accent);
-    opacity: .65;
-  }
-
-  /* Controls */
-  .readout-controls {
-    display: flex; align-items: center; gap: 10px;
-    margin-top: 18px; padding-top: 14px;
-    border-top: 1px solid var(--rule);
-  }
-  .readout-controls .range-wrap { flex: 1; }
-
-  .range-wrap { position: relative; min-width: 0; display: flex; align-items: center; }
-
-  .range {
-    -webkit-appearance: none; appearance: none;
-    width: 100%; height: 44px; margin: 0;
-    background: transparent; display: block;
-    touch-action: pan-y;
-  }
-  .range::-webkit-slider-runnable-track {
-    height: 6px; border-radius: 3px;
-    background-image:
-      linear-gradient(to right, var(--accent) 0 var(--fill, 0%), transparent var(--fill, 0%)),
-      repeating-linear-gradient(to right, var(--tick) 0 1px, transparent 1px 10%),
-      linear-gradient(var(--track-base), var(--track-base));
-    transition: background-image .08s linear;
-  }
-  .range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 6px; height: 22px; margin-top: -8px;
-    border-radius: 3px;
-    background: var(--accent);
-    box-shadow: 0 0 0 0 var(--accent-soft);
-    transition: box-shadow .18s var(--ease), width .18s var(--ease);
-  }
-  .range:active::-webkit-slider-thumb {
-    width: 10px;
-    box-shadow: 0 0 0 5px var(--accent-soft);
-  }
-  .range:disabled { opacity: .4; }
-
-  .number {
-    display: flex; align-items: center; gap: 3px; flex: none;
-    height: 44px; padding: 0 9px 0 10px;
-    border: 1px solid var(--rule-strong); border-radius: var(--radius-sm);
-    background: var(--panel);
-    transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
-  }
-  .number:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-  .number input {
-    width: 40px; padding: 0; border: 0; background: transparent;
-    color: var(--ink); outline: none;
-    font: 600 15px/1 var(--mono);
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    -moz-appearance: textfield; appearance: textfield;
-  }
-  .number input::-webkit-outer-spin-button,
-  .number input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  .number span {
-    font: 500 9.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  /* ---------------------------------------------------------------------
-     Sections
-     --------------------------------------------------------------------- */
-  /* A card is a panel of the window, not a chapter of a magazine. */
-  .card {
-    margin-top: 18px;
-    padding: 14px 16px 6px;
-    border: 1px solid var(--rule);
-    border-radius: var(--radius);
-    background: var(--panel);
-    box-shadow: 0 1px 2px rgba(23, 24, 15, .05);
-  }
-
-  .card-head {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-    padding-bottom: 10px;
-  }
-  .card h2 {
-    margin: 0; display: flex; align-items: baseline; gap: 9px;
-    font: 650 14.5px/1.25 var(--sans); letter-spacing: -.01em;
-  }
-  .idx {
-    font: 500 10px/1 var(--mono);
-    letter-spacing: .06em; color: var(--accent-text);
-  }
-  .card-head .meta {
-    font: 500 10px/1 var(--mono);
-    letter-spacing: .12em; text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  .row { padding: 13px 0 14px; border-top: 1px solid var(--rule); }
-  .row:first-child { border-top: 0; }
-
-  .row-head { display: flex; align-items: baseline; gap: 12px; }
-  .row-label {
-    flex: 1; min-width: 0;
-    font: 500 14px/1.35 var(--sans); letter-spacing: -.005em;
-  }
-  .row-label small {
-    display: block; margin-top: 2px;
-    color: var(--muted);
-    font: 400 11.5px/1.4 var(--sans);
-    overflow-wrap: anywhere;
-  }
-  .active {
-    flex: none;
-    font: 500 10.5px/1 var(--mono);
-    letter-spacing: .02em;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .active[data-diff="true"] { color: var(--bad); }
-  .active[data-diff="true"]::before { content: "\2260  "; }
-
-  .row-control { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-  /* Let the track take the row: a slider that only stretches as far as its
-     default width is unusable for a value that runs to 240px. The number box
-     keeps its own width, so every row matches the corner-radius control. */
-  .row-control .range-wrap { flex: 1; }
-
-  /* Power */
-  .switch-row {
-    display: flex; align-items: center; gap: 14px;
-    padding: 13px 0 14px;
-    border-top: 1px solid var(--rule);
-  }
-  .switch-row .row-label { font-size: 14px; }
-
-  /* 44px hit area, 26px visual lever */
-  .switch { position: relative; width: 46px; height: 44px; flex: none; }
-  .switch input {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    margin: 0; opacity: 0; z-index: 1;
-  }
-  .switch .track {
-    position: absolute; left: 0; right: 0; top: 9px; height: 26px;
-    border: 1px solid var(--rule-strong); border-radius: 999px;
-    background: var(--track-base);
-    transition: background .2s var(--ease), border-color .2s var(--ease);
-    pointer-events: none;
-  }
-  .switch .thumb {
-    position: absolute; top: 13px; left: 4px;
-    width: 18px; height: 18px; border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(23, 24, 15, .25);
-    transition: transform .2s var(--ease), background .2s var(--ease);
-    pointer-events: none;
-  }
-  .switch input:checked + .track {
-    background: var(--accent); border-color: var(--accent);
-  }
-  .switch input:checked + .track + .thumb {
-    transform: translateX(19px);
-    background: #fff;
-  }
-
-  /* ---------------------------------------------------------------------
-     Addons
-     --------------------------------------------------------------------- */
-  .addon-rows { display: flex; flex-direction: column; }
-  .addon-row {
-    display: flex; align-items: flex-start; gap: 14px;
-    padding: 12px 0 13px;
-    border-top: 1px solid var(--rule);
-  }
-  .addon-row:first-child { border-top: 0; }
-  .addon-row[data-dirty="true"] .addon-text { opacity: .65; }
-  .addon-text { flex: 1; min-width: 0; }
-  .addon-text .row-label { font-size: 14px; }
-  .addon-summary {
-    margin: 3px 0 0;
-    font-size: 12px; line-height: 1.5;
-    color: var(--muted);
-  }
-  .addon-control { display: flex; align-items: center; gap: 12px; flex: none; }
-  /* "Use default" is the way out of an addon: it removes the line (and, for
-     an overlay, the resource), so the ROM's own value is what is left. */
-  .addon-default {
-    margin: 7px 0 0; padding: 0;
-    border: 0; background: none; color: var(--muted);
-    font: inherit; font-size: 11.5px;
-    text-decoration: underline; text-underline-offset: 2px;
-    cursor: pointer;
-  }
-  .addon-default:hover:not(:disabled) { background: none; color: var(--ink); }
-  .addon-default[hidden] { display: none; }
-  .addon-live {
-    font-size: 11px; color: var(--muted);
-    white-space: nowrap; font-variant-numeric: tabular-nums;
-  }
-  .addon-live[data-diff="true"] { color: var(--accent); }
-  .addon-select {
-    min-width: 104px; max-width: 160px;
-    padding: 7px 10px;
-    border: 1px solid var(--rule-strong); border-radius: 9px;
-    background: var(--panel); color: var(--ink);
-    font: inherit; font-size: 13px;
-  }
-  .addon-foot {
-    display: flex; align-items: center; gap: 12px;
-    margin-top: 12px; padding-top: 12px;
-    border-top: 1px solid var(--rule);
-  }
-  .addon-note { font-size: 12px; color: var(--muted); }
-
-  /* ---------------------------------------------------------------------
-     Diagnostics
-     --------------------------------------------------------------------- */
-  .diag {
-    margin-top: 18px;
-    padding: 0 16px;
-    border: 1px solid var(--rule);
-    border-radius: var(--radius);
-    background: var(--panel);
-    box-shadow: 0 1px 2px rgba(23, 24, 15, .05);
-  }
-  .diag summary {
-    list-style: none; cursor: pointer; user-select: none;
-    display: flex; align-items: center; gap: 10px;
-    padding: 15px 0;
-    font: 600 12.5px/1 var(--sans);
-    letter-spacing: .01em;
-  }
-  .diag summary::-webkit-details-marker { display: none; }
-  .summary-meta {
-    font: 500 9.5px/1 var(--mono);
-    letter-spacing: .11em; text-transform: uppercase;
-    color: var(--faint);
-    border: 1px solid var(--rule); border-radius: 6px;
-    padding: 4px 6px 3px;
-    background: var(--panel-2);
-  }
-  .chevron {
-    margin-left: auto; width: 15px; height: 15px; color: var(--muted);
-    transition: transform .22s var(--ease);
-  }
-  .diag[open] .chevron { transform: rotate(180deg); }
-  .diag-body { padding: 0 0 18px; }
-
-  .log {
-    margin: 0; padding: 12px;
-    border: 1px solid var(--console-rule); border-radius: var(--radius-sm);
-    background: var(--console); color: var(--console-ink);
-    font: 10.5px/1.65 var(--mono);
-    white-space: pre-wrap; word-break: break-word;
-    max-height: 240px; overflow: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .diag-actions { display: flex; gap: 8px; margin-top: 10px; }
-
-  /* ---------------------------------------------------------------------
-     All resources — rendered from webui-manifest.json
-     --------------------------------------------------------------------- */
-  .adv-hint {
-    margin: 0 0 10px; color: var(--muted);
-    font: 400 11.5px/1.5 var(--sans);
-  }
-  .adv-group { margin-top: 20px; }
-  .adv-group:first-child { margin-top: 0; }
-  .adv-group h3 {
-    margin: 0 0 4px;
-    font: 600 10px/1 var(--mono);
-    letter-spacing: .12em; text-transform: uppercase;
-    color: var(--faint);
-  }
-  .adv-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 9px 0;
-    border-top: 1px solid var(--rule);
-  }
-  .adv-row[data-changed="true"] .adv-name { color: var(--accent-text); }
-  .adv-name {
-    flex: 1; min-width: 0;
-    font: 500 12px/1.4 var(--mono);
-    overflow-wrap: anywhere;
-  }
-  .adv-name small {
-    display: block; margin-top: 2px;
-    color: var(--muted); font: 400 10.5px/1.4 var(--sans);
-  }
-  .adv-input {
-    flex: none; display: flex; align-items: center; gap: 4px;
-    height: 34px; padding: 0 8px;
-    border: 1px solid var(--rule-strong); border-radius: var(--radius-sm);
-    background: var(--panel-2);
-  }
-  .adv-input:focus-within { border-color: var(--accent); }
-  .adv-input input {
-    width: 62px; padding: 0; border: 0; background: transparent;
-    color: var(--ink); outline: none;
-    font: 600 12px/1 var(--mono); text-align: right;
-    -moz-appearance: textfield; appearance: textfield;
-  }
-  .adv-input input.wide { width: 110px; text-align: left; }
-  .adv-input input::-webkit-outer-spin-button,
-  .adv-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  .adv-input span {
-    font: 500 9.5px/1 var(--mono);
-    letter-spacing: .08em; text-transform: uppercase;
-    color: var(--faint);
-  }
-  .adv-ro {
-    flex: none; max-width: 46%; text-align: right;
-    font: 500 10.5px/1.4 var(--mono); color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-
-  /* ---------------------------------------------------------------------
-     Buttons
-     --------------------------------------------------------------------- */
-  /* The window's button: a raised paper face with a real edge, the accent for
-     the one action that matters, and a press that moves. Hit areas stay at
-     44px because this one is under a thumb, not a mouse. */
-  .btn {
-    -webkit-appearance: none; appearance: none;
-    height: 44px; padding: 0 15px;
-    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-    border: 1px solid var(--rule-strong); border-radius: var(--radius-sm);
-    background: var(--panel); color: var(--ink);
-    font: 600 12.5px/1 var(--sans); letter-spacing: .005em;
-    box-shadow: 0 1px 2px rgba(23, 24, 15, .08), var(--panel-shadow);
-    transition: background .18s var(--ease), color .18s var(--ease),
-                border-color .18s var(--ease), transform .12s var(--ease),
-                box-shadow .12s var(--ease);
-  }
-  .btn:active { transform: translateY(1px); box-shadow: none; }
-  .btn:disabled { opacity: .4; }
-  .btn svg { width: 14px; height: 14px; flex: none; }
-
-  .btn.solid {
-    background: var(--accent); border-color: var(--accent); color: var(--on-accent);
-    box-shadow: none;
-  }
-  .btn.solid:active { background: var(--accent-press); border-color: var(--accent-press); }
-  .btn.outline { border-color: var(--rule-strong); }
-  .btn.quiet {
-    border-color: transparent; background: none; box-shadow: none;
-    color: var(--muted); padding: 0 10px;
-  }
-  .btn.quiet.danger { color: var(--bad); }
-  .btn.small { height: 38px; padding: 0 12px; font-size: 11.5px; }
-
-  /* ---------------------------------------------------------------------
-     Dock
-     --------------------------------------------------------------------- */
-  .dock {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 14px calc(10px + var(--safe-bottom));
-    background: var(--panel);
-    border-top: 1px solid var(--rule);
-    box-shadow: 0 -10px 28px -24px rgba(23, 24, 15, .55);
-  }
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .dock {
-      background: rgba(247, 243, 232, .9);
-      -webkit-backdrop-filter: blur(16px) saturate(120%);
-      backdrop-filter: blur(16px) saturate(120%);
-    }
-    @media (prefers-color-scheme: dark) {
-      .dock { background: rgba(25, 27, 22, .9); }
-    }
-  }
-  .dock .btn.solid { flex: 1; min-width: 0; white-space: nowrap; }
-
-  .progress {
-    position: fixed; left: 0; right: 0; top: 0; height: 2px;
-    z-index: 40; overflow: hidden;
-  }
-  .progress[hidden] { display: none; }
-  .progress::after {
-    content: ""; display: block; height: 100%; width: 28%;
-    background: var(--accent);
-    animation: indeterminate 1.1s var(--ease) infinite;
-  }
-
-  /* ---------------------------------------------------------------------
-     Snackbar + reset sheet
-     --------------------------------------------------------------------- */
-  .snackbar {
-    position: fixed; left: 14px; right: 14px;
-    bottom: calc(78px + var(--safe-bottom));
-    z-index: 30;
-    padding: 12px 14px;
-    border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
-    background: var(--console); color: var(--console-ink);
-    font: 500 11.5px/1.5 var(--mono);
-    box-shadow: var(--shadow);
-    opacity: 0; transform: translateY(8px); pointer-events: none;
-    transition: opacity .2s var(--ease), transform .2s var(--ease);
-  }
-  .snackbar.show { opacity: 1; transform: none; }
-  .snackbar[data-tone="ok"] { border-left-color: var(--ok); }
-  .snackbar[data-tone="error"] {
-    border-left-color: var(--bad);
-    background: var(--bad); color: var(--paper);
-  }
-
-  dialog.sheet {
-    width: min(420px, calc(100% - 28px));
-    margin: auto auto calc(14px + var(--safe-bottom)); padding: 0;
-    border: 1px solid var(--rule-strong); border-radius: 14px;
-    background: var(--panel); color: var(--ink);
-    box-shadow: 0 32px 64px -32px rgba(0, 0, 0, .65);
-  }
-  dialog.sheet::backdrop { background: rgba(10, 10, 8, .55); }
-  .sheet-inner { padding: 22px; }
-  .sheet h2 {
-    margin: 0 0 8px;
-    font: 700 19px/1.2 var(--sans); letter-spacing: -.02em;
-  }
-  .sheet p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
-  .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-
-  /* ---------------------------------------------------------------------
-     Fit + feel
-     --------------------------------------------------------------------- */
-  @media (max-width: 380px) {
-    body { padding-left: 15px; padding-right: 15px; }
-    .phone { width: 78px; height: 138px; }
-    .hero-value { font-size: clamp(46px, 15vw, 60px); }
-    .dock { gap: 4px; padding-left: 10px; padding-right: 10px; }
-    .dock .btn { padding: 0 10px; font-size: 12px; }
-    .dock .btn.quiet { padding: 0 6px; }
-    .dock .btn.solid svg { display: none; }
-    .number { padding: 0 7px; }
-    .number input { width: 36px; }
-  }
-
-  @media (max-width: 340px) {
-    .readout-grid { grid-template-columns: minmax(0, 1fr); }
-    .preview { display: none; }
-  }
-
-  @media (min-width: 560px) {
-    .dock {
-      left: 50%; right: auto; width: 640px; max-width: 100%;
-      transform: translateX(-50%);
-      padding-left: 18px; padding-right: 18px;
-      border-left: 1px solid var(--rule);
-      border-right: 1px solid var(--rule);
-    }
-    .dock .btn.quiet { margin-right: auto; }
-    .dock .btn.solid { flex: 0 0 250px; }
-    .snackbar { left: 50%; right: auto; width: 560px; transform: translate(-50%, 8px); }
-    .snackbar.show { transform: translate(-50%, 0); }
-  }
-
-  @media (min-width: 680px) {
-    body { padding-left: 0; padding-right: 0; }
-  }
-
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .range:focus-visible { outline-offset: 4px; }
-
-  @media (hover: hover) {
-    .icon-button:hover { background: var(--panel-2); border-color: var(--accent); color: var(--accent); }
-    .btn:hover:not(.quiet):not(.solid) { background: var(--panel-2); }
-    .btn.outline:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-    .btn.quiet:hover { background: var(--accent-soft); color: var(--ink); }
-    .btn.solid:hover { background: var(--accent-press); border-color: var(--accent-press); }
-    .diag summary:hover .chevron { color: var(--ink); }
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes indeterminate {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(400%); }
-  }
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(7px); }
-    to { opacity: 1; transform: none; }
-  }
-  @keyframes scan {
-    0% { transform: translateY(-140%); }
-    100% { transform: translateY(330%); }
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .masthead-row { animation: rise .45s var(--ease) both; }
-    .title { animation: rise .5s .04s var(--ease) both; }
-    .device { animation: rise .5s .08s var(--ease) both; }
-    .chips { animation: rise .5s .12s var(--ease) both; }
-    .readout { animation: rise .55s .16s var(--ease) both; }
-    .card { animation: rise .55s .2s var(--ease) both; }
-    .diag { animation: rise .55s .24s var(--ease) both; }
-    .phone::after { animation: scan 8s linear infinite; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: .01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: .01ms !important;
-    }
-    .phone::after { display: none; }
-  }
+    --paper: #121310;
+    --panel: #191b16;
+    --panel-2: #1f211a;
+    --ink: #e8e5d5;
+    --muted: #a2a08f;
+    --rule: #2f3229;
+    --rule-strong: #474b3d;
+    --accent: #e2683a;
+    --accent-press: #c9532a;
+    --on-accent: #1a1209;
+    --accent-soft: rgba(226, 104, 58, .14);
+    --ok: #6fbf95;
+    --warn: #d4a044;
+    --bad: #e08377;
+    --bad-soft: rgba(224, 131, 119, .12);
+    --console: #0b0c09;
+    --console-ink: #cfccb8;
+    --console-rule: #262a20;
+    --faint: #7f7d6e;
+    --track-base: #33362c;
+    --tick: rgba(0, 0, 0, .35);
+  }
+}
+
+* { box-sizing: border-box; }
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: .92em; }
+::selection { background: var(--accent); color: var(--on-accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ------------------------------------------------------------------ header -- */
+/* The window puts the chips to the right of the name. A phone is narrower than
+   the two sentences that live there, so they wrap onto a second line; the
+   brand row still reads as the window's. */
+.top {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: .02em;
+  flex: none;
+}
+.brand-text { min-width: 0; }
+.brand-text h1 { font-size: 15px; }
+#deviceLine {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60vw;
+}
+.chips { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--rule-strong);
+  background: linear-gradient(var(--panel), var(--panel-2));
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 46vw;
+  font-family: inherit;
+}
+.chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The two status chips are information, not actions: flat, like the window's
+   branch chip. */
+.chip.plain {
+  cursor: default;
+  border-color: var(--rule);
+  background: none;
+  font-weight: 500;
+  color: var(--muted);
+}
+.chip.plain:hover { border-color: var(--rule); color: var(--muted); background: none; }
+.chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+  flex: none;
+}
+.chip[data-tone="ok"] .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(35, 98, 74, .14); }
+.chip[data-tone="warn"] .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(138, 90, 0, .14); }
+.chip[data-tone="bad"] .dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(163, 37, 27, .14); }
+#refreshBtn { padding: 5px 10px; }
+#refreshBtn .ico { font-size: 13px; line-height: 1; display: inline-block; }
+#refreshBtn.spin .ico { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Demo: the same chip as Refresh, tinted while the page is showing the made-up
+   device instead of this one. */
+#demoBtn { padding: 5px 10px; }
+#demoBtn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.banner {
+  flex: 1 0 100%;
+  margin-top: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--bad);
+  border-radius: 8px;
+  background: var(--bad-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.banner strong { display: block; margin-bottom: 2px; color: var(--bad); font-size: 12px; }
+.banner span { display: block; }
+.banner code {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* -------------------------------------------------------------------- tabs -- */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  overflow-x: auto;
+}
+.tab {
+  border: 0;
+  background: none;
+  border-radius: 0;
+  padding: 9px 12px 8px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .12s var(--ease), border-color .12s var(--ease);
+}
+.tab.is-active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+main { flex: 1; min-height: 0; display: flex; }
+.pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px 16px 24px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.pane.is-active { display: flex; }
+
+/* ------------------------------------------------------------------- cards -- */
+.card {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.card h2 { font-size: 13.5px; }
+.meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  letter-spacing: .02em;
+}
+
+/* -------------------------------------------------------------------- rows -- */
+.row { padding: 10px 0 2px; border-top: 1px solid var(--rule); }
+.row:first-child, .card-head + .row, #rows-values > .row:first-child { border-top: 0; padding-top: 2px; }
+.row-head { display: flex; align-items: baseline; gap: 10px; }
+.row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.row-label small {
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.active {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.active[data-diff="true"] { color: var(--accent); }
+.row-control { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.range-wrap { flex: 1; min-width: 0; }
+
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  touch-action: pan-y;
+}
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--track-base) var(--fill, 0%));
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  background: var(--panel);
+  box-shadow: var(--tick);
+}
+.range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--track-base); }
+.range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.range::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid var(--accent); background: var(--panel);
+}
+
+.number { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.number input,
+.adv-input input,
+.addon-select {
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.number input { width: 62px; text-align: right; }
+.number input:focus,
+.adv-input input:focus,
+.addon-select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* The switch is the window's config toggle: a pill with a thumb, same size,
+   because it is the same control. */
+.switch { position: relative; display: inline-flex; width: 30px; height: 17px; flex: none; }
+.switch input { position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; opacity: 0; z-index: 1; cursor: pointer; }
+.switch .track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  background: var(--track-base);
+  transition: background .12s var(--ease), border-color .12s;
+}
+.switch .thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--tick);
+  transition: transform .12s var(--ease);
+}
+.switch input:checked ~ .track { background: var(--accent); border-color: var(--accent); }
+.switch input:checked ~ .thumb { transform: translateX(13px); }
+
+/* One row, the label on the left and its state on the right: the doze switch
+   is a single setting, not a list of them. */
+.switch-row { display: flex; align-items: center; gap: 12px; padding-top: 8px; }
+.switch-row .row-label { flex: 1; }
+
+/* ------------------------------------------------------------------ addons -- */
+.hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-top: 6px; }
+.hint code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
+.addon-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.addon-row:first-child { border-top: 0; padding-top: 2px; }
+.addon-row[data-dirty="true"] { background: var(--accent-soft); border-radius: 6px; padding-left: 8px; padding-right: 8px; }
+.addon-text { min-width: 0; }
+.addon-text .row-label { font-size: 13px; }
+.addon-summary { margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.addon-default {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.addon-default:hover:not(:disabled) { color: var(--accent); background: none; }
+.addon-default[hidden] { display: none; }
+.addon-control { display: flex; align-items: center; gap: 8px; flex: none; }
+.addon-live { font-size: 10.5px; color: var(--faint); text-align: right; max-width: 90px; line-height: 1.35; }
+.addon-live[data-diff="true"] { color: var(--accent); }
+.addon-select { max-width: 110px; font-family: var(--sans); }
+.addon-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.addon-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+/* --------------------------------------------------------------- resources -- */
+.fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
+  content: "▸";
+  color: var(--rule-strong);
+  font-size: 10px;
+  transition: transform .12s var(--ease);
+}
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary span:first-of-type { font-size: 13.5px; font-weight: 650; }
+.summary-meta { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.chevron { display: none; }
+.diag-body { padding-top: 6px; }
+
+.adv-group { margin-top: 12px; }
+.adv-group h3 {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2px;
+}
+.adv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--rule);
+}
+.adv-row:first-of-type { border-top: 0; }
+.adv-group h3 + .adv-row { border-top: 0; }
+.adv-row[data-changed="true"] .adv-name { color: var(--accent); }
+.adv-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adv-name small { display: block; font-family: var(--sans); font-size: 10.5px; color: var(--faint); }
+.adv-ro { font-family: var(--mono); font-size: 10.5px; color: var(--faint); text-align: right; }
+.adv-input { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); }
+.adv-input input { width: 92px; text-align: right; }
+.adv-input input.wide { width: 130px; text-align: left; }
+
+.log {
+  margin: 0;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--console);
+  color: var(--console-ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diag-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ----------------------------------------------------------------- buttons -- */
+button { font: inherit; }
+.btn {
+  padding: 8px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s var(--ease), border-color .12s, transform .06s;
+}
+.btn:hover:not(:disabled) { background: var(--panel-2); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.small { padding: 6px 10px; font-size: 12px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-press); border-color: var(--accent-press); }
+.btn.quiet { border-color: transparent; background: none; color: var(--muted); }
+.btn.quiet:hover:not(:disabled) { background: var(--panel-2); color: var(--ink); }
+.btn.danger { color: var(--bad); }
+.btn.quiet.danger { border-color: transparent; }
+
+/* -------------------------------------------------------------------- dock -- */
+/* The window keeps Reset/Run at the top of the pane. Here the actions have to
+   stay under the thumb while the list scrolls, so they live in one bar with
+   the same buttons: Reset muted on the left, Apply quiet, Apply & reload in
+   the accent. The note above them is what Apply is doing right now. */
+.dock {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--rule);
+  background: var(--panel);
+}
+.dock-note {
+  flex: 1 0 100%;
+  order: -1;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  padding-bottom: 2px;
+}
+.dock-note:empty { display: none; }
+.dock .spacer { flex: 1; }
+.dock .btn { flex: none; }
+
+.progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 30; background: none; overflow: hidden; }
+.progress[hidden] { display: none; }
+.progress::after {
+  content: "";
+  display: block;
+  width: 34%;
+  height: 100%;
+  background: var(--accent);
+  animation: slide 1.1s var(--ease) infinite;
+}
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+.snackbar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  padding: 9px 12px;
+  border: 1px solid var(--console-rule);
+  border-radius: 8px;
+  background: var(--console);
+  color: var(--console-ink);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity .16s var(--ease), transform .16s var(--ease), visibility .16s;
+  pointer-events: none;
+}
+.snackbar.show { opacity: 1; visibility: visible; transform: none; }
+.snackbar[data-tone="error"] { border-color: var(--bad); color: #f0a08f; }
+.snackbar[data-tone="ok"] { border-color: rgba(143, 214, 168, .4); color: #8fd6a8; }
+
+/* ------------------------------------------------------------------- sheet -- */
+dialog.sheet {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, .6);
+}
+dialog.sheet::backdrop { background: rgba(23, 24, 15, .42); }
+.sheet-inner { padding: 16px 16px 12px; }
+.sheet-inner h2 { font-size: 15px; }
+.sheet-inner p { margin-top: 6px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+.sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
 </style>
 </head>
 <body>
   <div class="progress" id="progress" hidden></div>
 
-  <header class="masthead">
-    <div class="masthead-row">
-      <p class="kicker"><span class="kicker-mark" aria-hidden="true"></span>Treble / runtime overlay</p>
-      <button class="icon-button" id="refreshBtn" type="button" aria-label="Refresh">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
-          <path d="M20 5v6h-6"></path>
-        </svg>
-      </button>
+  <!-- The window's header: mark, product name, the line about this device and
+       the two status chips. A phone is narrower than that bar, so the chips
+       wrap under the name, and Refresh is a chip too because a 30 px icon
+       button is a worse target than a labelled one. -->
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">TR</span>
+      <div class="brand-text">
+        <h1>Overlay</h1>
+        <p id="deviceLine">Connecting to the device…</p>
+      </div>
     </div>
 
-    <h1 class="title">Overlay<span class="title-tag" aria-hidden="true">UI</span></h1>
-    <p class="device" id="deviceLine">Connecting to the device…</p>
-
     <div class="chips">
-      <span class="chip" id="chipApi" data-tone="neutral">
+      <span class="chip plain" id="chipApi" data-tone="neutral">
         <span class="dot" aria-hidden="true"></span><span class="label">Android —</span>
       </span>
-      <span class="chip" id="chipOverlay" data-tone="neutral">
+      <span class="chip plain" id="chipOverlay" data-tone="neutral">
         <span class="dot" aria-hidden="true"></span><span class="label">Checking overlays</span>
       </span>
+      <button class="chip" id="refreshBtn" type="button" aria-label="Refresh">
+        <span class="ico" aria-hidden="true">↻</span><span class="label">Refresh</span>
+      </button>
+      <button class="chip" id="demoBtn" type="button" aria-pressed="false"
+              title="Try the page without a device: every value is editable and nothing is saved">
+        <span class="label">Demo</span>
+      </button>
     </div>
 
     <div class="banner" id="banner" hidden>
@@ -870,151 +620,132 @@
     </div>
   </header>
 
+  <!-- Three panes, in the order the job is done: the values worth a slider,
+       everything else the build can write, then the addons that change what
+       gets written. The window groups its tabs the same way. -->
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-tab="values" role="tab" aria-selected="true">Values</button>
+    <button class="tab" data-tab="resources" role="tab" aria-selected="false">Resources</button>
+    <button class="tab" data-tab="addons" role="tab" aria-selected="false">Addons</button>
+  </nav>
+
   <main>
-    <section class="readout" aria-labelledby="heroLabel">
-      <div class="readout-grid">
-        <div>
-          <p class="eyebrow" id="heroLabel"><span class="idx">01</span>Corner radius</p>
-          <p class="hero-value"><span id="heroNum">—</span><span class="unit">px</span></p>
-          <p class="hero-note" id="heroNote">Rounded screen corners</p>
+    <section class="pane is-active" id="pane-values" role="tabpanel">
+      <section class="card">
+        <div class="card-head">
+          <h2>Screen</h2>
+          <span class="meta">framework</span>
         </div>
-        <div class="preview" aria-hidden="true">
-          <div class="phone" id="device">
-            <div class="device-bar"><span class="pill"></span><span class="dot"></span><span class="dot"></span></div>
-            <div class="device-body">
-              <i class="strong"></i><i></i><i style="width:84%"></i><i style="width:62%"></i>
-            </div>
+        <div id="rows-values"></div>
+      </section>
+
+      <section class="card" id="frameworkCard">
+        <div class="card-head">
+          <h2>Framework</h2>
+          <span class="meta">android</span>
+        </div>
+        <div id="rows-framework"></div>
+      </section>
+
+      <section class="card" id="systemuiCard">
+        <div class="card-head">
+          <h2>Status bar</h2>
+          <span class="meta">systemui</span>
+        </div>
+        <div id="rows-systemui"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Power</h2>
+          <span class="meta">doze</span>
+        </div>
+        <div class="switch-row">
+          <label class="row-label" for="DOZE_BLANK">
+            Blank after doze
+            <small>config_displayBlanksAfterDoze</small>
+          </label>
+          <span class="active" id="cur-DOZE_BLANK">—</span>
+          <label class="switch">
+            <input type="checkbox" id="DOZE_BLANK">
+            <span class="track"></span><span class="thumb"></span>
+          </label>
+        </div>
+      </section>
+    </section>
+
+    <!-- Every other resource the build can write. It is the long list, so it
+         waits on its own pane instead of pushing the sliders off the screen;
+         Diagnostics sits under it because that is where a failed Apply sends
+         you. -->
+    <section class="pane" id="pane-resources" role="tabpanel">
+      <details class="card fold" id="adv" open>
+        <summary>
+          <span>All resources</span>
+          <span class="summary-meta" id="allResMeta" aria-hidden="true">manifest</span>
+        </summary>
+        <div class="diag-body">
+          <p class="hint" id="allResHint">
+            Every other value this build writes, read from the module's
+            <code>webui-manifest.json</code>. Changing one patches it into the overlay APK
+            just like the sliders. Values marked <em>rebuild</em> have no single value
+            (arrays, landscape-only, resource references).
+          </p>
+          <div id="allGroups"></div>
+        </div>
+      </details>
+
+      <details class="card fold" id="diag">
+        <summary>
+          <span>Diagnostics</span>
+          <span class="summary-meta" aria-hidden="true">shell</span>
+        </summary>
+        <div class="diag-body">
+          <pre class="log" id="log">Waiting for the device…</pre>
+          <div class="diag-actions">
+            <button class="btn quiet small" id="statusBtn" type="button">Refresh status</button>
+            <button class="btn quiet small" id="diagBtn" type="button">Run diagnostics</button>
           </div>
         </div>
-      </div>
-
-      <div class="readout-controls">
-        <div class="range-wrap">
-          <input class="range" type="range" id="s-RADIUS" min="0" max="240" step="1"
-                 aria-label="Corner radius">
-        </div>
-        <div class="number">
-          <input type="number" id="RADIUS" inputmode="numeric" min="0" max="240"
-                 aria-label="Corner radius in pixels">
-          <span>px</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card" id="frameworkCard">
-      <div class="card-head">
-        <h2><span class="idx">02</span>Framework</h2>
-        <span class="meta">android</span>
-      </div>
-      <div id="rows-framework"></div>
-    </section>
-
-    <section class="card" id="systemuiCard">
-      <div class="card-head">
-        <h2><span class="idx">03</span>Status bar</h2>
-        <span class="meta">systemui</span>
-      </div>
-      <div id="rows-systemui"></div>
-    </section>
-
-    <section class="card">
-      <div class="card-head">
-        <h2><span class="idx">04</span>Power</h2>
-        <span class="meta">doze</span>
-      </div>
-      <div class="switch-row">
-        <label class="row-label" for="DOZE_BLANK">
-          Blank after doze
-          <small>config_displayBlanksAfterDoze</small>
-        </label>
-        <span class="active" id="cur-DOZE_BLANK">—</span>
-        <label class="switch">
-          <input type="checkbox" id="DOZE_BLANK">
-          <span class="track"></span><span class="thumb"></span>
-        </label>
-      </div>
+      </details>
     </section>
 
     <!-- Module addons, both kinds: a live pick is a Settings value the module
          writes itself and applies the moment it is made (and again on every
          boot); an overlay pick is a resource, written into the installed APK
          by Apply together with the sliders. -->
-    <section class="card" id="addonsCard">
-      <div class="card-head">
-        <h2><span class="idx">05</span>Addons</h2>
-        <span class="meta">module</span>
-      </div>
-      <p class="adv-hint">
-        These are module addons. A live pick is a Settings value the module
-        writes itself: it applies as soon as you make it, and again on every
-        boot so it sticks. An overlay pick is a resource in the APK this build
-        shipped: Apply writes it into that APK (with the sliders), and a reload
-        makes the framework read it. <b>Use default</b> removes an addon — the
-        line leaves addons.conf and, for an overlay, the resource leaves the
-        APK, so the ROM's own value is used again.
-      </p>
-      <div id="rows-addons" class="addon-rows"></div>
-      <div class="addon-foot">
-        <button class="btn quiet small" id="addonsResetBtn" type="button">Reset addons</button>
-        <span class="addon-note" id="addonsNote"></span>
-      </div>
-    </section>
-
-    <details class="diag" id="adv">
-      <summary>
-        <span>All resources</span>
-        <span class="summary-meta" id="allResMeta" aria-hidden="true">manifest</span>
-        <span class="chevron">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="m6 9 6 6 6-6"></path>
-          </svg>
-        </span>
-      </summary>
-      <div class="diag-body">
-        <p class="adv-hint" id="allResHint">
-          Every other value this build writes, read from the module's
-          <code>webui-manifest.json</code>. Changing one patches it into the overlay APK
-          just like the sliders above. Values marked <em>rebuild</em> have no single value
-          (arrays, landscape-only, resource references).
-        </p>
-        <div id="allGroups"></div>
-      </div>
-    </details>
-
-    <details class="diag" id="diag">
-      <summary>
-        <span>Diagnostics</span>
-        <span class="summary-meta" aria-hidden="true">shell</span>
-        <span class="chevron">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="m6 9 6 6 6-6"></path>
-          </svg>
-        </span>
-      </summary>
-      <div class="diag-body">
-        <pre class="log" id="log">Waiting for the device…</pre>
-        <div class="diag-actions">
-          <button class="btn outline small" id="statusBtn" type="button">Refresh status</button>
-          <button class="btn quiet small" id="diagBtn" type="button">Run diagnostics</button>
+    <section class="pane" id="pane-addons" role="tabpanel">
+      <section class="card" id="addonsCard">
+        <div class="card-head">
+          <h2>Addons</h2>
+          <span class="meta">module</span>
         </div>
-      </div>
-    </details>
+        <p class="hint">
+          These are module addons. A live pick is a Settings value the module
+          writes itself: it applies as soon as you make it, and again on every
+          boot so it sticks. An overlay pick is a resource in the APK this build
+          shipped: Apply writes it into that APK (with the sliders), and a reload
+          makes the framework read it. <b>Use default</b> removes an addon — the
+          line leaves addons.conf and, for an overlay, the resource leaves the
+          APK, so the ROM's own value is used again.
+        </p>
+        <div id="rows-addons" class="addon-rows"></div>
+        <div class="addon-foot">
+          <button class="btn quiet small" id="addonsResetBtn" type="button">Reset addons</button>
+          <span class="addon-note" id="addonsNote"></span>
+        </div>
+      </section>
+    </section>
   </main>
 
   <div class="snackbar" id="snackbar" role="status" aria-live="polite"></div>
 
   <div class="dock">
+    <span class="dock-note" id="dockNote"></span>
     <button class="btn quiet danger" id="resetBtn" type="button">Reset</button>
-    <button class="btn outline" id="applyQuiet" type="button">Apply</button>
-    <button class="btn solid" id="applyRestart" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M20 6 9 17l-5-5"></path>
-      </svg>
-      Apply &amp; reload
-    </button>
+    <span class="spacer"></span>
+    <button class="btn" id="applyQuiet" type="button">Apply</button>
+    <button class="btn primary" id="applyRestart" type="button">Apply &amp; reload</button>
   </div>
 
   <dialog class="sheet" id="resetDialog">
@@ -1023,12 +754,13 @@
       <p>Restores the overlay APKs this module shipped and discards the saved values. The framework restarts when something was actually applied; the build-time values come back with it.</p>
       <div class="sheet-actions">
         <button class="btn quiet" id="resetCancel" type="button" value="cancel">Cancel</button>
-        <button class="btn solid" id="resetConfirm" type="button" value="confirm">Reset</button>
+        <button class="btn primary" id="resetConfirm" type="button" value="confirm">Reset</button>
       </div>
     </div>
   </dialog>
 
 <script>
+
 (function () {
   "use strict";
 
@@ -1036,8 +768,8 @@
      Fields
      ------------------------------------------------------------------- */
   var FIELDS = [
-    { key: "RADIUS",      group: "hero",      label: "Corner radius",
-      hint: "Rounded screen corners",                     min: 0, max: 240, hero: true },
+    { key: "RADIUS",      group: "values",    label: "Corner radius",
+      hint: "Rounded screen corners",                     min: 0, max: 240 },
     { key: "SB_HEIGHT",   group: "framework", label: "Status bar height",
       hint: "Height of the bar above apps",               min: 0, max: 240 },
     { key: "PAD_CONTENT", group: "framework", label: "Content padding",
@@ -1093,6 +825,7 @@
     patched: 0,           // APKs that still carry a patch (from status)
     failed: false,        // the boot guard undid the last patch
     autoDone: false,      // the saved values were re-applied this session
+    demo: false,          // showing the made-up device instead of this phone
     addons: null,         // addons.sh list: catalog, saved and live values
     addonPicks: {},       // id -> the value the card shows
     addonBase: {}         // id -> what the list read when it was loaded
@@ -1397,7 +1130,6 @@
       f.num.value = f.range.value;
       state.values[f.key] = f.range.value;
       paintField(f);
-      paintPreview();
     });
 
     f.num.addEventListener("input", function () {
@@ -1407,7 +1139,6 @@
         state.values[f.key] = String(v);
       }
       paintField(f);
-      paintPreview();
     });
 
     f.num.addEventListener("blur", function () {
@@ -1423,22 +1154,11 @@
       f.range.value = String(v);
       state.values[f.key] = String(v);
       paintField(f);
-      paintPreview();
     });
   }
 
   function buildFields() {
     FIELDS.forEach(function (f) {
-      // The radius controls already exist in the hero.
-      if (f.hero) {
-        f.range = $("s-" + f.key);
-        f.num = $(f.key);
-        f.active = null;
-        state.fields[f.key] = f;
-        bindField(f);
-        return;
-      }
-
       var card = $("rows-" + f.group);
       var row = document.createElement("div");
       row.className = "row";
@@ -1542,30 +1262,6 @@
       now.textContent = "active —";
       now.dataset.diff = "false";
     }
-  }
-
-  function paintPreview() {
-    var radius = parseInt(state.values.RADIUS, 10);
-    var sb = parseInt(state.values.SB_HEIGHT, 10);
-    var start = parseInt(state.values.PAD_START, 10);
-    var pad = parseInt(state.values.PAD_CONTENT, 10);
-    if (isNaN(radius)) radius = 26;
-    if (isNaN(sb)) sb = 14;
-    if (isNaN(start)) start = 8;
-    if (isNaN(pad)) pad = 6;
-
-    var device = $("device");
-    device.style.setProperty("--device-radius", Math.round(clamp(radius * 0.22, 8, 40)) + "px");
-    device.style.setProperty("--bar-height", Math.round(clamp(sb * 0.09, 10, 24)) + "px");
-    device.style.setProperty("--bar-inset", Math.round(clamp(start * 0.10, 6, 18)) + "px");
-    device.style.setProperty("--content-inset", Math.round(clamp(pad * 0.10, 6, 16)) + "px");
-
-    $("heroNum").textContent = isNaN(parseInt(state.values.RADIUS, 10))
-      ? "—" : parseInt(state.values.RADIUS, 10);
-    var heroActive = state.active.RADIUS;
-    $("heroNote").textContent = heroActive !== "" && heroActive != null
-      ? "Active on the device: " + heroActive + " px"
-      : "Rounded screen corners";
   }
 
   /* -------------------------------------------------------------------
@@ -1780,7 +1476,7 @@
   }
 
   function loadAddons() {
-    return runAddons(["list"], 20000).then(function (r) {
+    return readAddons().then(function (r) {
       var note = $("addonsNote");
       if (r.errno !== 0) {
         var why = firstProblem(r.stderr || r.stdout) || "the module has no addon helper";
@@ -1817,6 +1513,13 @@
 
   function setAddonPick(a, value, row) {
     state.addonPicks[a.id] = value;
+    if (state.demo) {
+      // A live pick applies itself on a real phone; here it only changes the
+      // row, because there is nothing to write to.
+      paintAddon(a, row);
+      showSnack("Demo mode — nothing is saved");
+      return Promise.resolve(null);
+    }
     if (a.kind === "overlay") {
       // Written by Apply, not now: the APK is one write with the sliders, and
       // the boot guard covers all of them together.
@@ -2909,35 +2612,65 @@
 
   var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+  // Decoding used indexOf() on the 64-character alphabet for every character
+  // of the APK, so a 5 MB overlay rescanned that string ~7 million times. A
+  // 256-entry table answers the same question in one array read.
+  var B64_CODES = (function () {
+    var table = new Int16Array(256), i;
+    for (i = 0; i < 256; i++) table[i] = -1;
+    for (i = 0; i < 64; i++) table[B64_CHARS.charCodeAt(i)] = i;
+    return table;
+  })();
+
+  // Both directions work a slice at a time and hand the main thread back
+  // between slices: rewriting an overlay means decoding and re-encoding the
+  // whole APK, and one uninterrupted pass is what used to freeze the page.
+  var B64_SLICE = 3 << 18;         // a multiple of 3, so "=" lands only at the end
+
   function fromB64(text) {
     var s = String(text || "").replace(/[^A-Za-z0-9+/]/g, "");
     var out = new Uint8Array(Math.floor(s.length * 3 / 4));
-    var o = 0, acc = 0, bits = 0, i, v;
-    for (i = 0; i < s.length; i++) {
-      v = B64_CHARS.indexOf(s.charAt(i));
-      if (v < 0) continue;
-      acc = (acc << 6) | v;
-      bits += 6;
-      if (bits >= 8) {
-        bits -= 8;
-        out[o++] = (acc >>> bits) & 0xff;
-      }
-    }
-    return out.subarray(0, o);
+    var o = 0, acc = 0, bits = 0, at = 0;
+    return new Promise(function (resolve) {
+      (function slice() {
+        var end = Math.min(s.length, at + B64_SLICE), i, v;
+        for (i = at; i < end; i++) {
+          v = B64_CODES[s.charCodeAt(i)];
+          if (v < 0) continue;
+          acc = (acc << 6) | v;
+          bits += 6;
+          if (bits >= 8) {
+            bits -= 8;
+            out[o++] = (acc >>> bits) & 0xff;
+          }
+        }
+        at = end;
+        if (at < s.length) { nextFrame().then(slice); return; }
+        resolve(out.subarray(0, o));
+      })();
+    });
   }
 
   function toB64(bytes) {
-    var out = "", i, a, b, c;
-    for (i = 0; i < bytes.length; i += 3) {
-      a = bytes[i];
-      b = i + 1 < bytes.length ? bytes[i + 1] : 0;
-      c = i + 2 < bytes.length ? bytes[i + 2] : 0;
-      out += B64_CHARS.charAt(a >> 2) +
-             B64_CHARS.charAt(((a & 3) << 4) | (b >> 4)) +
-             (i + 1 < bytes.length ? B64_CHARS.charAt(((b & 15) << 2) | (c >> 6)) : "=") +
-             (i + 2 < bytes.length ? B64_CHARS.charAt(c & 63) : "=");
-    }
-    return out;
+    var n = bytes.length, at = 0, parts = [];
+    return new Promise(function (resolve) {
+      (function slice() {
+        var end = Math.min(n, at + B64_SLICE), out = [], i, a, b, c;
+        for (i = at; i < end; i += 3) {
+          a = bytes[i];
+          b = i + 1 < n ? bytes[i + 1] : 0;
+          c = i + 2 < n ? bytes[i + 2] : 0;
+          out.push(B64_CHARS.charAt(a >> 2) +
+                   B64_CHARS.charAt(((a & 3) << 4) | (b >> 4)) +
+                   (i + 1 < n ? B64_CHARS.charAt(((b & 15) << 2) | (c >> 6)) : "=") +
+                   (i + 2 < n ? B64_CHARS.charAt(c & 63) : "="));
+        }
+        parts.push(out.join(""));
+        at = end;
+        if (at < n) { nextFrame().then(slice); return; }
+        resolve(parts.join(""));
+      })();
+    });
   }
 
   // patchApk(bytes, wanted) -> { patched, added, missing, other, problem, bytes }
@@ -3151,41 +2884,67 @@
         return (plan[w].length || addonOps[w].length) && paths[w];
       });
 
-      return order.reduce(function (chain, which) {
-        return chain.then(function () {
-          return raw("base64 " + quote(paths[which]) + " | tr -d '\\n'", 20000)
-            .then(function (read) {
-              if (read.errno !== 0 || !read.stdout) {
-                throw new Error("cannot read " + paths[which] + ": " + errorText(read));
-              }
-              var bytes = fromB64(read.stdout);
-              if (bytes.length < 1000) {
-                throw new Error("read " + bytes.length + " bytes from " + paths[which]);
-              }
-              var res = patchApk(bytes, plan[which]);
-              res.missing.forEach(function (n) {
-                result.missing.push({ key: keyOf(n, which), name: n });
-              });
-              res.other.forEach(function (n) {
-                result.other.push({ key: keyOf(n, which), name: n });
-              });
-              (res.bad || []).forEach(function (n) { result.bad.push(n); });
-              if (res.problem) result.problem = res.problem;
-              var payload = res.bytes || bytes;
-              // The addon resources go through the same writer, on the result
-              // of the slider pass.
-              var add = patchAddonApk(payload, which);
-              payload = add.bytes;
-              if (!res.patched.length && !res.added.length && !add.changed) return;
-              return writeApk(paths[which], toB64(payload), payload.length).then(function () {
-                result.files++;
-                result.patched += res.patched.length;
-                result.added += res.added.length;
-                if (add.changed) result.addons += add.count;
-              });
-            });
+      // One APK at a time, and every step says what it is doing and gives the
+      // page a frame before the next synchronous stretch. Reading the base64,
+      // decoding it, rewriting the table and encoding it back used to happen
+      // in one go, which is what made Apply look frozen.
+      var chain = Promise.resolve();
+
+      order.forEach(function (which) {
+        var label = which === "fw" ? "the framework overlay" : "the SystemUI overlay";
+        var bytes, res, add, payload;
+
+        chain = chain.then(function () {
+          step("Reading " + label + "…");
+          return nextFrame();
+        }).then(function () {
+          return raw("base64 " + quote(paths[which]) + " | tr -d '\\n'", 20000);
+        }).then(function (read) {
+          if (read.errno !== 0 || !read.stdout) {
+            throw new Error("cannot read " + paths[which] + ": " + errorText(read));
+          }
+          step("Decoding " + label + "…");
+          return fromB64(read.stdout);
+        }).then(function (decoded) {
+          bytes = decoded;
+          if (bytes.length < 1000) {
+            throw new Error("read " + bytes.length + " bytes from " + paths[which]);
+          }
+          step("Writing the values…");
+          return nextFrame();
+        }).then(function () {
+          res = patchApk(bytes, plan[which]);
+          res.missing.forEach(function (n) {
+            result.missing.push({ key: keyOf(n, which), name: n });
+          });
+          res.other.forEach(function (n) {
+            result.other.push({ key: keyOf(n, which), name: n });
+          });
+          (res.bad || []).forEach(function (n) { result.bad.push(n); });
+          if (res.problem) result.problem = res.problem;
+          payload = res.bytes || bytes;
+          // The addon resources go through the same writer, on the result
+          // of the slider pass.
+          add = patchAddonApk(payload, which);
+          payload = add.bytes;
+          if (!res.patched.length && !res.added.length && !add.changed) return null;
+          step("Encoding " + label + "…");
+          return toB64(payload);
+        }).then(function (b64) {
+          if (b64 == null) return null;
+          step("Saving " + label + "…");
+          return nextFrame().then(function () {
+            return writeApk(paths[which], b64, payload.length);
+          }).then(function () {
+            result.files++;
+            result.patched += res.patched.length;
+            result.added += res.added.length;
+            if (add.changed) result.addons += add.count;
+          });
         });
-      }, Promise.resolve()).then(function () { return result; });
+      });
+
+      return chain.then(function () { return result; });
     });
   }
 
@@ -3237,16 +2996,33 @@
     $("refreshBtn").classList.toggle("spin", busy);
   }
 
+  // The dock's second line: what Apply is doing right now. Separate from the
+  // snackbar because it has to stay up for the whole run, not for two seconds.
+  function step(text) {
+    var note = $("dockNote");
+    if (note) note.textContent = text || "";
+  }
+
+  // Hand the main thread back so the labels written by step() are painted
+  // before the next synchronous stretch. The timer is the floor: a webview in
+  // the background stops animating frames, but it still runs timers.
+  function nextFrame() {
+    return new Promise(function (resolve) {
+      var done = false;
+      function go() { if (!done) { done = true; resolve(); } }
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(go);
+      setTimeout(go, 40);
+    });
+  }
+
   function load(report) {
     setBusy(true);
     // Addons are independent of the overlay (the module writes them itself), so
     // a failure there must not keep the overlay card from loading.
     loadAddons();
-    return Promise.all([
-      run(["get"]), run(["status"]), run(["conf"], 15000), run(["manifest"], 15000)
-    ]).then(function (results) {
-      var getRes = results[0], statusRes = results[1];
-      var confRes = results[2], manifestRes = results[3];
+    return readDevice().then(function (results) {
+      var getRes = results.get, statusRes = results.status;
+      var confRes = results.conf, manifestRes = results.manifest;
 
       if (getRes.errno === 127 || statusRes.errno === 127) {
         showBridgeProblem(getRes, statusRes);
@@ -3277,6 +3053,9 @@
       }
       renderStatus(status);
       paintOverlayChip(status);
+      // Demo answers conf=no like a fresh install, which would read as "nothing
+      // applied yet". Say what is actually going on instead.
+      if (state.demo) setChip($("chipOverlay"), "Demo · nothing saved", "warn");
 
       FIELDS.forEach(function (f) {
         var v = values[f.key];
@@ -3300,7 +3079,6 @@
       }
       state.values.DOZE_BLANK = $("DOZE_BLANK").checked ? "true" : "false";
       paintDoze();
-      paintPreview();
 
       // Everything outside the five sliders comes from the manifest.
       indexManifest(state.manifest);
@@ -3446,19 +3224,23 @@
   }
 
   function apply(restart) {
+    if (state.demo) return demoApply(restart);
     var args = currentArgs();
     setBusy(true);
     state.pinned = "";
     state.notice = null;
     paintLog();
+    step("Saving the values…");
     showSnack(restart ? "Patching the overlays…" : "Applying…");
 
     var report = null;
     return run(["set"].concat(args), 30000).then(function (setRes) {
       if (setRes.errno !== 0) throw new Error(errorText(setRes));
+      step("Keeping a backup…");
       return run(["backup"], 20000);
     }).then(function (backupRes) {
       if (backupRes.errno !== 0) throw new Error(errorText(backupRes));
+      step("Reading the overlays…");
       return patchOverlays();
     }).then(function (r) {
       report = r;
@@ -3533,10 +3315,11 @@
       showApplyProblem(msg);
       showSnack(first ? "Apply failed: " + first : "Could not apply", "error");
       $("diag").open = true;
-    }).then(function () { setBusy(false); });
+    }).then(function () { step(""); setBusy(false); });
   }
 
   function reset() {
+    if (state.demo) return demoReset();
     setBusy(true);
     state.pinned = "";
     state.notice = null;
@@ -3555,7 +3338,7 @@
       showApplyProblem(msg);
       showSnack(firstProblem(msg) ? "Reset failed: " + firstProblem(msg) : "Reset failed", "error");
       $("diag").open = true;
-    }).then(function () { setBusy(false); });
+    }).then(function () { step(""); setBusy(false); });
   }
 
   function errorText(r) {
@@ -3565,6 +3348,192 @@
   }
 
   function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  /* -------------------------------------------------------------------
+     Demo
+
+     The page is also the module's shop window: most people meet it in a
+     browser, or in a screenshot, where there is no phone to ask. Demo mode
+     swaps the device for a made-up one — the answers load() needs and the
+     addon list come back canned — so every slider, table and addon can be
+     tried. Nothing is read and nothing is written: there is no shell here,
+     and the values live in the page until Demo is switched off again.
+     ------------------------------------------------------------------- */
+  var DEMO_MANIFEST = {
+    id: "treble-overlay-demo",
+    generated: "demo",
+    resources: [
+      { res: "android:dimen/status_bar_icons_padding_start",
+        type: "dimen", name: "status_bar_icons_padding_start", value: "8px",
+        apk: "sui", group: "Status bar content", ro: false },
+      { res: "android:dimen/ongoing_appops_dot_min_padding",
+        type: "dimen", name: "ongoing_appops_dot_min_padding", value: "4px",
+        apk: "sui", group: "Status bar content", ro: false },
+      { res: "android:string/config_mainBuiltInDisplayCutout",
+        type: "string", name: "config_mainBuiltInDisplayCutout",
+        value: "M 0,0 H 0 V 32 H 540 V 32 H 540,0 Z",
+        apk: "fw", group: "Cutout", ro: false },
+      { res: "android:integer/config_defaultPeakRefreshRate",
+        type: "integer", name: "config_defaultPeakRefreshRate", value: "120",
+        apk: "fw", group: "Refresh rate", ro: false },
+      { res: "android:dimen/waterfall_display_left_edge_size",
+        type: "dimen", name: "waterfall_display_left_edge_size", value: "0px",
+        apk: "fw", group: "Waterfall edges", ro: false },
+      { res: "android:bool/config_device_volte_available",
+        type: "bool", name: "config_device_volte_available", value: "true",
+        apk: "fw", group: "Telephony", ro: false },
+      { res: "android:dimen/config_screenBrightnessBacklight",
+        type: "dimen", name: "config_screenBrightnessBacklight", value: "255px",
+        apk: "fw", group: "Auto-brightness", ro: false },
+      { res: "android:dimen/status_bar_height_landscape",
+        type: "dimen", name: "status_bar_height_landscape", value: "28dp",
+        apk: "fw", group: "Status bar", ro: true },
+      { res: "android:array/config_autoBrightnessLuxLevels",
+        type: "array", name: "config_autoBrightnessLuxLevels", value: "",
+        apk: "fw", group: "Auto-brightness", ro: true }
+    ]
+  };
+
+  // The same catalog addons.sh ships, with nothing saved: the page offers the
+  // same choices a phone would, and a pick only changes what is on screen.
+  var DEMO_ADDONS = {
+    conf: "no",
+    addons: [
+      { id: "volume_panel", kind: "setting", label: "Volume panel side",
+        summary: "The volume slider slides in from this edge instead of the other one.",
+        choices: ["right", "left"], default: "right", value: "right",
+        saved: false, live: "right" },
+      { id: "captive_portal", kind: "setting", label: "Captive portal check",
+        summary: "Android's sign in to this network probe. Off stops the false no-internet warnings a GSI shows on some networks.",
+        choices: ["on", "off"], default: "on", value: "on",
+        saved: false, live: "on" },
+      { id: "stay_awake", kind: "setting", label: "Screen never sleeps",
+        summary: "Leave the display on indefinitely, on battery too.",
+        choices: ["on", "off"], default: "off", value: "off",
+        saved: false, live: "off" },
+      { id: "status_clock", kind: "setting", label: "Status bar clock",
+        summary: "Hide the time in the status bar so the notification icons get its room.",
+        choices: ["on", "off"], default: "on", value: "on",
+        saved: false, live: "on" },
+      { id: "any_rotation", kind: "overlay", label: "Upside-down rotation",
+        summary: "Allow the 180° rotation Android normally refuses.",
+        choices: ["on", "off"], default: "off", value: "off",
+        saved: false, live: "" },
+      { id: "nav_bar_padding", kind: "overlay", label: "Navigation bar padding",
+        summary: "Reserve no space for the gesture bar: content reaches the bottom edge.",
+        choices: ["on", "off"], default: "on", value: "on",
+        saved: false, live: "" },
+      { id: "status_bar_background", kind: "overlay", label: "Status bar background",
+        summary: "Remove the shade behind the status bar, so the bar sits on the wallpaper.",
+        choices: ["on", "off"], default: "on", value: "on",
+        saved: false, live: "" },
+      { id: "hide_notch", kind: "overlay", label: "Hide the notch",
+        summary: "Black out the strip the notch sits in and keep every app below it.",
+        choices: ["on", "off"], default: "off", value: "off",
+        saved: false, live: "" }
+    ]
+  };
+
+  // apply.sh answers with key=value lines; these are the ones the page reads,
+  // plus a conf=no so nothing looks half-applied.
+  var DEMO_DEVICE = {
+    get: ["RADIUS=48", "SB_HEIGHT=32", "PAD_CONTENT=0", "PAD_START=8",
+          "PAD_END=8", "DOZE_BLANK=false"].join("\n") + "\n",
+    status: ["model=Pixel 7 (demo)", "sdk=34", "uid=0", "overlay_total=18",
+             "overlay_enabled=16", "patched=0", "conf=no", "failed=no",
+             "radius=48", "sb_height=32", "pad_content=0", "pad_start=8",
+             "pad_end=8", "doze_blank=false"].join("\n") + "\n",
+    conf: "",
+    manifest: JSON.stringify(DEMO_MANIFEST),
+    addons: JSON.stringify(DEMO_ADDONS)
+  };
+
+  // Where load() gets its four answers. Demo replaces the whole set at once,
+  // so the rest of the page cannot tell the difference.
+  function readDevice() {
+    if (state.demo) {
+      return Promise.resolve({
+        get: { errno: 0, stdout: DEMO_DEVICE.get },
+        status: { errno: 0, stdout: DEMO_DEVICE.status },
+        conf: { errno: 0, stdout: DEMO_DEVICE.conf },
+        manifest: { errno: 0, stdout: DEMO_DEVICE.manifest }
+      });
+    }
+    return Promise.all([
+      run(["get"]), run(["status"]), run(["conf"], 15000), run(["manifest"], 15000)
+    ]).then(function (r) {
+      return { get: r[0], status: r[1], conf: r[2], manifest: r[3] };
+    });
+  }
+
+  function readAddons() {
+    if (state.demo) return Promise.resolve({ errno: 0, stdout: DEMO_DEVICE.addons });
+    return runAddons(["list"], 20000);
+  }
+
+  // Apply in demo: the same steps and the same snackbar, but the only thing
+  // written is the log line saying nothing was.
+  function demoApply(restart) {
+    var count = currentArgs().length;
+    setBusy(true);
+    state.pinned = "";
+    state.notice = null;
+    paintLog();
+    step("Demo mode — nothing is written to the device");
+    showSnack(restart ? "Demo · would patch and reload" : "Demo · checking the values");
+    return sleep(450).then(function () {
+      addLog("demo", {
+        errno: 0,
+        stdout: count + " value(s) kept in the page.\n" +
+                "No APK was read, patched or written here" +
+                (restart ? ", and nothing was reloaded." : ".")
+      });
+      step("");
+      setBusy(false);
+      showSnack("Demo mode — " + count + " value(s) held in the page, nothing saved", "warn");
+    });
+  }
+
+  // Reset in demo: the made-up device only has the values the build shipped
+  // with, so reading the canned answers again is the whole undo.
+  function demoReset() {
+    state.saved = {};
+    state.pinned = "";
+    state.notice = null;
+    addLog("demo", { errno: 0, stdout: "Back to the values the demo device shipped with." });
+    showSnack("Demo · back to the build-time values", "ok");
+    return load(false);
+  }
+
+  // The switch. Entering demo only changes where load() reads from; leaving it
+  // hands the page back to the bridge, or explains why there is none, exactly
+  // as a first visit does.
+  function setDemo(on) {
+    on = !!on;
+    if (state.demo === on) return;
+    state.demo = on;
+    state.saved = {};
+    state.notice = null;
+    state.pinned = "";
+    var btn = $("demoBtn");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.querySelector(".label").textContent = on ? "Demo on" : "Demo";
+    if (on) {
+      // A demo page has to be usable even when the bridge probe failed.
+      state.noBridge = false;
+      state.blocked = false;
+      state.notRoot = false;
+      state.useSu = false;
+      hideBanner();
+      step("Demo mode — every value is editable, nothing is saved");
+      load(true);
+      return;
+    }
+    step("");
+    state.manifest = null;
+    state.addons = null;
+    connect();
+  }
 
   /* -------------------------------------------------------------------
      Log
@@ -3621,6 +3590,28 @@
      ------------------------------------------------------------------- */
   buildFields();
 
+  // Tabs: one pane at a time, the names the window uses. A tab's panel is its
+  // own id, so the markup and this function cannot drift apart.
+  var tabButtons = document.querySelectorAll(".tab");
+  for (var tabIndex = 0; tabIndex < tabButtons.length; tabIndex++) {
+    tabButtons[tabIndex].addEventListener("click", function () {
+      switchTab(this.dataset.tab);
+    });
+  }
+
+  function switchTab(name) {
+    var all = document.querySelectorAll(".tab"), i;
+    for (i = 0; i < all.length; i++) {
+      var on = all[i].dataset.tab === name;
+      all[i].classList.toggle("is-active", on);
+      all[i].setAttribute("aria-selected", on ? "true" : "false");
+    }
+    var panes = document.querySelectorAll(".pane");
+    for (i = 0; i < panes.length; i++) {
+      panes[i].classList.toggle("is-active", panes[i].id === "pane-" + name);
+    }
+  }
+
   var dialog = $("resetDialog");
   $("refreshBtn").addEventListener("click", function () {
     // The manager may inject the bridge after the first load, and a failed
@@ -3630,6 +3621,15 @@
     load(true);
   });
   $("addonsResetBtn").addEventListener("click", function () {
+    if (state.demo) {
+      state.addonPicks = {};
+      ((state.addons && state.addons.addons) || []).forEach(function (a) {
+        state.addonPicks[a.id] = a.default;
+      });
+      renderAddons();
+      showSnack("Demo · every addon is back to its default");
+      return;
+    }
     $("addonsResetBtn").disabled = true;
     runAddons(["reset"], 20000).then(function (r) {
       if (r.errno !== 0) {
@@ -3644,6 +3644,14 @@
   $("applyRestart").addEventListener("click", function () { apply(true); });
   $("statusBtn").addEventListener("click", function () { load(true); });
   $("diagBtn").addEventListener("click", function () {
+    if (state.demo) {
+      addLog("diag", { errno: 0, stdout:
+        "Demo mode: there is no device to inspect.\n" +
+        "The values on screen are the ones written in this page (see Demo in" +
+        " the header), not a phone's." });
+      showSnack("Demo mode — diagnostics need a device", "warn");
+      return;
+    }
     setBusy(true);
     run(["diag"], 30000).then(function (r) {
       if (r.errno !== 0) showSnack("Diagnostics failed — see log", "error");
@@ -3660,21 +3668,37 @@
     reset();
   });
 
-  if (bridge) {
-    load(true);
-  } else {
+  // Talking to a phone, in one place: the first visit and leaving Demo both
+  // come through here.
+  function connect() {
+    if (!bridge) bridge = findBridge();
+    if (bridge) { load(true); return; }
     // Some managers inject the interface only after the document has loaded.
     var tries = 0;
     (function waitForBridge() {
       bridge = findBridge();
       if (bridge) { load(true); return; }
       if (++tries < 12) { setTimeout(waitForBridge, 250); return; }
-      setBusy(false);        showBridgeProblem({ errno: 127,
-          stderr: "No WebUI shell bridge found. Open this page from KernelSU / " +
-                  "KSU Next / APatch, or from a Magisk WebUI host (WebUI X, " +
-                  "KsuWebUI, MMRL)." }, {});
+      setBusy(false);
+      showBridgeProblem({ errno: 127,
+        stderr: "No WebUI shell bridge found. Open this page from KernelSU / " +
+                "KSU Next / APatch, or from a Magisk WebUI host (WebUI X, " +
+                "KsuWebUI, MMRL)." }, {});
+      // A browser is exactly where the demo is wanted: point at it instead of
+      // leaving a page of disabled buttons.
+      showSnack("No device here — Demo shows the page with made-up values", "warn");
     })();
   }
+
+  $("demoBtn").addEventListener("click", function () {
+    setDemo(!state.demo);
+  });
+
+  // ?demo opens straight into it, which is what a browser link or a screenshot
+  // needs.
+  var demoAsked = typeof location !== "undefined" &&
+                  /(^|[?&])demo(=|&|$)/.test(String(location.search || ""));
+  if (demoAsked) setDemo(true); else connect();
 })();
 </script>
 </body>

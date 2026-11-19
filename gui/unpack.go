@@ -459,17 +459,32 @@ const maxKeptFile = 64 << 20
 // unpackFirmware copies the files the probes read out of a firmware file and
 // returns the folder to point them at.
 func unpackFirmware(input string) (*FirmwareUnpack, error) {
-	return unpackFirmwareTo(input, "")
+	return unpackFirmwareTo(input, "", false)
 }
 
 // unpackFirmwareTo is unpackFirmware with a destination, which the command line
-// uses to keep the extracted tree where the user asked for it.
-func unpackFirmwareTo(input, dest string) (*FirmwareUnpack, error) {
+// uses to keep the extracted tree where the user asked for it. force allows
+// replacing a folder that holds something this tool did not write; every other
+// destination that is not ours is refused, because it is emptied first.
+func unpackFirmwareTo(input, dest string, force bool) (*FirmwareUnpack, error) {
 	started := time.Now()
 	abs, err := filepath.Abs(strings.TrimSpace(input))
 	if err != nil {
 		return nil, err
 	}
+
+	// The folder is emptied before the firmware goes into it, so the destination
+	// has to be checked before anything is read — not halfway through.
+	out := strings.TrimSpace(dest)
+	if out == "" {
+		out = firmwareOutDir(abs)
+	} else if absOut, absErr := filepath.Abs(out); absErr == nil {
+		out = absOut
+	}
+	if err := checkUnpackDest(out, abs, force); err != nil {
+		return nil, err
+	}
+
 	src, err := classify(abs)
 	if err == errAlreadyUnpacked {
 		return &FirmwareUnpack{
@@ -483,12 +498,6 @@ func unpackFirmwareTo(input, dest string) (*FirmwareUnpack, error) {
 	}
 	defer src.Close()
 
-	out := strings.TrimSpace(dest)
-	if out == "" {
-		out = firmwareOutDir(abs)
-	} else if absOut, absErr := filepath.Abs(out); absErr == nil {
-		out = absOut
-	}
 	res := &FirmwareUnpack{Source: abs, Kind: src.Kind, Dir: out, Notes: []string{}, Warnings: []string{}}
 
 	key := firmwareCacheKey(abs)
@@ -499,13 +508,15 @@ func unpackFirmwareTo(input, dest string) (*FirmwareUnpack, error) {
 	}
 
 	// A fresh extraction, so a half-written folder from an earlier run cannot
-	// leak into this one.
+	// leak into this one. checkUnpackDest has already established that a folder
+	// sitting here is one of ours (or was forced), so this deletes a cache.
 	if err := os.RemoveAll(out); err != nil {
 		return nil, fmt.Errorf("cannot clear %s: %w", out, err)
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return nil, err
 	}
+	markUnpackDir(out, key)
 
 	for _, part := range src.Parts {
 		info := FirmwarePartition{Name: part.Name}
@@ -606,6 +617,97 @@ func firmwareOutDir(file string) string {
 		base = "firmware"
 	}
 	return filepath.Join(os.TempDir(), "treble-rro-firmware", base)
+}
+
+// unpackMarker names the file that says a folder is a cache this tool wrote.
+// Emptying a destination is decided on it: a folder with the marker holds files
+// that are in the firmware anyway, one without it is the user's.
+const unpackMarker = ".treble-rro-unpack"
+
+// markUnpackDir claims a folder for the extraction about to fill it, so the next
+// run may empty it while a folder the user filled is left alone.
+func markUnpackDir(dir, key string) {
+	_ = os.WriteFile(filepath.Join(dir, unpackMarker), []byte(key+"\n"), 0o644)
+}
+
+// unpackDirOwned reports whether dir is a folder this tool can empty. An empty
+// folder has nothing to lose; a folder with the marker — or with the cache file
+// of a version from before the marker — is a previous extraction.
+func unpackDirOwned(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	if len(entries) == 0 {
+		return true
+	}
+	for _, name := range []string{unpackMarker, firmwareCacheJSON} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// describeDir names the first few things in a folder, so a refused destination
+// says what -force would empty instead of just "not empty".
+func describeDir(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		return "files"
+	}
+	names := make([]string, 0, 3)
+	for _, e := range entries {
+		if len(names) == 3 {
+			break
+		}
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	out := strings.Join(names, ", ")
+	if len(entries) > len(names) {
+		out += fmt.Sprintf(" and %d more", len(entries)-len(names))
+	}
+	return out
+}
+
+// checkUnpackDest refuses a destination whose emptying would not be this tool's
+// to do: the firmware itself, a folder that holds the firmware, a file, or a
+// folder some other program filled. force skips only the last one — pointing the
+// unpacker at the firmware's own folder would delete the file being read, and no
+// flag makes that a good idea.
+func checkUnpackDest(dest, src string, force bool) error {
+	if dest == "" {
+		return errors.New("no destination to unpack into")
+	}
+	clean := filepath.Clean(dest)
+	srcClean := filepath.Clean(src)
+	if strings.EqualFold(clean, srcClean) {
+		return fmt.Errorf("refusing to unpack over %s: that is the firmware being read", dest)
+	}
+	// A destination holding the firmware means deleting the file, not just its
+	// folder, so compare the prefix the way the platform's filesystem does.
+	parent := clean + string(filepath.Separator)
+	if len(srcClean) > len(parent) && strings.EqualFold(srcClean[:len(parent)], parent) {
+		return fmt.Errorf("refusing to unpack into %s: it holds the firmware being read (%s)", dest, src)
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("refusing to unpack into %s: that is a file, not a folder", dest)
+	}
+	if force || unpackDirOwned(clean) {
+		return nil
+	}
+	return fmt.Errorf("refusing to empty %s: it holds %s, which this tool did not write — pass -force to replace that folder", dest, describeDir(clean))
 }
 
 // firmwareCacheKey identifies the source well enough that editing or replacing
@@ -817,8 +919,8 @@ func looksUnpacked(dir string) bool {
 // unpackCLI is `gui -unpack PATH`: the same extraction the Detect tab runs, for
 // a terminal or a script. It prints the folder to point a probe at, so the
 // documented command line and the window cannot disagree.
-func unpackCLI(input, dest string, asJSON bool) int {
-	res, err := unpackFirmwareTo(input, dest)
+func unpackCLI(input, dest string, asJSON, force bool) int {
+	res, err := unpackFirmwareTo(input, dest, force)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		if res != nil {

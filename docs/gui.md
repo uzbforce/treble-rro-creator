@@ -333,6 +333,14 @@ size and mtime, so a second scan does not unpack again. The same code is the
 ./treble-rro-creator.sh -unpack path/to/AP_*.tar.md5 -out ~/rom
 ```
 
+`-out` is emptied before the extraction, so it is only emptied when it is a
+folder this tool wrote — it writes a `.treble-rro-unpack` marker, and an empty
+folder counts — or when the path is new. Pointing it at the firmware itself, at
+a folder that holds the firmware, or at a folder full of your own files is
+refused, naming what is there. `-force` is what replaces a folder that is not
+the tool's, and even then the firmware's own folder is still refused: that would
+delete the file being read.
+
 On Windows the same flags go through `treble-rro-creator.cmd`.
 
 The scans themselves read the APKs with `aapt2`. If it is not there yet, the app

@@ -90,7 +90,7 @@ Everything else has a default and can be left alone.
 Two things worth knowing before the first build:
 
 - **`src/framework/res/xml/power_profile.xml` must be yours.** Until you replace it, the empty template is detected and left out of the APK rather than overwriting the GSI's battery and CPU data. See [docs/device-extraction.md](docs/device-extraction.md#power-profile-power_profilexml--mandatory).
-- **No `config.env` yet?** The first run offers the filled-in Samsung A90 5G example (`config.env.example`) or writes a placeholder that says what to edit.
+- **`config.env` is not tracked.** It holds one phone's settings, so a pull or a re-clone never touches them; a copy lives in `stuff/backups/config.env` and is put back when the root one is missing. **No `config.env` yet?** The first run offers the filled-in Samsung A90 5G example (`config.env.example`) or writes a placeholder that says what to edit.
 
 ## Profiles
 

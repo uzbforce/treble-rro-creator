@@ -82,6 +82,64 @@ restore_from_release() {
 }
 
 # ---------------------------------------------------------------------------
+# config.env, which is device data and not tracked
+# ---------------------------------------------------------------------------
+# The answers in config.env belong to one phone, not to a release, so the file
+# is git-ignored: a pull, a re-clone or `git clean -xdf` must not carry off what
+# the user typed, and a checkout must not put an old release's values back. The
+# copy in stuff/backups/ is what brings the file back; the shipped default stays
+# in stuff/templates/recoveries/config.env.
+#
+#   ensure_config   restores config.env when the root has none, and keeps the
+#                   backup copy current while one is in use.
+#   seed_config     the same, and starts from the shipped default when there is
+#                   no backup either. For the screens that read the file as
+#                   soon as they open (the menu, the app), where "no config.env"
+#                   is not a state they can show. build.sh does not call it:
+#                   there a missing file is a question ("use the example?").
+#
+# Both return 0 when a config.env is in place afterwards.
+ensure_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        mkdir -p "$BACKUP_DIR" 2>/dev/null
+        # Only rewrite the backup when it differs, so the copy does not look
+        # freshly edited on every run.
+        if command -v cmp >/dev/null 2>&1 && cmp -s "$CONFIG_FILE" "$BACKUP_DIR/config.env"; then
+            return 0
+        fi
+        cp "$CONFIG_FILE" "$BACKUP_DIR/config.env" 2>/dev/null || true
+        return 0
+    fi
+
+    mkdir -p "$BACKUP_DIR" 2>/dev/null
+    if [ -f "$BACKUP_DIR/config.env" ]; then
+        if cp "$BACKUP_DIR/config.env" "$CONFIG_FILE" 2>/dev/null; then
+            info "config.env restored from stuff/backups/ (it is your device's data, so it is not tracked)"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+seed_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        ensure_config
+        return 0
+    fi
+    if ensure_config; then
+        return 0
+    fi
+    if [ ! -f "$RECOVERIES_DIR/config.env" ]; then
+        return 1
+    fi
+    if ! cp "$RECOVERIES_DIR/config.env" "$CONFIG_FILE" 2>/dev/null; then
+        return 1
+    fi
+    info "Created config.env from the default in stuff/templates/recoveries/ — edit it for your device"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Platform
 # ---------------------------------------------------------------------------
 IS_WINDOWS=false

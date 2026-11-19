@@ -165,6 +165,9 @@ func newApp(explicitClone string) (*App, error) {
 	a.settings = loadSettings(a.file)
 
 	a.root = chooseClone(explicitClone, a.settings.Clone)
+	// config.env is untracked (see configseed.go): bring the user's copy back
+	// before anything reads the form.
+	ensureConfigFile(a.root)
 
 	a.bash = a.settings.Bash
 	if a.bash == "" || !fileExists(a.bash) {
@@ -218,6 +221,12 @@ func (a *App) setPaths(clone, bash string) error {
 	}
 	file := a.file
 	a.mu.Unlock()
+
+	// A different clone is a different config.env — or none at all (it is not
+	// tracked), so give it the copy that belongs there.
+	if clone != "" {
+		ensureConfigFile(clone)
+	}
 
 	// Only what the user picked is written down. An auto-detected bash is left
 	// out on purpose, so a Git upgrade is picked up on the next launch instead

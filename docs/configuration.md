@@ -4,8 +4,23 @@
 the overlay resources, the manifests and the module scripts, then compiles and
 signs everything.
 
+`config.env` is **not tracked by git**. It holds one phone's settings, so a pull
+or a re-clone must not touch them, and a `git checkout` must not put an old
+release's values back.
+
+A clone therefore starts without one, and whichever entry point you run first
+writes it: `./build.sh` asks whether to start from the example or the
+placeholder, while `./build.sh menu` and the desktop app start straight from the
+shipped default in `stuff/templates/recoveries/config.env` (neither screen can
+show an empty file). From then on every run keeps a copy in
+`stuff/backups/config.env` — that copy is what restores it when the root one is
+missing (a re-clone, `git clean -xdf`), so your answers come back instead of the
+default.
+
+To start from the filled-in Samsung A90 5G reference instead of the placeholder:
+
 ```bash
-cp config.env.example config.env   # optional: Samsung A90 5G reference values
+cp config.env.example config.env
 ```
 
 Values are plain shell assignments: `KEY=value` or `KEY="value"`.
